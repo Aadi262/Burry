@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from agents.runner import run_agent
-from butler_config import BUG_HUNTER_ENABLED, BUG_HUNTER_INTERVAL_MINUTES
+from butler_config import BUG_HUNTER_ENABLED, BUG_HUNTER_INTERVAL_MINUTES, BUG_HUNTER_MODEL
 from executor.engine import Executor
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,6 +61,7 @@ def run_bug_hunt_once() -> dict:
             "scope": "quick",
             "logs": logs,
         },
+        model_override=BUG_HUNTER_MODEL,
     )
     message = analysis.get("result", "Bug hunter found failures")[:180]
     Executor().run(

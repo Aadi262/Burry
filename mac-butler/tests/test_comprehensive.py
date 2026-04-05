@@ -447,23 +447,26 @@ class TestTwoStageBrain(unittest.TestCase):
             self.assertIn("grinding", greeting.lower(),
                 f"Late night should say grinding, got: {greeting}")
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_send_to_ollama_returns_valid_json(self, mock_call):
+    def test_send_to_ollama_returns_valid_json(self, mock_call, mock_call_voice):
         """Mock Ollama to test JSON parsing logic."""
         from brain.ollama_client import send_to_ollama
 
         # Stage 1: planner returns focused plan
         # Stage 2: speech returns sharp response
-        mock_call.side_effect = [
+        mock_call.return_value = (
             '{"focus":"mac-butler two-stage LLM",'
             '"next":"fix planner prompt",'
-            '"actions":[]}',
+            '"actions":[]}'
+        )
+        mock_call_voice.return_value = (
             '{"speech":"Still grinding. '
             '[[slnc 300]] mac-butler planner needs fixing. '
             'Want to tackle it now?",'
             '"greeting":"Still grinding",'
             '"actions":[]}'
-        ]
+        )
 
         result = send_to_ollama(self.KNOWN_CONTEXT)
         data = json.loads(result)
@@ -473,17 +476,18 @@ class TestTwoStageBrain(unittest.TestCase):
         self.assertIn("actions", data)
         self.assertIsInstance(data["actions"], list)
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_speech_is_specific_not_generic(self, mock_call):
+    def test_speech_is_specific_not_generic(self, mock_call, mock_call_voice):
         """Speech must reference actual projects, not generic filler."""
         from brain.ollama_client import send_to_ollama
 
-        mock_call.side_effect = [
-            '{"focus":"mac-butler","next":"fix prompt","actions":[]}',
+        mock_call.return_value = '{"focus":"mac-butler","next":"fix prompt","actions":[]}'
+        mock_call_voice.return_value = (
             '{"speech":"Still grinding. mac-butler planner '
             'is the blocker. Fix it now?","greeting":"Still grinding",'
             '"actions":[]}'
-        ]
+        )
 
         result = send_to_ollama(self.KNOWN_CONTEXT)
         data = json.loads(result)
@@ -509,16 +513,17 @@ class TestTwoStageBrain(unittest.TestCase):
         self.assertTrue(len(found_specific) > 0,
             f"No specific project refs in speech: {speech}")
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_speech_under_word_limit(self, mock_call):
+    def test_speech_under_word_limit(self, mock_call, mock_call_voice):
         from brain.ollama_client import send_to_ollama
 
-        mock_call.side_effect = [
-            '{"focus":"mac-butler","next":"fix","actions":[]}',
+        mock_call.return_value = '{"focus":"mac-butler","next":"fix","actions":[]}'
+        mock_call_voice.return_value = (
             '{"speech":"Still grinding. mac-butler needs the '
             'planner fixed. Jump in?","greeting":"Still grinding",'
             '"actions":[]}'
-        ]
+        )
 
         result = send_to_ollama(self.KNOWN_CONTEXT)
         data = json.loads(result)
@@ -526,15 +531,14 @@ class TestTwoStageBrain(unittest.TestCase):
         self.assertLessEqual(word_count, 65,
             f"Speech too long: {word_count} words")
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_fallback_on_parse_failure(self, mock_call):
+    def test_fallback_on_parse_failure(self, mock_call, mock_call_voice):
         """If LLM returns garbage, Butler should still respond."""
         from brain.ollama_client import send_to_ollama
 
-        mock_call.side_effect = [
-            "this is not json at all",
-            "also not json",
-        ]
+        mock_call.return_value = "this is not json at all"
+        mock_call_voice.return_value = "also not json"
 
         result = send_to_ollama(self.KNOWN_CONTEXT)
         # Should not crash — returns fallback JSON
@@ -542,18 +546,21 @@ class TestTwoStageBrain(unittest.TestCase):
         data = json.loads(result)
         self.assertIn("speech", data)
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_actions_preserved_from_planner(self, mock_call):
+    def test_actions_preserved_from_planner(self, mock_call, mock_call_voice):
         """Actions from stage 1 should appear in final output."""
         from brain.ollama_client import send_to_ollama
 
-        mock_call.side_effect = [
+        mock_call.return_value = (
             '{"focus":"mac-butler","next":"open project",'
             '"actions":[{"type":"open_editor",'
-            '"path":"~/Burry/mac-butler","editor":"cursor","mode":"smart"}]}',
+            '"path":"~/Burry/mac-butler","editor":"cursor","mode":"smart"}]}'
+        )
+        mock_call_voice.return_value = (
             '{"speech":"Morning. mac-butler is calling. Open it?",'
             '"greeting":"Morning","actions":[]}'
-        ]
+        )
 
         result = send_to_ollama(self.KNOWN_CONTEXT)
         data = json.loads(result)
@@ -968,17 +975,18 @@ class TestHeartbeat(unittest.TestCase):
 class TestFullPipeline(unittest.TestCase):
     """Integration tests — full end-to-end pipeline."""
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_context_flows_into_brain(self, mock_call):
+    def test_context_flows_into_brain(self, mock_call, mock_call_voice):
         """Context engine output should flow into the brain."""
         from context import build_structured_context
         from brain.ollama_client import send_to_ollama
 
-        mock_call.side_effect = [
-            '{"focus":"mac-butler","next":"fix prompt","actions":[]}',
+        mock_call.return_value = '{"focus":"mac-butler","next":"fix prompt","actions":[]}'
+        mock_call_voice.return_value = (
             '{"speech":"Morning. mac-butler planner needs fixing. '
             'Tackle it?","greeting":"Morning","actions":[]}'
-        ]
+        )
 
         ctx = build_structured_context()
         result = send_to_ollama(ctx["formatted"])
@@ -987,8 +995,9 @@ class TestFullPipeline(unittest.TestCase):
         self.assertIn("speech", data)
         self.assertGreater(len(data["speech"]), 5)
 
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_memory_flows_into_brain(self, mock_call):
+    def test_memory_flows_into_brain(self, mock_call, mock_call_voice):
         """Brain must receive memory context in its prompt."""
         from memory.store import record_session
         from brain.ollama_client import send_to_ollama
@@ -1005,11 +1014,10 @@ class TestFullPipeline(unittest.TestCase):
 
         def capture_call(prompt, model, **kwargs):
             captured_prompts.append(prompt)
-            if len(captured_prompts) == 1:
-                return '{"focus":"mac-butler","next":"continue","actions":[]}'
-            return '{"speech":"Morning. mac-butler next.","greeting":"Morning","actions":[]}'
+            return '{"focus":"mac-butler","next":"continue","actions":[]}'
 
         mock_call.side_effect = capture_call
+        mock_call_voice.side_effect = lambda prompt, model, **kwargs: captured_prompts.append(prompt) or '{"speech":"Morning. mac-butler next.","greeting":"Morning","actions":[]}'
 
         send_to_ollama("[FOCUS]\n  project: mac-butler\n[TIME]\n  morning")
 
@@ -1155,10 +1163,12 @@ class TestButlerConfig(unittest.TestCase):
         self.assertNotEqual(OLLAMA_MODEL, "",
             "OLLAMA_MODEL is empty string")
 
-    def test_ollama_model_is_qwen(self):
+    def test_ollama_model_is_configured_for_supported_runtime(self):
         from butler_config import OLLAMA_MODEL
-        self.assertIn("qwen", OLLAMA_MODEL.lower(),
-            f"OLLAMA_MODEL should be qwen14b, got: {OLLAMA_MODEL}")
+        self.assertTrue(
+            any(name in OLLAMA_MODEL.lower() for name in ("gemma", "deepseek", "qwen", "llama")),
+            f"OLLAMA_MODEL should be a supported local model, got: {OLLAMA_MODEL}",
+        )
 
     def test_fallback_model_set(self):
         from butler_config import OLLAMA_FALLBACK

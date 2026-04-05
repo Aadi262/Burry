@@ -61,15 +61,15 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertIn("list_pull_requests", result["result"])
 
-    @patch("agents.runner._get_installed_models", return_value={"qwen2.5:14b"})
+    @patch("agents.runner._get_installed_models", return_value={"phi4-mini:latest"})
     @patch(
         "brain.ollama_client._get_backend_model_map",
         side_effect=lambda backend, force_refresh=False: (
-            {"qwen2.5:14b": "qwen2.5:14b"} if backend == "local" else {}
+            {"phi4-mini:latest": "phi4-mini:latest"} if backend == "local" else {}
         ),
     )
     def test_pick_model_uses_agent_chain_fallback(self, _mock_available, _mock_installed):
-        self.assertEqual(_pick_model("news"), "qwen2.5:14b")
+        self.assertEqual(_pick_model("hackernews"), "phi4-mini:latest")
 
     @patch("agents.runner._call_model", return_value="- Story one\n- Story two\n- Story three")
     @patch("agents.runner._fetch_json")

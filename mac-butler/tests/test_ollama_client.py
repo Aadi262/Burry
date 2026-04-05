@@ -54,19 +54,58 @@ class OllamaClientTests(unittest.TestCase):
             if backend == "local":
                 return {
                     "llama3.2:3b": "llama3.2:3b",
-                    "qwen2.5:14b": "qwen2.5:14b",
+                    "phi4-mini:latest": "phi4-mini:latest",
                 }
             return {}
 
         with patch.object(ollama_client, "_get_backend_model_map", side_effect=backend_models):
             model = ollama_client.pick_butler_model("voice")
 
-        self.assertEqual(model, "llama3.2:3b")
+        self.assertEqual(model, "phi4-mini:latest")
+
+    @patch("brain.ollama_client._call", return_value="fallback voice")
+    @patch("brain.ollama_client._get_mlx_voice_backend", return_value=None)
+    def test_call_voice_falls_back_to_ollama_when_mlx_is_unavailable(self, _mock_mlx, mock_call):
+        result = ollama_client.call_voice(
+            "hello",
+            "gemma4:e4b",
+            temperature=0.4,
+            max_tokens=40,
+            system="system prompt",
+        )
+
+        self.assertEqual(result, "fallback voice")
+        mock_call.assert_called_once_with(
+            "hello",
+            "gemma4:e4b",
+            temperature=0.4,
+            max_tokens=40,
+            system="system prompt",
+        )
+
+    @patch("brain.ollama_client._call")
+    @patch("brain.ollama_client._get_mlx_voice_backend")
+    def test_call_voice_uses_mlx_for_gemma_voice_model(self, mock_mlx, mock_call):
+        mock_generate = MagicMock(return_value="mlx voice")
+        mock_mlx.return_value = (object(), object(), mock_generate)
+
+        result = ollama_client.call_voice(
+            "hello",
+            "gemma4:e4b",
+            temperature=0.4,
+            max_tokens=40,
+            system="system prompt",
+        )
+
+        self.assertEqual(result, "mlx voice")
+        mock_call.assert_not_called()
+        mock_generate.assert_called_once()
 
     @patch("brain.ollama_client._random_greeting", return_value="Morning")
     @patch("brain.ollama_client._get_mood_state", return_value={"name": "focused", "instruction": "Be sharp and direct.", "note": "Locked on the next concrete step."})
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_send_to_ollama_uses_two_stage_flow(self, mock_call, _mock_mood, _mock_greeting):
+    def test_send_to_ollama_uses_two_stage_flow(self, mock_call, mock_call_voice, _mock_mood, _mock_greeting):
         with patch.object(ollama_client, "USE_VPS_OLLAMA", False):
             mock_call.side_effect = [
                 json.dumps(
@@ -77,25 +116,27 @@ class OllamaClientTests(unittest.TestCase):
                         "actions": [{"type": "play_music", "mode": "focus"}],
                     }
                 ),
-                "Morning. mac-butler executor needs the confirmation path finished. Jump in?",
             ]
+            mock_call_voice.return_value = "Morning. mac-butler executor needs the confirmation path finished. Jump in?"
 
             raw = ollama_client.send_to_ollama("[FOCUS]\n  project: mac-butler")
             result = json.loads(raw)
 
-        self.assertEqual(mock_call.call_count, 2)
-        self.assertEqual(mock_call.call_args_list[0].args[1], "qwen2.5-coder:14b")
-        self.assertEqual(mock_call.call_args_list[1].args[1], "phi4-mini:latest")
-        self.assertIn("Current mood: focused", mock_call.call_args_list[1].args[0])
+        self.assertEqual(mock_call.call_count, 1)
+        self.assertEqual(mock_call.call_args_list[0].args[1], "gemma4:26b")
+        self.assertEqual(mock_call_voice.call_args.args[1], "gemma4:e4b")
+        self.assertIn("Current mood: focused", mock_call_voice.call_args.args[0])
         self.assertEqual(result["actions"][0]["type"], "play_music")
         self.assertEqual(result["mood"], "focused")
         self.assertTrue(result["speech"].startswith("Morning"))
 
     @patch("brain.ollama_client._random_greeting", return_value="Evening")
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
     def test_send_to_ollama_falls_back_when_speech_stage_is_empty(
         self,
         mock_call,
+        mock_call_voice,
         _mock_greeting,
     ):
         with patch.object(ollama_client, "USE_VPS_OLLAMA", False):
@@ -108,8 +149,8 @@ class OllamaClientTests(unittest.TestCase):
                         "actions": [],
                     }
                 ),
-                "",
             ]
+            mock_call_voice.return_value = ""
 
             result = json.loads(ollama_client.send_to_ollama("[VPS]\n  stale container"))
         self.assertIn("vps cleanup", result["speech"].lower())
@@ -144,15 +185,17 @@ class OllamaClientTests(unittest.TestCase):
         self.assertIn("mac-butler executor", result["speech"].lower())
 
     @patch("brain.ollama_client._random_greeting", return_value="Morning")
+    @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
     @patch("brain.ollama_client._backend_for_model", return_value="local")
     def test_send_to_ollama_keeps_two_stage_flow_with_local_models_even_if_vps_enabled(
         self,
         _mock_backend,
         mock_call,
+        mock_call_voice,
         _mock_greeting,
     ):
-        mock_call.side_effect = [
+        mock_call.return_value = (
             json.dumps(
                 {
                     "focus": "Adpilot",
@@ -160,14 +203,14 @@ class OllamaClientTests(unittest.TestCase):
                     "question": "Open it now?",
                     "actions": [],
                 }
-            ),
-            '{"speech":"Morning. Adpilot still needs the deploy checks pass. Open it now?","greeting":"Morning","actions":[]}',
-        ]
+            )
+        )
+        mock_call_voice.return_value = '{"speech":"Morning. Adpilot still needs the deploy checks pass. Open it now?","greeting":"Morning","actions":[]}'
 
         with patch.object(ollama_client, "USE_VPS_OLLAMA", True):
             result = json.loads(ollama_client.send_to_ollama("[PROJECT SNAPSHOT]\n  Adpilot: next=Verify deploy checks"))
 
-        self.assertEqual(mock_call.call_count, 2)
+        self.assertEqual(mock_call.call_count, 1)
         self.assertIn("Adpilot", result["speech"])
 
     @patch("brain.ollama_client._prepare_model_request")

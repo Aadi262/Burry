@@ -833,14 +833,14 @@ def _collect_market_fallback_items(topics: list[str]) -> tuple[list[dict], list[
     return _truncate_items(items, limit=5), sources
 
 
-def run_agent(agent_type: str, input_data: dict) -> dict:
+def run_agent(agent_type: str, input_data: dict, model_override: str | None = None) -> dict:
     """
     Run a specialist agent and return structured results.
 
     agent_type:
       news | vps | memory | code | search | github | bugfinder
     """
-    model = _pick_model(agent_type)
+    model = str(model_override or "").strip() or _pick_model(agent_type)
     print(f"[Agent/{agent_type}] Using model: {model}")
 
     try:
@@ -874,9 +874,15 @@ def run_agent(agent_type: str, input_data: dict) -> dict:
         return {"status": "error", "result": str(exc), "data": {}}
 
 
-def run_agent_async(agent_type: str, input_data: dict, callback=None) -> threading.Thread:
+def run_agent_async(
+    agent_type: str,
+    input_data: dict,
+    callback=None,
+    *,
+    model_override: str | None = None,
+) -> threading.Thread:
     def _worker() -> None:
-        result = run_agent(agent_type, input_data)
+        result = run_agent(agent_type, input_data, model_override=model_override)
         try:
             note_agent_result(
                 agent_type,

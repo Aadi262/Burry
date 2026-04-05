@@ -27,6 +27,7 @@ from butler_config import (
     AGENT_MODELS,
     BUTLER_MODEL_CHAINS,
     BUTLER_MODELS,
+    HEARTBEAT_MODEL,
     OLLAMA_FALLBACK,
     OLLAMA_LOCAL_URL,
     OLLAMA_MODEL,
@@ -41,6 +42,8 @@ from butler_config import (
 TIMEOUT = 45
 MEMORY_WARN_GB = 1.5
 VPS_REQUEST_TIMEOUT = 120
+MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
+_MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
 KNOWN_OLLAMA_MODELS = {
     model
     for model in {
@@ -48,6 +51,7 @@ KNOWN_OLLAMA_MODELS = {
         OLLAMA_FALLBACK,
         VPS_OLLAMA_MODEL,
         VPS_OLLAMA_FALLBACK,
+        HEARTBEAT_MODEL,
         *BUTLER_MODELS.values(),
         *(model for chain in BUTLER_MODEL_CHAINS.values() for model in chain),
         *AGENT_MODELS.values(),
@@ -522,6 +526,77 @@ def _get_mood_state() -> dict:
         }
 
 
+def _supports_mlx_voice(model: str) -> bool:
+    name = str(model or "").strip().lower()
+    if not name:
+        return False
+    base = name.split(":", 1)[0]
+    return base == "gemma4"
+
+
+def _get_mlx_voice_backend() -> tuple[Any, Any, Any] | None:
+    global _MLX_VOICE_BACKEND
+    if _MLX_VOICE_BACKEND is False:
+        return None
+    if isinstance(_MLX_VOICE_BACKEND, tuple):
+        return _MLX_VOICE_BACKEND
+
+    try:
+        from mlx_lm import generate as mlx_generate
+        from mlx_lm import load as mlx_load
+    except Exception:
+        _MLX_VOICE_BACKEND = False
+        return None
+
+    try:
+        model_obj, tokenizer = mlx_load(MLX_VOICE_MODEL_ID)
+    except Exception as exc:
+        print(f"[Brain] MLX voice load failed: {exc}")
+        _MLX_VOICE_BACKEND = False
+        return None
+
+    _MLX_VOICE_BACKEND = (model_obj, tokenizer, mlx_generate)
+    return _MLX_VOICE_BACKEND
+
+
+def call_voice(
+    prompt: str,
+    model: str,
+    *,
+    temperature: float,
+    max_tokens: int,
+    system: str | None = None,
+) -> str:
+    backend = _get_mlx_voice_backend() if _supports_mlx_voice(model) else None
+    if backend:
+        model_obj, tokenizer, mlx_generate = backend
+        combined_prompt = prompt.strip()
+        if system:
+            combined_prompt = (
+                f"System:\n{system.strip()}\n\n"
+                f"User:\n{prompt.strip()}\n\n"
+                "Assistant:\n"
+            )
+        try:
+            response = mlx_generate(
+                model_obj,
+                tokenizer,
+                combined_prompt,
+                max_tokens=max_tokens,
+            )
+            return str(response).strip()
+        except Exception as exc:
+            print(f"[Brain] MLX voice generation failed: {exc}")
+
+    return _call(
+        prompt,
+        model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        system=system,
+    )
+
+
 def _default_plan() -> dict:
     return {
         "focus": "current work",
@@ -707,7 +782,7 @@ Rules:
 Output ONLY JSON:"""
 
         try:
-            speech_raw = _call(
+            speech_raw = call_voice(
                 speech_prompt,
                 speech_model,
                 temperature=0.5,

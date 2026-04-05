@@ -22,21 +22,21 @@ USE_VPS_OLLAMA = False
 VPS_OLLAMA_URL = "http://194.163.146.149:8765/ollama"
 VPS_OLLAMA_USER = "butler"
 VPS_OLLAMA_PASS = ""      # stored locally in secrets/local_secrets.json
-VPS_OLLAMA_MODEL = "llama3.2:3b"
-VPS_OLLAMA_FALLBACK = "phi4-mini:latest"
+VPS_OLLAMA_MODEL = "gemma4:26b"
+VPS_OLLAMA_FALLBACK = "deepseek-r1:14b"
 
 # Local fallback (used when VPS is unreachable)
 OLLAMA_LOCAL_URL = "http://localhost:11434"
-OLLAMA_MODEL = "qwen2.5:14b"
-OLLAMA_FALLBACK = "llama3.2:3b"
+OLLAMA_MODEL = "deepseek-r1:14b"
+OLLAMA_FALLBACK = "deepseek-r1:7b"
 
 # --- Butler Stage Models ---
 # Main Butler flow can route different stages to different models.
 BUTLER_MODELS = {
-    "voice": "phi4-mini:latest",
-    "planning": "qwen2.5-coder:14b",
+    "voice": "gemma4:e4b",
+    "planning": "gemma4:26b",
     "review": "deepseek-r1:14b",
-    "coding": "qwen2.5-coder:14b",
+    "coding": "deepseek-r1:14b",
 }
 
 
@@ -52,10 +52,10 @@ def _chain(*models: str) -> list[str]:
 
 
 BUTLER_MODEL_CHAINS = {
-    "voice": _chain(BUTLER_MODELS["voice"], "llama3.2:3b", "llama3:latest", OLLAMA_MODEL),
-    "planning": _chain(BUTLER_MODELS["planning"], "deepseek-r1:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
-    "review": _chain(BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", BUTLER_MODELS["coding"], OLLAMA_MODEL),
-    "coding": _chain(BUTLER_MODELS["coding"], "deepseek-r1:14b", "deepseek-coder:6.7b", "glm-4.7-flash:latest", OLLAMA_MODEL),
+    "voice": _chain(BUTLER_MODELS["voice"], "phi4-mini:latest", "llama3.2:3b", "deepseek-r1:7b", OLLAMA_MODEL),
+    "planning": _chain(BUTLER_MODELS["planning"], "deepseek-r1:14b", "qwen2.5-coder:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
+    "review": _chain(BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
+    "coding": _chain(BUTLER_MODELS["coding"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", "glm-4.7-flash:latest", OLLAMA_FALLBACK),
 }
 
 # --- Multi-Agent Models ---
@@ -64,29 +64,29 @@ BUTLER_MODEL_CHAINS = {
 AGENT_MODELS = {
     "news": "deepseek-r1:14b",
     "market": "deepseek-r1:14b",
-    "hackernews": "phi4-mini:latest",
-    "reddit": "phi4-mini:latest",
-    "github_trending": "phi4-mini:latest",
-    "vps": "qwen2.5-coder:14b",
-    "memory": "phi4-mini:latest",
-    "code": "qwen2.5-coder:14b",
+    "hackernews": "gemma4:e4b",
+    "reddit": "gemma4:e4b",
+    "github_trending": "gemma4:e4b",
+    "vps": "deepseek-r1:14b",
+    "memory": "gemma4:e4b",
+    "code": "deepseek-r1:14b",
     "search": "deepseek-r1:14b",
-    "github": "qwen2.5-coder:14b",
-    "bugfinder": "qwen2.5-coder:14b",
+    "github": "deepseek-r1:14b",
+    "bugfinder": "gemma4:e4b",
 }
 
 AGENT_MODEL_CHAINS = {
     "news": _chain(AGENT_MODELS["news"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
     "market": _chain(AGENT_MODELS["market"], BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
-    "hackernews": _chain(AGENT_MODELS["hackernews"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
-    "reddit": _chain(AGENT_MODELS["reddit"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
-    "github_trending": _chain(AGENT_MODELS["github_trending"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
-    "vps": _chain(AGENT_MODELS["vps"], "deepseek-coder:6.7b", BUTLER_MODELS["planning"], OLLAMA_MODEL),
-    "memory": _chain(AGENT_MODELS["memory"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
-    "code": _chain(AGENT_MODELS["code"], BUTLER_MODELS["coding"], "deepseek-coder:6.7b", "deepseek-r1:14b"),
+    "hackernews": _chain(AGENT_MODELS["hackernews"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
+    "reddit": _chain(AGENT_MODELS["reddit"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
+    "github_trending": _chain(AGENT_MODELS["github_trending"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
+    "vps": _chain(AGENT_MODELS["vps"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", BUTLER_MODELS["planning"], OLLAMA_MODEL),
+    "memory": _chain(AGENT_MODELS["memory"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
+    "code": _chain(AGENT_MODELS["code"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", OLLAMA_MODEL),
     "search": _chain(AGENT_MODELS["search"], BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b"),
-    "github": _chain(AGENT_MODELS["github"], BUTLER_MODELS["coding"], "deepseek-coder:6.7b", BUTLER_MODELS["planning"]),
-    "bugfinder": _chain(AGENT_MODELS["bugfinder"], "deepseek-r1:14b", "deepseek-coder:6.7b", BUTLER_MODELS["review"]),
+    "github": _chain(AGENT_MODELS["github"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", BUTLER_MODELS["planning"]),
+    "bugfinder": _chain(AGENT_MODELS["bugfinder"], "phi4-mini:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
 }
 
 # --- MCP Servers ---
@@ -121,10 +121,12 @@ AUTO_PLAY_MUSIC = True
 DEFAULT_MUSIC_MODE = "focus"
 
 # --- Voice output ---
-TTS_ENGINE = "kokoro"     # "kokoro" | "say" | "auto"
-TTS_VOICE = "af_bella"    # Kokoro voice; fallback `say` uses Daniel automatically
+TTS_ENGINE = "edge"       # "edge" | "kokoro" | "say" | "auto"
+TTS_VOICE = "af_bella"    # Kokoro voice when using the kokoro backend
+EDGE_TTS_VOICE = "en-US-AvaMultilingualNeural"
+EDGE_TTS_RATE = "+0%"
 TTS_SPEED = 1.0
-TTS_MAX_WORDS = 40        # Hard cap on spoken words
+TTS_MAX_WORDS = 32        # Hard cap on spoken words
 PIPER_MODEL_PATH = ""
 PIPER_CONFIG_PATH = ""
 
@@ -135,15 +137,20 @@ TTS_RATE = 165
 # --- Voice input ---
 VOICE_FOLLOWUP_ENABLED = True
 VOICE_FOLLOWUP_SECONDS = 4.0
-VOICE_INPUT_MODEL = "mlx-community/whisper-tiny"
+VOICE_INPUT_MODEL = "mlx-community/whisper-base-mlx"
+VOICE_FASTER_WHISPER_MODEL = "small.en"
+VOICE_INPUT_BEAM_SIZE = 3
+VOICE_INPUT_PROMPT = "Transcribe a short English voice assistant command. Preserve proper nouns and app names accurately."
 
 # --- Heartbeat (KAIROS) ---
-HEARTBEAT_ENABLED = False
+HEARTBEAT_ENABLED = True
+HEARTBEAT_MODEL = "gemma4:e4b"
 HEARTBEAT_INTERVAL_MINUTES = 5
 DAILY_INTEL_ENABLED = False
 
 # --- Bug Hunter ---
-BUG_HUNTER_ENABLED = False
+BUG_HUNTER_ENABLED = True
+BUG_HUNTER_MODEL = "gemma4:e4b"
 BUG_HUNTER_INTERVAL_MINUTES = 20
 BUG_HUNTER_TARGET_PATH = "~/Burry/mac-butler"
 

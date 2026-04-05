@@ -30,7 +30,7 @@ def describe_screen(question: str = "What is on the screen right now?", model: s
                 "images": [image_b64],
             }
         ],
-        model=pick_butler_model("planning", override=model or "gemma4:12b"),
+        model=pick_butler_model("planning", override=model),
         max_tokens=180,
         temperature=0.2,
     )

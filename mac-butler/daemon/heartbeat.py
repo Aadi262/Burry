@@ -14,6 +14,7 @@ from datetime import datetime
 from butler_config import (
     HEARTBEAT_ENABLED,
     HEARTBEAT_INTERVAL_MINUTES,
+    HEARTBEAT_MODEL,
     OLLAMA_MODEL,
 )
 from brain.ollama_client import _call, _strip
@@ -61,7 +62,7 @@ Examples:
 {{"action": {{"type": "remind_in", "minutes": 30, "message": "Check the deploy again"}}}}
 nothing"""
 
-        raw = _call(prompt, OLLAMA_MODEL, temperature=0.2, max_tokens=120)
+        raw = _call(prompt, HEARTBEAT_MODEL or OLLAMA_MODEL, temperature=0.2, max_tokens=120)
         if raw.lower().strip().startswith("nothing"):
             return
 
