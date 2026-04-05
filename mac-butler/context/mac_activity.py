@@ -16,6 +16,12 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 
+try:
+    from runtime import note_workspace_context
+except Exception:
+    def note_workspace_context(*_args, **_kwargs) -> None:
+        return None
+
 STATE_FILE = Path(__file__).resolve().parent.parent / "memory" / "mac_state.json"
 _WATCHER_THREAD: threading.Thread | None = None
 _WATCHER_LOCK = threading.Lock()
@@ -138,6 +144,24 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
+def _focus_project_name(state: dict) -> str:
+    workspace = str(state.get("cursor_workspace", "") or "").strip()
+    if workspace:
+        return Path(workspace).name or workspace
+    browser_url = str(state.get("browser_url", "") or "").strip()
+    if browser_url:
+        return browser_url
+    return ""
+
+
+def _bridge_runtime_workspace(state: dict) -> None:
+    note_workspace_context(
+        focus_project=_focus_project_name(state),
+        frontmost_app=str(state.get("frontmost_app", "") or "").strip(),
+        workspace=str(state.get("cursor_workspace", "") or "").strip(),
+    )
+
+
 def load_state() -> dict:
     if not STATE_FILE.exists():
         return {}
@@ -203,7 +227,9 @@ def start_watcher(interval: int = 30) -> threading.Thread:
         def _loop() -> None:
             while True:
                 try:
-                    save_state(snapshot())
+                    state = snapshot()
+                    save_state(state)
+                    _bridge_runtime_workspace(state)
                 except Exception:
                     pass
                 time.sleep(interval)

@@ -3,16 +3,32 @@ from unittest.mock import MagicMock, patch
 
 from agents.runner import (
     _call_model,
+    _collect_search_items,
+    _fetch_agent,
     _fetch_github_trending_items,
     _github_agent,
     _news_agent,
     _pick_model,
     _search_agent,
     run_agent,
+    run_agent_async,
 )
 
 
 class AgentTests(unittest.TestCase):
+    @patch("agents.runner.note_agent_result")
+    @patch("agents.runner.run_agent")
+    def test_run_agent_async_reports_result_to_runtime(self, mock_run_agent, mock_note_agent):
+        mock_run_agent.return_value = {"status": "ok", "result": "All good", "data": {}}
+        seen = []
+
+        thread = run_agent_async("news", {"topic": "AI"}, callback=lambda result: seen.append(result["result"]))
+        thread.join(timeout=1.0)
+
+        self.assertFalse(thread.is_alive())
+        mock_note_agent.assert_called_once_with("news", "ok", "All good")
+        self.assertEqual(seen, ["All good"])
+
     @patch("agents.runner._prepare_model_request")
     @patch("agents.runner.requests.post")
     def test_call_model_uses_short_keep_alive_and_small_context(
@@ -37,7 +53,7 @@ class AgentTests(unittest.TestCase):
     def test_search_agent_uses_fetched_material(self, _mock_fetch, _mock_call):
         result = _search_agent({"query": "what is Qwen2.5"}, "test-model")
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["backend"], "stub")
+        self.assertTrue(result["result"])
 
     @patch("agents.runner.list_server_tools", return_value=[{"name": "list_pull_requests"}, {"name": "search_issues"}])
     def test_github_agent_lists_tools_when_no_tool_requested(self, _mock_tools):
@@ -73,13 +89,139 @@ class AgentTests(unittest.TestCase):
         self.assertIsInstance(result["data"]["items"], list)
         self.assertEqual(len(result["data"]["items"]), 3)
 
+    @patch("agents.runner._call_model", return_value="- Reuters says talks are active\n- AP says markets reacted")
+    @patch("agents.runner._collect_news_items")
+    def test_news_agent_uses_crawled_items(self, mock_collect_news_items, _mock_call):
+        mock_collect_news_items.return_value = (
+            [
+                {
+                    "title": "Talks continue",
+                    "url": "https://www.reuters.com/world/1",
+                    "source": "reuters.com",
+                    "article_text": "Diplomatic talks continued after the latest strikes.",
+                    "content": "Talks and military updates.",
+                },
+                {
+                    "title": "Regional response",
+                    "url": "https://apnews.com/world/2",
+                    "source": "apnews.com",
+                    "article_text": "Regional governments reacted with new warnings.",
+                    "content": "Reaction and warnings.",
+                },
+            ],
+            ["searxng"],
+        )
+
+        result = _news_agent({"topic": "Iran and US", "hours": 24}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "news_crawl")
+        self.assertEqual(len(result["data"]["items"]), 2)
+        self.assertIn("searxng", result["data"]["sources"])
+
     @patch("agents.runner._call_model", return_value="")
-    @patch("agents.runner._fetch_headlines", return_value="Headline 1\nHeadline 2\nHeadline 3")
-    def test_news_agent_falls_back_when_model_returns_empty(self, _mock_fetch, _mock_call):
+    @patch("agents.runner._collect_news_items")
+    def test_news_agent_falls_back_when_model_returns_empty(self, mock_collect_news_items, _mock_call):
+        mock_collect_news_items.return_value = (
+            [
+                {
+                    "title": "Headline 1",
+                    "url": "https://example.com/1",
+                    "source": "example.com",
+                    "article_text": "Talks continue between both sides.",
+                    "content": "Talks continue.",
+                },
+                {
+                    "title": "Headline 2",
+                    "url": "https://example.com/2",
+                    "source": "example.com",
+                    "article_text": "Markets responded to the latest escalation.",
+                    "content": "Markets reacted.",
+                },
+            ],
+            ["searxng"],
+        )
+
         result = _news_agent({"topic": "AI", "hours": 24}, "test-model")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["result"])
         self.assertIn("Headline 1", result["result"])
+        self.assertIn("example.com", result["result"])
+
+    @patch("agents.runner._exa_search", return_value=[{"title": "Exa story", "url": "https://example.com/exa", "content": "Fresh result"}])
+    @patch("agents.runner._duckduckgo_search", return_value=[])
+    @patch("agents.runner._searxng_search", return_value=[])
+    def test_collect_search_items_uses_exa_when_local_and_free_search_are_empty(self, _mock_searxng, _mock_ddg, _mock_exa):
+        items, sources = _collect_search_items("ai news", count=2)
+        self.assertEqual(items[0]["title"], "Exa story")
+        self.assertIn("exa", sources)
+
+    @patch("agents.runner._exa_search", return_value=[])
+    @patch("agents.runner._duckduckgo_search", return_value=[{"title": "DDG story", "url": "https://example.com/ddg", "content": "DuckDuckGo result"}])
+    @patch("agents.runner._searxng_search", return_value=[])
+    def test_collect_search_items_uses_duckduckgo_before_exa(self, _mock_searxng, _mock_ddg, _mock_exa):
+        items, sources = _collect_search_items("ai news", count=2)
+        self.assertEqual(items[0]["title"], "DDG story")
+        self.assertIn("duckduckgo", sources)
+        self.assertNotIn("exa", sources)
+
+    @patch("agents.runner._jina_fetch", return_value="This page describes Gemma 4 features, pricing, and launch context.")
+    @patch("agents.runner._call_model", return_value="The page says Gemma 4 launched with stronger multimodal support and broader deployment options.")
+    def test_fetch_agent_reads_and_summarizes_url(self, _mock_call, _mock_fetch):
+        result = _fetch_agent({"query": "read this https://example.com/post", "url": "https://example.com/post"}, "test-model")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Gemma 4", result["result"])
+        self.assertEqual(result["data"]["tool"], "jina_fetch")
+
+    def test_search_agent_asks_for_clarification_on_too_short_query(self):
+        result = _search_agent({"query": "what is"}, "test-model")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "Tell me what to look up.")
+
+    @patch("agents.runner._call_model", return_value="")
+    @patch("agents.runner._collect_search_items")
+    def test_search_agent_falls_back_to_first_result_when_model_returns_empty(self, mock_collect_search_items, _mock_call):
+        mock_collect_search_items.return_value = (
+            [
+                {
+                    "title": "Claude launches a new product",
+                    "url": "https://example.com/claude",
+                    "content": "Anthropic introduced a new Claude product for teams.",
+                }
+            ],
+            ["exa"],
+        )
+
+        result = _search_agent({"query": "what is the new product from claude"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Claude launches a new product", result["result"])
+
+    @patch(
+        "agents.runner._call_model",
+        return_value=(
+            "Anthropic Unveils Claude 4.5: Smarter Context, Lower Cost for Enterprise AI — Tech Daily Shot. "
+            "Unveils Claude 4.5: Smarter Context, Lower Cost for Enterprise AI — Tech Daily Shot ..."
+        ),
+    )
+    @patch("agents.runner._collect_search_items")
+    def test_search_agent_rejects_repeated_title_dump(self, mock_collect_search_items, _mock_call):
+        mock_collect_search_items.return_value = (
+            [
+                {
+                    "title": "Anthropic Unveils Claude 4.5: Smarter Context, Lower Cost for Enterprise AI",
+                    "url": "https://example.com/claude-45",
+                    "content": "Anthropic says the release improves context handling and lowers enterprise cost.",
+                }
+            ],
+            ["exa"],
+        )
+
+        result = _search_agent({"query": "what is the new product from claude"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("Tech Daily Shot ...", result["result"])
+        self.assertIn("The new product looks like Claude 4.5", result["result"])
 
     @patch("agents.runner._call_model", return_value="- LocalLLaMA is active\n- OSS agent tooling is rising")
     @patch("agents.runner._fetch_json")

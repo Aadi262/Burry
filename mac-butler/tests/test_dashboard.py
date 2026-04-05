@@ -1,32 +1,57 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from projects.dashboard import generate_dashboard
+from projects import dashboard
+from projects.dashboard import (
+    _event_stream_message,
+    _spawn_native_shell,
+    _wait_for_dashboard_health,
+    generate_dashboard,
+)
 
 
 class DashboardTests(unittest.TestCase):
-    @patch("projects.dashboard.get_github_context", return_value="[GITHUB]\nAdpilot: 2026-03-17/0i")
     @patch(
-        "projects.dashboard.load_projects",
+        "projects.dashboard.operator_snapshot",
+        return_value={
+            "session_label": "live",
+            "session_tone": "healthy",
+            "state_label": "Listening",
+            "state_tone": "healthy",
+            "last_heard_text": "search ranveer alahabadia on youtube",
+            "last_heard_at": "2026-04-05T19:22:55",
+            "last_spoken_text": "Opening YouTube results.",
+            "last_spoken_at": "2026-04-05T19:22:56",
+            "last_intent_name": "open_app",
+            "last_intent_confidence": 1.0,
+            "focus_project": "mac-butler",
+            "frontmost_app": "Terminal",
+            "workspace": "/Users/adityatiwari/Burry/mac-butler",
+            "tasks": ["Ship live operator HUD"],
+            "systems": [
+                {"name": "Voice", "status": "edge", "detail": "en-US-AvaMultilingualNeural", "tone": "healthy"}
+            ],
+            "mcp": [
+                {"name": "github", "status": "configured", "detail": "Disabled", "tone": "degraded"}
+            ],
+            "events": [
+                {"kind": "heard", "message": "Heard: search ranveer alahabadia on youtube", "at": "2026-04-05T19:22:55"}
+            ],
+            "updated_at": "2026-04-05T19:22:56",
+        },
+    )
+    @patch(
+        "projects.dashboard._load_projects_raw",
         return_value=[
             {
                 "name": "mac-butler",
                 "status": "active",
                 "completion": 71,
-                "completion_basis": "BUTLER_STATUS.md",
-                "status_files_found": 2,
-                "status_files_total": 3,
                 "deploy_target": "Local Mac + Ollama",
                 "live": True,
                 "last_commit": "2026-04-05T10:00:00Z",
                 "open_issues": 0,
                 "health_status": "healthy",
-                "health_signals_ok": 4,
-                "health_signals_total": 4,
-                "last_test_status": "ok",
-                "git_branch": "main",
-                "git_dirty": False,
-                "last_verified_at": "2026-04-05T10:10:00",
                 "blockers": ["Need better clap trigger filtering"],
                 "next_tasks": ["Ship the dashboard checks"],
             }
@@ -35,14 +60,116 @@ class DashboardTests(unittest.TestCase):
     def test_generate_dashboard_renders_health_and_verification(
         self,
         _mock_load,
-        _mock_github,
+        _mock_operator,
     ):
         html = generate_dashboard()
 
-        self.assertIn("Health:", html)
-        self.assertIn("Verify:", html)
-        self.assertIn("% estimated", html)
-        self.assertIn("Project Command Center", html)
+        self.assertIn("Burry Live Operator", html)
+        self.assertIn("/style.css", html)
+        self.assertIn("/app.js", html)
+        self.assertIn("BURRY OS", html)
+        self.assertIn("Workspace", html)
+        self.assertIn("Transcript", html)
+        self.assertIn("Project Truth", html)
+        self.assertIn("project-list", html)
+        self.assertIn("orb-canvas", html)
+        self.assertIn("network-canvas", html)
+        self.assertIn("Ask Burry anything", html)
+        self.assertIn('type="module" src="/app.js?v=', html)
+        self.assertIn("search ranveer alahabadia on youtube", html)
+
+    @patch("projects.dashboard.subprocess.Popen")
+    @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
+    @patch("projects.dashboard._native_shell_running", return_value=False)
+    @patch("projects.dashboard._native_shell_available", return_value=True)
+    def test_spawn_native_shell_uses_detached_process(
+        self,
+        _mock_available,
+        _mock_running,
+        _mock_health,
+        mock_popen,
+    ):
+        process = MagicMock()
+        mock_popen.return_value = process
+
+        ok = _spawn_native_shell("http://127.0.0.1:3333")
+
+        self.assertTrue(ok)
+        self.assertTrue(mock_popen.called)
+        self.assertTrue(mock_popen.call_args.kwargs["start_new_session"])
+
+    @patch("projects.dashboard.time.sleep")
+    @patch("projects.dashboard._url_ok", side_effect=[False, False, True])
+    def test_wait_for_dashboard_health_retries_until_ready(self, mock_ok, _mock_sleep):
+        self.assertTrue(_wait_for_dashboard_health("http://127.0.0.1:3333", timeout=1.0))
+        self.assertEqual(mock_ok.call_count, 3)
+        self.assertTrue(all(call.args[0].endswith("/health") for call in mock_ok.call_args_list))
+
+    def test_event_stream_message_uses_sse_data_format(self):
+        payload = {"state": "listening", "focus_project": "mac-butler"}
+        frame = _event_stream_message(payload).decode("utf-8")
+
+        self.assertTrue(frame.startswith("data: "))
+        self.assertIn('"state":"listening"', frame)
+        self.assertTrue(frame.endswith("\n\n"))
+
+    @patch("projects.dashboard.subprocess.run")
+    @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
+    @patch("projects.dashboard._spawn_native_shell")
+    def test_show_dashboard_window_prefers_browser_until_native_is_enabled(
+        self,
+        mock_spawn_native,
+        _mock_health,
+        mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        with patch.object(dashboard, "USE_NATIVE_HUD", False):
+            dashboard.show_dashboard_window(force=True)
+
+        mock_spawn_native.assert_not_called()
+        self.assertTrue(mock_run.called)
+
+    @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
+    @patch("voice.describe_tts", return_value={"backend": "edge", "voice": "Ava"})
+    @patch("voice.describe_stt", return_value={"backend": "faster", "active_model": "small.en"})
+    @patch("tasks.get_active_tasks", return_value=[{"title": "Ship live HUD"}])
+    @patch("runtime.load_runtime_state")
+    @patch("context.mac_activity.load_state")
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_operator_snapshot_prefers_runtime_workspace(
+        self,
+        _mock_url_ok,
+        mock_mac_state,
+        mock_runtime_state,
+        _mock_tasks,
+        _mock_stt,
+        _mock_tts,
+        _mock_mood,
+    ):
+        mock_runtime_state.return_value = {
+            "state": "listening",
+            "session_active": True,
+            "updated_at": "2026-04-06T12:00:00",
+            "workspace": {
+                "focus_project": "mac-butler",
+                "frontmost_app": "Terminal",
+                "workspace": "/Users/adityatiwari/Burry/mac-butler",
+            },
+            "events": [],
+            "last_intent": {},
+        }
+        mock_mac_state.return_value = {
+            "frontmost_app": "Cursor",
+            "cursor_workspace": "/Users/adityatiwari/Burry/other-project",
+        }
+
+        payload = dashboard.operator_snapshot(
+            projects=[{"name": "mac-butler", "path": "/Users/adityatiwari/Burry/mac-butler"}]
+        )
+
+        self.assertEqual(payload["focus_project"], "mac-butler")
+        self.assertEqual(payload["frontmost_app"], "Terminal")
+        self.assertEqual(payload["workspace"], "/Users/adityatiwari/Burry/mac-butler")
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ GREETINGS = {
 }
 
 def build_system_prompt() -> str:
-    return """You are Butler's planner running on Aditya's Mac.
+    return """You are Burry's planner running on Aditya's Mac.
 
 Rules:
 1. Output ONLY a JSON object.
@@ -171,7 +171,7 @@ quick commands (git status, ls) -> in_terminal: false
 
 PLANNER_SYSTEM_PROMPT = build_system_prompt()
 
-SPEECH_SYSTEM_PROMPT = """You are Butler's voice.
+SPEECH_SYSTEM_PROMPT = """You are Burry's voice.
 
 Rules:
 1. Output ONLY a JSON object with "speech", "greeting", and "actions".
@@ -184,6 +184,7 @@ Rules:
 8. Name mac-butler or email-infra when relevant; if context is thin, say that plainly instead of pretending.
 9. If you do not have enough context, ask a short clarifying question instead of filling space.
 10. If the project name already appears in the first clause, do not repeat it in the task clause; name the task directly.
+11. Match the provided mood instruction explicitly. Keep the tone consistent with it.
 """
 
 FEW_SHOT_SPEECH_EXAMPLES = """Example A:
@@ -507,6 +508,20 @@ def _get_memory() -> str:
         return ""
 
 
+def _get_mood_state() -> dict:
+    try:
+        from brain.mood_engine import describe_mood_state
+
+        return describe_mood_state()
+    except Exception:
+        return {
+            "name": "focused",
+            "label": "Focused",
+            "instruction": "Be sharp and direct. Cut to the next real move with no fluff.",
+            "note": "Locked on the next concrete step.",
+        }
+
+
 def _default_plan() -> dict:
     return {
         "focus": "current work",
@@ -582,6 +597,10 @@ def send_to_ollama(context_text: str, model: str | None = None) -> str:
     speech_max_tokens = 180
     identity_block = _get_identity()
     memory_block = _get_memory()
+    mood_state = _get_mood_state()
+    mood_name = str(mood_state.get("name", "focused")).strip() or "focused"
+    mood_instruction = str(mood_state.get("instruction", "")).strip()
+    mood_note = str(mood_state.get("note", "")).strip()
 
     if compact_vps_mode:
         plan_prompt = f"""Context:
@@ -663,7 +682,7 @@ Output ONLY JSON:"""
         speech_prompt = f"""{identity_block}
 {memory_block}
 
-You are Butler. Sharp, direct, specific to Aditya's work.
+You are Burry, Aditya's live operator on Mac.
 
 EXAMPLES OF GOOD OUTPUT (match this quality):
 {FEW_SHOT_SPEECH_EXAMPLES}
@@ -672,6 +691,9 @@ CURRENT SITUATION:
 Focus: {focus}
 Next: {spoken_next_action}
 Time greeting: {greeting}
+Current mood: {mood_name}
+Mood instruction: {mood_instruction}
+Mood note: {mood_note}
 
 Rules:
 - Under 50 words
@@ -727,6 +749,7 @@ Output ONLY JSON:"""
             "actions": final_actions,
             "focus": focus,
             "why_now": next_action,
+            "mood": mood_name,
         }
     )
 
@@ -806,6 +829,69 @@ def _call(
         max_tokens=max_tokens,
         system=system,
     )
+
+
+def chat_with_ollama(
+    messages: list[dict],
+    model: str,
+    *,
+    tools: list[dict] | None = None,
+    max_tokens: int = 200,
+    temperature: float = 0.2,
+) -> dict:
+    url, headers, backend = _get_request_target_for_model(model)
+    local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
+    request_url = url.replace("/api/generate", "/api/chat")
+    use_vps_backend = backend == "vps"
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 90
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
+    resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
+    _prepare_model_request(resolved_model)
+    payload: dict[str, Any] = {
+        "model": resolved_model,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": "5m",
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            "num_ctx": 4096,
+        },
+    }
+    if tools:
+        payload["tools"] = tools
+
+    try:
+        response = requests.post(
+            request_url,
+            json=payload,
+            headers=headers,
+            timeout=request_timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+    except requests.exceptions.ConnectionError:
+        if request_url != local_url:
+            local_response = requests.post(local_url, json=payload, timeout=90)
+            local_response.raise_for_status()
+            data = local_response.json()
+            return data if isinstance(data, dict) else {}
+        raise ConnectionError("Ollama not running. Start with: ollama serve")
+    except Exception as exc:
+        if resolved_fallback and payload["model"] != resolved_fallback:
+            payload["model"] = resolved_fallback
+            _prepare_model_request(resolved_fallback)
+            response = requests.post(
+                request_url,
+                json=payload,
+                headers=headers,
+                timeout=request_timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, dict) else {}
+        raise RuntimeError(f"Ollama chat error: {exc}")
 
 
 def _strip(text: str) -> str:

@@ -12,6 +12,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import urllib.parse
 
 import numpy as np
 import requests
@@ -26,6 +28,7 @@ from brain.ollama_client import (
 )
 from mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
 from butler_secrets.loader import get_vps_secret
+from runtime import note_agent_result
 
 ROUTED_MODELS = {
     agent_type: (chain[0] if chain else AGENT_MODELS.get(agent_type, OLLAMA_MODEL))
@@ -151,7 +154,53 @@ def _safe_model_summary(
 
 def _summary_has_raw_artifacts(text: str) -> bool:
     lowered = text.lower()
-    return ("http://" in lowered or "https://" in lowered or " | " in text or text.count('"') % 2 == 1)
+    return (
+        "http://" in lowered
+        or "https://" in lowered
+        or " | " in text
+        or text.count('"') % 2 == 1
+        or "skip to main content" in lowered
+    )
+
+
+def _normalized_compare_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def _dedupe_sentences(text: str) -> str:
+    sentences = re.split(r"(?<=[.!?])\s+", " ".join(str(text or "").split()))
+    kept: list[str] = []
+    seen: list[str] = []
+    for sentence in sentences:
+        cleaned = sentence.strip()
+        if not cleaned:
+            continue
+        normalized = _normalized_compare_text(cleaned)
+        if not normalized:
+            continue
+        if any(normalized == previous or normalized in previous or previous in normalized for previous in seen):
+            continue
+        kept.append(cleaned)
+        seen.append(normalized)
+    return " ".join(kept).strip()
+
+
+def _is_title_heavy_answer(text: str, items: list[dict]) -> bool:
+    if not text or not items:
+        return False
+    answer = _normalized_compare_text(text)
+    title = _normalized_compare_text(_clean_news_title(items[0].get("title", "")))
+    if not answer or not title:
+        return False
+    if answer == title:
+        return True
+    return answer.startswith(title) and len(answer.split()) <= len(title.split()) + 8
+
+
+def _clean_spoken_result(text: str) -> str:
+    cleaned = _dedupe_sentences(text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 
 def _get_exa_api_key() -> str:
@@ -211,7 +260,7 @@ def _searxng_available(force_refresh: bool = False) -> bool:
     return bool(_SEARXNG_AVAILABLE)
 
 
-def _searxng_search(query: str, num: int = 8) -> list:
+def _searxng_search(query: str, num: int = 8, categories: str = "general") -> list:
     """Fetch raw results from local SearXNG."""
     global _SEARXNG_AVAILABLE
     from butler_config import SEARXNG_URL
@@ -225,7 +274,7 @@ def _searxng_search(query: str, num: int = 8) -> list:
             params={
                 "q": query,
                 "format": "json",
-                "categories": "general",
+                "categories": categories,
                 "language": "en",
             },
             timeout=1.5,
@@ -286,34 +335,240 @@ def _exa_search(query: str, num: int = 5) -> list:
         return []
 
 
-def _collect_search_items(query: str, count: int = 5) -> tuple[list[dict], list[str]]:
+def _duckduckgo_search(query: str, num: int = 5) -> list:
+    """Free fallback search when local SearXNG is unavailable."""
+    try:
+        response = requests.get(
+            "https://api.duckduckgo.com/",
+            params={
+                "q": query,
+                "format": "json",
+                "no_redirect": 1,
+                "no_html": 1,
+                "skip_disambig": 1,
+                "t": "burry-butler",
+            },
+            timeout=4,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return []
+
+    results: list[dict] = []
+
+    abstract = str(payload.get("Abstract", "")).strip()
+    abstract_url = str(payload.get("AbstractURL", "")).strip()
+    heading = str(payload.get("Heading", "")).strip() or query
+    if abstract:
+        results.append(
+            {
+                "title": heading,
+                "url": abstract_url,
+                "content": abstract,
+            }
+        )
+
+    def add_topic(topic: dict) -> None:
+        text = str(topic.get("Text", "")).strip()
+        url = str(topic.get("FirstURL", "")).strip()
+        if not text:
+            return
+        title = url.rstrip("/").split("/")[-1].replace("_", " ").strip() if url else query
+        results.append(
+            {
+                "title": title or query,
+                "url": url,
+                "content": text,
+            }
+        )
+
+    related = payload.get("RelatedTopics", [])
+    for topic in related:
+        if len(results) >= num:
+            break
+        if isinstance(topic, dict) and topic.get("Text"):
+            add_topic(topic)
+            continue
+        for nested in topic.get("Topics", []) if isinstance(topic, dict) else []:
+            if len(results) >= num:
+                break
+            if isinstance(nested, dict):
+                add_topic(nested)
+
+    return results[:num]
+
+
+def _collect_search_items(query: str, count: int = 5, categories: str = "general") -> tuple[list[dict], list[str]]:
     sources: list[str] = []
     seen: set[str] = set()
     items: list[dict] = []
 
-    searx_results = _searxng_search(query, num=max(5, count))
-    if searx_results:
-        sources.append("searxng")
+    def add_results(results: list[dict], source: str) -> None:
+        if not results:
+            return
+        if source not in sources:
+            sources.append(source)
+        for result in results:
+            title = str(result.get("title", "")).strip()
+            url = str(result.get("url", "")).strip()
+            key = url or title.lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "content": str(result.get("content", "")).strip(),
+                    "query": query,
+                }
+            )
+            if len(items) >= count:
+                break
 
-    for result in searx_results:
-        title = str(result.get("title", "")).strip()
-        url = str(result.get("url", "")).strip()
-        key = url or title.lower()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        items.append(
-            {
-                "title": title,
-                "url": url,
-                "content": str(result.get("content", "")).strip(),
-                "query": query,
-            }
-        )
-        if len(items) >= count:
-            break
+    # Search policy: local-first via SearXNG, then free DuckDuckGo, then premium Exa.
+    add_results(_searxng_search(query, num=max(5, count), categories=categories), "searxng")
+    if len(items) < count:
+        add_results(_duckduckgo_search(query, num=max(5, count)), "duckduckgo")
+    if len(items) < count:
+        add_results(_exa_search(query, num=max(5, count)), "exa")
 
     return items, sources
+
+
+def _domain_label(url: str) -> str:
+    hostname = urllib.parse.urlparse(str(url or "")).netloc.lower()
+    hostname = re.sub(r"^www\.", "", hostname)
+    return hostname or "source"
+
+
+def _clean_article_excerpt(text: str, max_chars: int = 600) -> str:
+    lines: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        cleaned = " ".join(raw_line.replace("#", " ").split()).strip(" -")
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered.startswith(("title:", "url source:", "markdown content:", "published time:", "description:")):
+            continue
+        if any(
+            phrase in lowered
+            for phrase in (
+                "skip to main content",
+                "main content",
+                "feed global",
+                "home innovation",
+                "products and platforms",
+                "company news",
+            )
+        ):
+            continue
+        if len(cleaned) < 35 and any(token in lowered for token in ("cookie", "subscribe", "sign in", "menu")):
+            continue
+        if cleaned.startswith(("!", "[")):
+            continue
+        lines.append(cleaned)
+        if len(" ".join(lines)) >= max_chars:
+            break
+
+    if not lines:
+        return ""
+
+    excerpt = " ".join(lines)
+    excerpt = re.sub(r"\s+", " ", excerpt).strip()
+    if len(excerpt) <= max_chars:
+        return excerpt
+    truncated = excerpt[:max_chars].rsplit(" ", 1)[0].strip()
+    return f"{truncated}..." if truncated else excerpt[:max_chars]
+
+
+def _clean_news_title(title: str) -> str:
+    cleaned = " ".join(str(title or "").split()).strip(" -:")
+    cleaned = re.split(r"\s+\|\s+", cleaned, maxsplit=1)[0]
+    cleaned = re.split(r"\s+-\s+(?:google blog|youtube|reuters|ap news|al jazeera|the keyword)\b", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+    return cleaned.strip(" -:")
+
+
+def _collect_news_items(topic: str, count: int = 3) -> tuple[list[dict], list[str]]:
+    search_query = f"{topic} latest news"
+    items, sources = _collect_search_items(search_query, count=max(5, count * 2), categories="news")
+    if not items:
+        items, sources = _collect_search_items(search_query, count=max(5, count * 2))
+    if not items:
+        items, sources = _collect_search_items(topic, count=max(5, count * 2))
+
+    enriched: list[dict] = []
+    for item in items:
+        url = str(item.get("url", "")).strip()
+        article_text = _clean_article_excerpt(_jina_fetch(url)) if url else ""
+        snippet = str(item.get("content", "")).strip()
+        if not article_text and not snippet:
+            continue
+        enriched.append(
+            {
+                **item,
+                "source": _domain_label(url),
+                "article_text": article_text,
+            }
+        )
+        if len(enriched) >= count:
+            break
+
+    return enriched, sources
+
+
+def _fallback_news_summary(items: list[dict], topic: str) -> str:
+    if not items:
+        return f"I couldn't fetch live {topic} news right now."
+
+    lines = []
+    for item in items[:3]:
+        title = _clean_news_title(item.get("title", "")) or "Untitled"
+        source = str(item.get("source", "")).strip() or _domain_label(item.get("url", ""))
+        if title and title != "Untitled":
+            lines.append(f"{title} ({source})")
+        else:
+            detail = str(item.get("content", "")).strip() or str(item.get("article_text", "")).strip()
+            detail = re.split(r"(?<=[.!?])\s+", detail, maxsplit=1)[0].strip() or detail
+            detail = _limit_words(detail, limit=14)
+            lines.append(f"{source}: {detail}" if detail else source)
+    return "; ".join(lines)
+
+
+def _fallback_search_answer(query: str, items: list[dict]) -> str:
+    if not items:
+        return f"I couldn't look that up right now: {query}"
+
+    for item in items[:3]:
+        title = _clean_news_title(item.get("title", "")) or "I found a result"
+        title_norm = _normalized_compare_text(title)
+        title_parts = [part.strip(" -:.") for part in title.split(":", 1)]
+        launch_match = re.search(
+            r"\b(?:unveils|launches|introduces|debuts|releases)\s+(.+)$",
+            title_parts[0],
+            flags=re.IGNORECASE,
+        )
+        if "new product" in query.lower() and launch_match:
+            product = launch_match.group(1).strip(" -:.")
+            product_norm = _normalized_compare_text(product)
+            descriptor = title_parts[1] if len(title_parts) > 1 else ""
+            descriptor = re.split(r"\s+[—-]\s+[^—-]+$", descriptor, maxsplit=1)[0].strip()
+            descriptor = _limit_words(descriptor, limit=14)
+            if product_norm not in {"a new product", "new product", "a product", "product"} and product and descriptor:
+                return f"The new product looks like {product}. {descriptor}"
+            if product_norm not in {"a new product", "new product", "a product", "product"} and product:
+                return f"The new product looks like {product}."
+        detail = _clean_article_excerpt(str(item.get("content", "")).strip(), max_chars=220)
+        detail = re.split(r"(?<=[.!?])\s+", detail, maxsplit=1)[0].strip() or detail
+        detail = _limit_words(detail, limit=16)
+        detail_norm = _normalized_compare_text(detail)
+        if detail and detail_norm and detail_norm != title_norm and detail_norm not in title_norm:
+            return f"{title}. {detail}"
+        source = _domain_label(item.get("url", ""))
+        if title:
+            return f"{title} ({source})."
+    return "I found a result."
 
 
 def _fetch_json(url: str, *, params: dict | None = None, headers: dict | None = None, timeout: int = 8) -> object:
@@ -599,6 +854,8 @@ def run_agent(agent_type: str, input_data: dict) -> dict:
             return _code_agent(input_data, model)
         if agent_type == "search":
             return _search_agent(input_data, model)
+        if agent_type == "fetch":
+            return _fetch_agent(input_data, model)
         if agent_type == "market":
             return _market_agent(input_data, model)
         if agent_type == "hackernews":
@@ -617,16 +874,74 @@ def run_agent(agent_type: str, input_data: dict) -> dict:
         return {"status": "error", "result": str(exc), "data": {}}
 
 
+def run_agent_async(agent_type: str, input_data: dict, callback=None) -> threading.Thread:
+    def _worker() -> None:
+        result = run_agent(agent_type, input_data)
+        try:
+            note_agent_result(
+                agent_type,
+                str(result.get("status", "ok") or "ok"),
+                str(result.get("result", "") or ""),
+            )
+        except Exception:
+            pass
+        if callback is not None:
+            try:
+                callback(result)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_worker, daemon=True, name=f"agent-{agent_type}")
+    thread.start()
+    return thread
+
+
 def _news_agent(data: dict, model: str) -> dict:
     topic = data.get("topic", "AI and tech news")
     hours = data.get("hours", 24)
     global _LAST_FETCH_DATA
     _LAST_FETCH_DATA = {}
+    items, sources = _collect_news_items(topic, count=3)
+
+    if items:
+        material = "\n".join(
+            f"- {item.get('title', '')} ({item.get('source', '')}): "
+            f"{(item.get('article_text') or item.get('content') or '')[:420]}"
+            for item in items
+        )
+        prompt = f"""You are Butler's current news agent.
+Summarize the latest developments about "{topic}" using ONLY the material below.
+Return exactly 3 short bullet points.
+Each bullet must mention a source in parentheses.
+Keep the whole answer under 120 words.
+If the coverage is thin or mixed, say that briefly instead of inventing details.
+
+News material:
+{material}
+"""
+        try:
+            summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=160), limit=150))
+        except Exception:
+            summary = ""
+        if not summary or _summary_has_raw_artifacts(summary) or _is_title_heavy_answer(summary, items):
+            summary = _fallback_news_summary(items, topic)
+        search_data = {
+            "backend": "+".join(sorted(sources)) if sources else "news_crawl",
+            "tool": "news_crawl",
+            "text": material,
+            "items": items,
+            "sources": sorted(sources),
+            "topic": topic,
+            "hours": hours,
+        }
+        _LAST_FETCH_DATA = dict(search_data)
+        return {"status": "ok", "result": summary, "data": search_data}
+
     material = _fetch_headlines(f"{topic} last {hours} hours")
     search_data = (
         dict(_LAST_FETCH_DATA)
         if _LAST_FETCH_DATA.get("text") == material
-        else {"backend": "headline_wrapper", "tool": "headlines", "text": material}
+        else {"backend": "headline_wrapper", "tool": "headlines", "text": material, "topic": topic, "hours": hours}
     )
 
     if not material or len(material.strip()) < 20:
@@ -646,16 +961,44 @@ Material:
 {material[:2200]}
 
 Summary:"""
-    summary = _limit_words(_call_model(prompt, model, max_tokens=160), limit=150)
+    summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=160), limit=150))
     if not summary or _summary_has_raw_artifacts(summary):
         summary = _fallback_text_summary(material, f"I couldn't fetch live {topic} news right now.")
     return {"status": "ok", "result": summary, "data": search_data}
 
 
 def _search_agent(data: dict, model: str) -> dict:
-    query = data.get("query", "")
+    query = " ".join(str(data.get("query", "")).split()).strip()
     global _LAST_FETCH_DATA
     _LAST_FETCH_DATA = {}
+    if query.lower() in {"what is", "what's", "search", "find", "look up"}:
+        return {"status": "ok", "result": "Tell me what to look up.", "data": {}}
+
+    items, sources = _collect_search_items(query, count=3)
+    if items:
+        material = "\n".join(
+            f"- {item.get('title', '')}: {str(item.get('content', ''))[:220]}"
+            for item in items
+        )
+        prompt = f"""Answer this question directly and specifically.
+Question: {query}
+
+Material:
+{material}
+
+Answer in under 45 words. No raw URLs. Make it sound spoken, not scraped."""
+        try:
+            answer = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=100), limit=90))
+        except Exception:
+            answer = ""
+        if not answer or _summary_has_raw_artifacts(answer) or _is_title_heavy_answer(answer, items):
+            answer = _fallback_search_answer(query, items)
+        return {
+            "status": "ok",
+            "result": answer,
+            "data": {"items": items, "sources": sorted(sources), "tool": "search_lookup", "query": query},
+        }
+
     material = _fetch_headlines(query)
     search_data = (
         dict(_LAST_FETCH_DATA)
@@ -664,10 +1007,12 @@ def _search_agent(data: dict, model: str) -> dict:
     )
 
     if not material or len(material.strip()) < 20:
-        prompt = f"Answer this concisely in under 40 words: {query}"
+        prompt = f"Answer this concisely in under 35 words: {query}"
         try:
-            answer = _call_model(prompt, model, max_tokens=80)
+            answer = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=70), limit=70))
         except Exception:
+            answer = ""
+        if not answer:
             answer = f"I couldn't look that up right now: {query}"
         return {"status": "ok", "result": answer, "data": {}}
 
@@ -677,9 +1022,55 @@ Question: {query}
 Material:
 {material[:2200]}
 
-Answer in under 60 words:"""
-    answer = _call_model(prompt, model, max_tokens=120)
+Answer in under 45 words. No raw URLs. Make it sound spoken, not scraped."""
+    try:
+        answer = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=100), limit=90))
+    except Exception:
+        answer = ""
+    if not answer or _summary_has_raw_artifacts(answer):
+        answer = _fallback_text_summary(material, f"I couldn't look that up right now: {query}")
     return {"status": "ok", "result": answer, "data": search_data}
+
+
+def _fetch_agent(data: dict, model: str) -> dict:
+    query = " ".join(str(data.get("query", "")).split()).strip()
+    url = str(data.get("url", "")).strip()
+    if not url:
+        match = re.search(
+            r"(https?://[^\s]+|www\.[^\s]+|\b[a-z0-9.-]+\.(?:com|org|net|io|ai|dev|app|co|in)\b)",
+            query,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            url = match.group(1)
+    if not url:
+        return {"status": "ok", "result": "Tell me which page to read.", "data": {}}
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+
+    text = _jina_fetch(url)
+    if not text or len(text.strip()) < 40:
+        return {"status": "ok", "result": f"I couldn't read {url} right now.", "data": {"url": url}}
+
+    prompt = f"""Read this fetched web page content and answer the user's request.
+User request: {query or f"Read {url}"}
+Source: {url}
+
+Page content:
+{text[:2600]}
+
+Reply in under 70 words. Sound spoken and useful. Mention the source domain once if helpful."""
+    try:
+        summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=140), limit=110))
+    except Exception:
+        summary = ""
+    if not summary or _summary_has_raw_artifacts(summary):
+        summary = _fallback_text_summary(text, f"I read {url}, but couldn't summarize it cleanly.")
+    return {
+        "status": "ok",
+        "result": summary,
+        "data": {"url": url, "tool": "jina_fetch", "text": text[:2600]},
+    }
 
 
 def _market_agent(data: dict, model: str) -> dict:

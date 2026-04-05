@@ -64,8 +64,9 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(model, "llama3.2:3b")
 
     @patch("brain.ollama_client._random_greeting", return_value="Morning")
+    @patch("brain.ollama_client._get_mood_state", return_value={"name": "focused", "instruction": "Be sharp and direct.", "note": "Locked on the next concrete step."})
     @patch("brain.ollama_client._call")
-    def test_send_to_ollama_uses_two_stage_flow(self, mock_call, _mock_greeting):
+    def test_send_to_ollama_uses_two_stage_flow(self, mock_call, _mock_mood, _mock_greeting):
         with patch.object(ollama_client, "USE_VPS_OLLAMA", False):
             mock_call.side_effect = [
                 json.dumps(
@@ -85,7 +86,9 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(mock_call.call_count, 2)
         self.assertEqual(mock_call.call_args_list[0].args[1], "qwen2.5-coder:14b")
         self.assertEqual(mock_call.call_args_list[1].args[1], "phi4-mini:latest")
+        self.assertIn("Current mood: focused", mock_call.call_args_list[1].args[0])
         self.assertEqual(result["actions"][0]["type"], "play_music")
+        self.assertEqual(result["mood"], "focused")
         self.assertTrue(result["speech"].startswith("Morning"))
 
     @patch("brain.ollama_client._random_greeting", return_value="Evening")
@@ -114,7 +117,13 @@ class OllamaClientTests(unittest.TestCase):
 
     @patch("brain.ollama_client._random_greeting", return_value="Morning")
     @patch("brain.ollama_client._call")
-    def test_send_to_ollama_uses_single_stage_when_vps_enabled(self, mock_call, _mock_greeting):
+    @patch("brain.ollama_client._backend_for_model", return_value="vps")
+    def test_send_to_ollama_uses_single_stage_when_vps_backend_is_selected(
+        self,
+        _mock_backend,
+        mock_call,
+        _mock_greeting,
+    ):
         mock_call.return_value = json.dumps(
             {
                 "focus": "mac-butler executor",
@@ -133,6 +142,33 @@ class OllamaClientTests(unittest.TestCase):
 
         self.assertEqual(mock_call.call_count, 1)
         self.assertIn("mac-butler executor", result["speech"].lower())
+
+    @patch("brain.ollama_client._random_greeting", return_value="Morning")
+    @patch("brain.ollama_client._call")
+    @patch("brain.ollama_client._backend_for_model", return_value="local")
+    def test_send_to_ollama_keeps_two_stage_flow_with_local_models_even_if_vps_enabled(
+        self,
+        _mock_backend,
+        mock_call,
+        _mock_greeting,
+    ):
+        mock_call.side_effect = [
+            json.dumps(
+                {
+                    "focus": "Adpilot",
+                    "why_now": "Deploy checks still need a pass.",
+                    "question": "Open it now?",
+                    "actions": [],
+                }
+            ),
+            '{"speech":"Morning. Adpilot still needs the deploy checks pass. Open it now?","greeting":"Morning","actions":[]}',
+        ]
+
+        with patch.object(ollama_client, "USE_VPS_OLLAMA", True):
+            result = json.loads(ollama_client.send_to_ollama("[PROJECT SNAPSHOT]\n  Adpilot: next=Verify deploy checks"))
+
+        self.assertEqual(mock_call.call_count, 2)
+        self.assertIn("Adpilot", result["speech"])
 
     @patch("brain.ollama_client._prepare_model_request")
     @patch("brain.ollama_client.requests.post")
@@ -157,6 +193,32 @@ class OllamaClientTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["keep_alive"], "5m")
         self.assertEqual(payload["options"]["num_ctx"], 2048)
+
+    @patch("brain.ollama_client._prepare_model_request")
+    @patch("brain.ollama_client.requests.post")
+    def test_chat_with_ollama_uses_chat_endpoint_and_tools(
+        self,
+        mock_post,
+        _mock_prepare,
+    ):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"message": {"role": "assistant", "content": "ok"}}
+        mock_post.return_value = response
+
+        result = ollama_client.chat_with_ollama(
+            [{"role": "user", "content": "hello"}],
+            model="test-model",
+            tools=[{"type": "function", "function": {"name": "open_project"}}],
+            max_tokens=90,
+        )
+
+        self.assertEqual(result["message"]["content"], "ok")
+        self.assertTrue(mock_post.call_args.args[0].endswith("/api/chat"))
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertIn("tools", payload)
+        self.assertEqual(payload["keep_alive"], "5m")
+        self.assertEqual(payload["options"]["num_ctx"], 4096)
 
     @patch("brain.ollama_client.requests.get")
     def test_check_vps_connection_returns_dict(self, mock_get):

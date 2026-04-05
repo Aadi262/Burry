@@ -4,404 +4,480 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+import os
+import socket
+import subprocess
+import sys
 import threading
 import time
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 try:
     from .github_sync import get_github_context
     from .open_project import open_project
     from .project_store import load_projects
+    from .project_store import _load_raw as _load_projects_raw
 except ImportError:
     from github_sync import get_github_context
     from open_project import open_project
     from project_store import load_projects
+    from project_store import _load_raw as _load_projects_raw
 
 ROOT = Path(__file__).resolve().parent
 DASHBOARD_PATH = ROOT / "dashboard.html"
+FRONTEND_ROOT = ROOT / "frontend"
+FRONTEND_INDEX_PATH = FRONTEND_ROOT / "index.html"
+FRONTEND_STYLE_PATH = FRONTEND_ROOT / "style.css"
+FRONTEND_APP_PATH = FRONTEND_ROOT / "app.js"
+NATIVE_SHELL_PATH = ROOT / "native_shell.py"
+HUD_PID_PATH = Path("/tmp/burry_hud.pid")
+HUD_LOG_PATH = Path("/tmp/burry_hud.log")
 HOST = "127.0.0.1"
-PORT = 3333
+PREFERRED_PORT = 3333
+PORT = PREFERRED_PORT
+USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
 _SERVER: ThreadingHTTPServer | None = None
 _SERVER_THREAD: threading.Thread | None = None
 _SERVER_LOCK = threading.Lock()
+_WINDOW_LOCK = threading.Lock()
+_LAST_WINDOW_OPENED_AT = 0.0
+STREAM_INTERVAL_SECONDS = 0.35
 
 
 def _status_rank(status: str) -> int:
     return {"active": 0, "paused": 1, "done": 2}.get(status, 9)
 
 
+def _dashboard_projects() -> list[dict]:
+    try:
+        raw_projects = _load_projects_raw()
+    except Exception:
+        raw_projects = []
+
+    projects: list[dict] = []
+    for project in raw_projects:
+        item = dict(project)
+        item["status"] = str(item.get("status", "paused") or "paused")
+        try:
+            item["completion"] = int(item.get("completion", 0) or 0)
+        except Exception:
+            item["completion"] = 0
+        item["health_status"] = str(item.get("health_status", "unknown") or "unknown")
+        item["next_tasks"] = list(item.get("next_tasks") or [])
+        item["blockers"] = list(item.get("blockers") or [])
+        item["description"] = str(item.get("description", "") or item.get("deploy_target", "") or "Local operator project")
+        projects.append(item)
+    return projects
+
+
+def _dashboard_github_context(projects: list[dict]) -> str:
+    items = []
+    for project in projects:
+        repo = project.get("repo")
+        if not repo:
+            continue
+        commit = str(project.get("last_commit") or "unknown")[:10]
+        try:
+            issues = int(project.get("open_issues", 0) or 0)
+        except Exception:
+            issues = 0
+        items.append(f"{project.get('name')}: {commit}/{issues}i")
+    if not items:
+        return ""
+    return ("[GITHUB]\n" + " | ".join(items))[:350]
+
+
+def _select_port(preferred: int = PREFERRED_PORT) -> int:
+    for candidate in range(preferred, preferred + 12):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((HOST, candidate))
+                return candidate
+            except OSError:
+                continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((HOST, 0))
+        return int(sock.getsockname()[1])
+
+
+def dashboard_url() -> str:
+    return f"http://{HOST}:{PORT}"
+
+
 def _timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _clip_text(value: str, limit: int = 180) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _status_tone(status: str) -> str:
+    lowered = str(status or "").lower()
+    if lowered in {"live", "ready", "healthy", "online", "active"}:
+        return "healthy"
+    if lowered in {"standby", "pending", "local", "vps", "configured", "disabled"}:
+        return "degraded"
+    return "offline"
+
+
+def _workspace_project_name(workspace: str, projects: list[dict]) -> str:
+    candidate = str(workspace or "").strip()
+    if not candidate:
+        return ""
+    try:
+        candidate_path = Path(os.path.expanduser(candidate)).resolve(strict=False)
+    except Exception:
+        return Path(candidate).name
+
+    best: tuple[int, str] | None = None
+    for project in projects:
+        try:
+            root = Path(os.path.expanduser(str(project.get("path", "") or ""))).resolve(strict=False)
+        except Exception:
+            continue
+        try:
+            if candidate_path == root or root in candidate_path.parents:
+                score = len(str(root))
+                name = str(project.get("name", "")).strip()
+                if name and (best is None or score > best[0]):
+                    best = (score, name)
+        except Exception:
+            continue
+    return best[1] if best else candidate_path.name
+
+
+def _url_ok(url: str) -> bool:
+    try:
+        with urlopen(url, timeout=1.0) as response:
+            return int(getattr(response, "status", 200)) < 500
+    except URLError:
+        return False
+    except Exception:
+        return False
+
+
+def _wait_for_dashboard_health(url: str, timeout: float = 6.0) -> bool:
+    health_url = f"{url.rstrip('/')}/health"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _url_ok(health_url):
+            return True
+        time.sleep(0.15)
+    return False
+
+
+def operator_snapshot(projects: list[dict] | None = None) -> dict:
+    try:
+        from butler_config import MCP_SERVERS, OLLAMA_LOCAL_URL, SEARXNG_URL, USE_VPS_OLLAMA, VPS_OLLAMA_URL
+    except Exception:
+        MCP_SERVERS = {}
+        OLLAMA_LOCAL_URL = "http://localhost:11434"
+        SEARXNG_URL = "http://localhost:8080"
+        USE_VPS_OLLAMA = False
+        VPS_OLLAMA_URL = ""
+
+    try:
+        from context.mac_activity import load_state as load_mac_state
+    except Exception:
+        load_mac_state = lambda: {}
+
+    try:
+        from mcp.client import get_server_status
+    except Exception:
+        get_server_status = None
+
+    try:
+        from runtime import load_runtime_state
+    except Exception:
+        load_runtime_state = lambda: {}
+
+    try:
+        from brain.mood_engine import describe_mood_state
+    except Exception:
+        describe_mood_state = lambda: {"name": "focused", "label": "Focused", "note": "Locked on the next concrete step."}
+
+    try:
+        from tasks import get_active_tasks
+    except Exception:
+        get_active_tasks = lambda project=None: []
+
+    try:
+        from voice import describe_stt, describe_tts
+    except Exception:
+        describe_stt = lambda: {"backend": "unavailable", "active_model": ""}
+        describe_tts = lambda: {"backend": "unavailable", "voice": ""}
+
+    catalog = projects if projects is not None else _dashboard_projects()
+    runtime_state = load_runtime_state() or {}
+    mac_state = load_mac_state() or {}
+    mood_state = describe_mood_state() or {}
+    runtime_workspace = runtime_state.get("workspace") if isinstance(runtime_state.get("workspace"), dict) else {}
+    workspace = str(runtime_workspace.get("workspace", "") or mac_state.get("cursor_workspace", "") or "").strip()
+    focus_project = str(runtime_workspace.get("focus_project", "") or "").strip() or _workspace_project_name(workspace, catalog)
+    frontmost_app = str(runtime_workspace.get("frontmost_app", "") or mac_state.get("frontmost_app", "") or "").strip()
+
+    tasks = []
+    try:
+        active_tasks = get_active_tasks(focus_project or None)
+    except Exception:
+        active_tasks = []
+    for task in active_tasks[:3]:
+        title = _clip_text(task.get("title", ""), limit=72)
+        if title:
+            tasks.append(title)
+
+    stt = describe_stt() or {}
+    tts = describe_tts() or {}
+    search_online = _url_ok(f"{SEARXNG_URL}/")
+    voice_backend = str(tts.get("backend", "unavailable")).lower()
+    listen_backend = str(stt.get("backend", "pending")).lower()
+    systems = [
+        {
+            "name": "Brain",
+            "status": "vps" if USE_VPS_OLLAMA else "local",
+            "detail": VPS_OLLAMA_URL if USE_VPS_OLLAMA else OLLAMA_LOCAL_URL,
+            "tone": _status_tone("vps" if USE_VPS_OLLAMA else "local"),
+        },
+        {
+            "name": "Search",
+            "status": "online" if search_online else "offline",
+            "detail": "SearXNG",
+            "tone": _status_tone("online" if search_online else "offline"),
+        },
+        {
+            "name": "Voice",
+            "status": voice_backend,
+            "detail": str(tts.get("voice", "") or tts.get("rate", "")).strip(),
+            "tone": _status_tone("healthy" if voice_backend in {"edge", "kokoro", "say"} else "offline"),
+        },
+        {
+            "name": "Listen",
+            "status": listen_backend,
+            "detail": str(stt.get("active_model", "") or stt.get("requested_model", "")).strip(),
+            "tone": _status_tone("healthy" if listen_backend in {"mlx", "faster"} else "pending"),
+        },
+    ]
+
+    mcp_rows = []
+    for server_name in sorted(MCP_SERVERS):
+        if get_server_status is None:
+            mcp_rows.append(
+                {
+                    "name": server_name,
+                    "status": "unavailable",
+                    "detail": "MCP client unavailable",
+                    "tone": "offline",
+                }
+            )
+            continue
+
+        status = get_server_status(server_name)
+        if status.get("ready"):
+            label = "ready"
+            detail = "Connected"
+        elif status.get("enabled") and status.get("configured"):
+            missing = ", ".join(status.get("missing_env") or []) or "runtime"
+            label = "needs secrets"
+            detail = missing
+        elif status.get("configured"):
+            label = "configured"
+            detail = "Disabled"
+        else:
+            label = "missing"
+            detail = "No command configured"
+        mcp_rows.append(
+            {
+                "name": server_name,
+                "status": label,
+                "detail": detail,
+                "tone": _status_tone(label),
+            }
+        )
+
+    events = list(runtime_state.get("events") or [])[-10:]
+    last_intent = runtime_state.get("last_intent") or {}
+    state_name = str(runtime_state.get("state", "idle") or "idle").strip().lower()
+    session_active = bool(runtime_state.get("session_active"))
+    session_label = "live" if session_active else "standby"
+
+    return {
+        "state": state_name,
+        "state_label": state_name.title(),
+        "state_tone": _status_tone("active" if state_name in {"listening", "thinking", "speaking"} else "pending"),
+        "session_active": session_active,
+        "session_label": session_label,
+        "session_tone": _status_tone(session_label),
+        "mood": str(mood_state.get("name", "") or "focused"),
+        "mood_label": str(mood_state.get("label", "") or "Focused"),
+        "mood_note": str(mood_state.get("note", "") or ""),
+        "updated_at": str(runtime_state.get("updated_at", "") or _timestamp()),
+        "last_heard_text": str(runtime_state.get("last_heard_text", "") or ""),
+        "last_heard_at": str(runtime_state.get("last_heard_at", "") or ""),
+        "last_spoken_text": str(runtime_state.get("last_spoken_text", "") or ""),
+        "last_spoken_at": str(runtime_state.get("last_spoken_at", "") or ""),
+        "last_intent_name": str(last_intent.get("name", "") or ""),
+        "last_intent_confidence": float(last_intent.get("confidence", 0.0) or 0.0),
+        "focus_project": focus_project,
+        "frontmost_app": frontmost_app,
+        "workspace": workspace,
+        "spotify_track": _clip_text(mac_state.get("spotify_track", ""), limit=80),
+        "browser_url": _clip_text(mac_state.get("browser_url", ""), limit=80),
+        "tasks": tasks,
+        "systems": systems,
+        "mcp": mcp_rows,
+        "events": events,
+    }
+
+
 def generate_dashboard() -> str:
-    """Returns HTML string."""
-    projects = load_projects()
-    payload = json.dumps(projects)
-    github_context = get_github_context()
+    """Return the live Burry HUD HTML with bootstrap data."""
+    bootstrap = _dashboard_payload()
+    bootstrap_json = json.dumps(bootstrap).replace("</", "<\\/")
+    asset_stamp = str(int(time.time()))
 
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Burry OS</title>
-  <style>
-    :root {{
-      --bg: #0d0d0d;
-      --panel: rgba(255, 255, 255, 0.05);
-      --panel-border: rgba(255, 255, 255, 0.1);
-      --text: #f5f7fb;
-      --muted: #96a0ae;
-      --accent: #61f0c2;
-      --accent-2: #49a5ff;
-      --danger: #ff6b6b;
-      --warning: #ffbd59;
-      --done: #7ddc86;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      font-family: "SF Pro Display", "Helvetica Neue", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(73,165,255,0.18), transparent 32%),
-        radial-gradient(circle at top right, rgba(97,240,194,0.16), transparent 28%),
-        linear-gradient(180deg, #0d0d0d 0%, #111418 100%);
-      padding: 28px;
-    }}
-    .shell {{
-      max-width: 1400px;
-      margin: 0 auto;
-    }}
-    .topbar {{
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 16px;
-      margin-bottom: 24px;
-    }}
-    .brand {{
-      letter-spacing: 0.24em;
-      font-size: 14px;
-      color: var(--accent);
-      text-transform: uppercase;
-    }}
-    .title {{
-      font-size: clamp(36px, 6vw, 78px);
-      font-weight: 700;
-      margin: 8px 0 0;
-      line-height: 0.95;
-      text-shadow: 0 0 32px rgba(97,240,194,0.18);
-    }}
-    .stamp {{
-      color: var(--muted);
-      font-size: 14px;
-      text-align: right;
-    }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-    }}
-    .card, .actions {{
-      background: var(--panel);
-      border: 1px solid var(--panel-border);
-      border-radius: 22px;
-      backdrop-filter: blur(16px);
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
-    }}
-    .card {{
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      min-height: 320px;
-    }}
-    .card-head {{
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-    }}
-    .card-name {{
-      font-size: 28px;
-      font-weight: 700;
-      line-height: 1;
-    }}
-    .badge {{
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      white-space: nowrap;
-    }}
-    .badge.active {{ color: var(--accent); background: rgba(97,240,194,0.08); }}
-    .badge.paused {{ color: var(--warning); background: rgba(255,189,89,0.08); }}
-    .badge.done {{ color: var(--done); background: rgba(125,220,134,0.08); }}
-    .badge.healthy {{ color: var(--done); background: rgba(125,220,134,0.08); }}
-    .badge.degraded {{ color: var(--warning); background: rgba(255,189,89,0.08); }}
-    .badge.offline {{ color: var(--danger); background: rgba(255,107,107,0.08); }}
-    .meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    .live {{
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }}
-    .dot {{
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: #4a4a4a;
-      box-shadow: 0 0 0 0 transparent;
-    }}
-    .dot.live {{
-      background: var(--done);
-      box-shadow: 0 0 14px rgba(125,220,134,0.8);
-    }}
-    .progress {{
-      position: relative;
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      overflow: hidden;
-    }}
-    .progress > span {{
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 0;
-      background: linear-gradient(90deg, var(--accent-2), var(--accent));
-      border-radius: inherit;
-      box-shadow: 0 0 18px rgba(73,165,255,0.45);
-    }}
-    .section-title {{
-      font-size: 11px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-    }}
-    .list {{
-      margin: 0;
-      padding-left: 18px;
-      color: var(--text);
-    }}
-    .list li {{
-      margin-bottom: 6px;
-      line-height: 1.35;
-    }}
-    .blockers li {{
-      color: var(--danger);
-    }}
-    .open-btn {{
-      margin-top: auto;
-      width: 100%;
-      border: 0;
-      border-radius: 14px;
-      padding: 14px 16px;
-      background: linear-gradient(90deg, rgba(73,165,255,0.95), rgba(97,240,194,0.95));
-      color: #041019;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 120ms ease, box-shadow 120ms ease;
-      box-shadow: 0 12px 28px rgba(73,165,255,0.25);
-    }}
-    .open-btn:hover {{
-      transform: translateY(-1px);
-      box-shadow: 0 16px 30px rgba(73,165,255,0.32);
-    }}
-    .actions {{
-      margin-top: 22px;
-      padding: 20px;
-    }}
-    .actions-grid {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-    }}
-    .action-item {{
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px;
-      padding: 14px;
-      background: rgba(255,255,255,0.03);
-    }}
-    .action-item strong {{
-      display: block;
-      margin-bottom: 6px;
-      font-size: 15px;
-    }}
-    .github {{
-      margin-top: 12px;
-      font-size: 12px;
-      color: var(--muted);
-    }}
-    @media (max-width: 1100px) {{
-      .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    }}
-    @media (max-width: 760px) {{
-      body {{ padding: 18px; }}
-      .topbar {{ flex-direction: column; align-items: flex-start; }}
-      .stamp {{ text-align: left; }}
-      .grid, .actions-grid {{ grid-template-columns: 1fr; }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <div class="topbar">
-      <div>
-        <div class="brand">BURRY OS</div>
-        <div class="title">Project Command Center</div>
-      </div>
-      <div class="stamp">
-        <div>Last updated</div>
-        <strong id="last-updated">{_timestamp()}</strong>
-      </div>
-    </div>
+    try:
+        template = FRONTEND_INDEX_PATH.read_text(encoding="utf-8")
+    except Exception:
+        return (
+            "<!doctype html><html><body>"
+            "<h1>Burry Live Operator</h1>"
+            "<p>Frontend template is missing.</p>"
+            f"<script id='burry-bootstrap' type='application/json'>{bootstrap_json}</script>"
+            "</body></html>"
+        )
 
-    <section class="grid" id="project-grid"></section>
+    html = template.replace("__BURRY_BOOTSTRAP_JSON__", bootstrap_json)
+    html = html.replace('/style.css"', f'/style.css?v={asset_stamp}"')
+    html = html.replace('/app.js"', f'/app.js?v={asset_stamp}"')
+    return html
 
-    <section class="actions">
-      <div class="section-title">Next Actions</div>
-      <div class="actions-grid" id="next-actions"></div>
-      <div class="github">{github_context or 'GitHub sync not populated yet.'}</div>
-    </section>
-  </div>
 
-  <script>
-    const initialProjects = {payload};
+def _dashboard_payload() -> dict:
+    projects = _dashboard_projects()
+    return {
+        "projects": projects,
+        "operator": operator_snapshot(projects),
+        "githubContext": _dashboard_github_context(projects),
+        "generatedAt": _timestamp(),
+    }
 
-    function sortProjects(projects) {{
-      return [...projects].sort((a, b) => {{
-        const rank = {{ active: 0, paused: 1, done: 2 }};
-        const rankA = rank[a.status] ?? 9;
-        const rankB = rank[b.status] ?? 9;
-        if (rankA !== rankB) return rankA - rankB;
-        return (b.completion ?? 0) - (a.completion ?? 0);
-      }});
-    }}
 
-    function renderProjects(projects) {{
-      const grid = document.getElementById("project-grid");
-      grid.innerHTML = "";
+def _dispatch_command(text: str) -> None:
+    try:
+        from butler import handle_command
+    except Exception as exc:
+        print(f"[dashboard] command dispatch unavailable: {exc}")
+        return
 
-      for (const project of sortProjects(projects)) {{
-        const blockers = Array.isArray(project.blockers) ? project.blockers : [];
-        const tasks = Array.isArray(project.next_tasks) ? project.next_tasks.slice(0, 2) : [];
-        const card = document.createElement("article");
-        card.className = "card";
-        card.innerHTML = `
-          <div class="card-head">
-            <div class="card-name">${{project.name}}</div>
-            <div class="badge ${{project.status || "paused"}}">${{project.status || "paused"}}</div>
-          </div>
-          <div class="meta">
-            <span>${{project.completion ?? 0}}% estimated</span>
-            <span class="live"><span class="dot ${{project.live ? "live" : ""}}"></span>${{project.deploy_target || "No deploy target"}}</span>
-          </div>
-          <div class="progress"><span style="width: ${{project.completion ?? 0}}%"></span></div>
-          <div class="meta">
-            <span>Basis: ${{project.completion_basis || "registry"}}</span>
-            <span>Signals: ${{project.status_files_found ?? 0}}/${{project.status_files_total ?? 0}}</span>
-          </div>
-          <div class="meta">
-            <span>Last commit: ${{project.last_commit ? String(project.last_commit).slice(0, 10) : "unknown"}}</span>
-            <span>Open issues: ${{project.open_issues ?? 0}}</span>
-          </div>
-          <div class="meta">
-            <span>Health: <span class="badge ${{project.health_status || "degraded"}}">${{project.health_status || "degraded"}}</span> ${{project.health_signals_ok ?? 0}}/${{project.health_signals_total ?? 0}}</span>
-            <span>Verify: ${{project.last_test_status || "unknown"}}</span>
-          </div>
-          <div class="meta">
-            <span>Git: ${{project.git_branch || "no git"}}${{project.git_dirty === true ? " dirty" : project.git_dirty === false ? " clean" : ""}}</span>
-            <span>${{project.last_verified_at ? ("Verified " + String(project.last_verified_at).slice(0, 16).replace("T", " ")) : "No verification yet"}}</span>
-          </div>
-          <div>
-            <div class="section-title">Blockers</div>
-            <ul class="list blockers">
-              ${{
-                blockers.length
-                  ? blockers.map((item) => `<li>${{item}}</li>`).join("")
-                  : "<li style='color: var(--done)'>No blockers logged.</li>"
-              }}
-            </ul>
-          </div>
-          <div>
-            <div class="section-title">Next Tasks</div>
-            <ul class="list">
-              ${{
-                tasks.length
-                  ? tasks.map((item) => `<li>${{item}}</li>`).join("")
-                  : "<li>No tasks queued.</li>"
-              }}
-            </ul>
-          </div>
-          <button class="open-btn" data-project="${{project.name}}">Open Project</button>
-        `;
-        grid.appendChild(card);
-      }}
-
-      for (const button of document.querySelectorAll(".open-btn")) {{
-        button.addEventListener("click", async (event) => {{
-          const name = event.currentTarget.getAttribute("data-project");
-          await fetch(`/api/open_project?name=${{encodeURIComponent(name)}}`, {{ method: "POST" }});
-        }});
-      }}
-    }}
-
-    function renderNextActions(projects) {{
-      const mount = document.getElementById("next-actions");
-      mount.innerHTML = "";
-      const items = [];
-      for (const project of sortProjects(projects)) {{
-        for (const task of (project.next_tasks || []).slice(0, 2)) {{
-          items.push({{ project: project.name, status: project.status, task }});
-        }}
-      }}
-      for (const item of items) {{
-        const node = document.createElement("div");
-        node.className = "action-item";
-        node.innerHTML = `<strong>${{item.project}}</strong><span>${{item.task}}</span>`;
-        mount.appendChild(node);
-      }}
-    }}
-
-    async function refresh() {{
-      try {{
-        const response = await fetch("/api/projects");
-        const projects = await response.json();
-        renderProjects(projects);
-        renderNextActions(projects);
-        document.getElementById("last-updated").textContent = new Date().toLocaleString();
-      }} catch (error) {{
-        console.error(error);
-      }}
-    }}
-
-    renderProjects(initialProjects);
-    renderNextActions(initialProjects);
-    setInterval(refresh, 60000);
-  </script>
-</body>
-</html>
-"""
+    try:
+        handle_command(text, test_mode=False)
+    except Exception as exc:
+        print(f"[dashboard] command dispatch failed: {exc}")
 
 
 def _write_dashboard() -> None:
     DASHBOARD_PATH.write_text(generate_dashboard(), encoding="utf-8")
+
+
+def _event_stream_message(payload: dict) -> bytes:
+    body = json.dumps(payload, separators=(",", ":"))
+    return f"data: {body}\n\n".encode("utf-8")
+
+
+def _serve_asset(handler: BaseHTTPRequestHandler, path: Path, content_type: str) -> None:
+    if not path.exists():
+        handler.send_response(404)
+        handler.end_headers()
+        return
+    body = path.read_bytes()
+    handler.send_response(200)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    try:
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError):
+        return
+
+
+def _native_shell_available() -> bool:
+    return NATIVE_SHELL_PATH.exists() and importlib.util.find_spec("webview") is not None
+
+
+def _native_shell_running() -> bool:
+    if not HUD_PID_PATH.exists():
+        return False
+    try:
+        pid = int(HUD_PID_PATH.read_text(encoding="utf-8").strip())
+    except Exception:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _spawn_native_shell(url: str) -> bool:
+    if not _native_shell_available():
+        return False
+    if _native_shell_running():
+        return True
+    if not _wait_for_dashboard_health(url):
+        return False
+
+    HUD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with HUD_LOG_PATH.open("ab") as log_file:
+        subprocess.Popen(
+            [sys.executable, str(NATIVE_SHELL_PATH), "--url", url, "--title", "Burry"],
+            cwd=str(ROOT.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+    return True
+
+
+def _open_browser_window(url: str) -> None:
+    chrome_like_apps = ["Google Chrome", "Brave Browser", "Chromium"]
+    for app_name in chrome_like_apps:
+        try:
+            result = subprocess.run(
+                [
+                    "open",
+                    "-na",
+                    app_name,
+                    "--args",
+                    f"--app={url}",
+                    "--new-window",
+                    "--window-size=1560,980",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+            if result.returncode == 0:
+                return
+        except Exception:
+            continue
+
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
 
 
 def serve_dashboard():
@@ -412,7 +488,7 @@ def serve_dashboard():
     Runs in background thread so it doesn't block Butler.
     """
 
-    global _SERVER, _SERVER_THREAD
+    global _SERVER, _SERVER_THREAD, PORT
     _write_dashboard()
 
     with _SERVER_LOCK:
@@ -420,46 +496,139 @@ def serve_dashboard():
             return _SERVER
 
         class Handler(BaseHTTPRequestHandler):
+            def _safe_write(self, body: bytes) -> None:
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+
+            def _read_json_body(self) -> dict:
+                try:
+                    content_length = int(self.headers.get("Content-Length", "0") or 0)
+                except Exception:
+                    content_length = 0
+                if content_length <= 0:
+                    return {}
+                try:
+                    raw = self.rfile.read(content_length)
+                except Exception:
+                    return {}
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    return {}
+                return payload if isinstance(payload, dict) else {}
+
+            def _send_text(self, body: str, status: int = 200, content_type: str = "text/plain; charset=utf-8") -> None:
+                payload = body.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self._safe_write(payload)
+
             def _send_json(self, payload: dict | list, status: int = 200) -> None:
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                self._safe_write(body)
 
             def do_GET(self) -> None:  # noqa: N802
-                parsed = urlparse(self.path)
-                if parsed.path == "/api/projects":
-                    self._send_json(load_projects())
-                    return
-                if parsed.path in {"/", "/index.html"}:
-                    _write_dashboard()
-                    body = DASHBOARD_PATH.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-                self.send_response(404)
-                self.end_headers()
+                try:
+                    parsed = urlparse(self.path)
+                    if parsed.path == "/health":
+                        self._send_json({"ok": True, "url": dashboard_url(), "port": PORT})
+                        return
+                    if parsed.path == "/api/stream":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("Connection", "keep-alive")
+                        self.end_headers()
+
+                        last_payload = None
+                        while True:
+                            payload = operator_snapshot()
+                            encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+                            if encoded != last_payload:
+                                self._safe_write(_event_stream_message(payload))
+                                try:
+                                    self.wfile.flush()
+                                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                                    return
+                                last_payload = encoded
+                            else:
+                                self._safe_write(b": keepalive\n\n")
+                                try:
+                                    self.wfile.flush()
+                                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                                    return
+                            time.sleep(STREAM_INTERVAL_SECONDS)
+                    if parsed.path == "/api/projects":
+                        self._send_json(_dashboard_projects())
+                        return
+                    if parsed.path == "/api/status":
+                        self._send_json(_dashboard_payload())
+                        return
+                    if parsed.path == "/api/operator":
+                        self._send_json(operator_snapshot())
+                        return
+                    if parsed.path == "/style.css":
+                        _serve_asset(self, FRONTEND_STYLE_PATH, "text/css; charset=utf-8")
+                        return
+                    if parsed.path == "/app.js":
+                        _serve_asset(self, FRONTEND_APP_PATH, "application/javascript; charset=utf-8")
+                        return
+                    if parsed.path in {"/", "/index.html"}:
+                        _write_dashboard()
+                        body = DASHBOARD_PATH.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self._safe_write(body)
+                        return
+                    self._send_text("Not found", status=404)
+                except Exception as exc:
+                    self._send_text(f"Dashboard error: {exc}", status=500)
 
             def do_POST(self) -> None:  # noqa: N802
-                parsed = urlparse(self.path)
-                if parsed.path == "/api/open_project":
-                    name = parse_qs(parsed.query).get("name", [""])[0]
-                    result = open_project(name)
-                    status = 200 if result.get("status") == "ok" else 400
-                    self._send_json(result, status=status)
-                    return
-                self.send_response(404)
-                self.end_headers()
+                try:
+                    parsed = urlparse(self.path)
+                    if parsed.path == "/api/command":
+                        payload = self._read_json_body()
+                        text = " ".join(str(payload.get("text", "")).split()).strip()
+                        if not text:
+                            self._send_json({"status": "error", "error": "Command text required."}, status=400)
+                            return
+                        worker = threading.Thread(target=_dispatch_command, args=(text,), daemon=True)
+                        worker.start()
+                        self._send_json(
+                            {
+                                "status": "accepted",
+                                "text": text,
+                                "queued_at": _timestamp(),
+                            },
+                            status=202,
+                        )
+                        return
+                    if parsed.path == "/api/open_project":
+                        name = parse_qs(parsed.query).get("name", [""])[0]
+                        result = open_project(name)
+                        status = 200 if result.get("status") == "ok" else 400
+                        self._send_json(result, status=status)
+                        return
+                    self._send_text("Not found", status=404)
+                except Exception as exc:
+                    self._send_json({"status": "error", "error": str(exc)}, status=500)
 
             def log_message(self, format: str, *args) -> None:
                 return
 
         try:
+            PORT = _select_port(PREFERRED_PORT)
             _SERVER = ThreadingHTTPServer((HOST, PORT), Handler)
         except OSError as exc:
             print(f"[dashboard] could not start server: {exc}")
@@ -472,14 +641,35 @@ def serve_dashboard():
         return _SERVER
 
 
+def show_dashboard_window(force: bool = False) -> None:
+    global _LAST_WINDOW_OPENED_AT
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+
+    url = dashboard_url()
+    with _WINDOW_LOCK:
+        now = time.monotonic()
+        if not force and now - _LAST_WINDOW_OPENED_AT < 2.5:
+            return
+        _LAST_WINDOW_OPENED_AT = now
+
+    if not _wait_for_dashboard_health(url):
+        return
+
+    if USE_NATIVE_HUD and _spawn_native_shell(url):
+        return
+
+    _open_browser_window(url)
+
+
 def open_dashboard():
-    """Generate + serve + open in browser."""
+    """Generate + serve + open in a direct app-style window."""
     _write_dashboard()
-    serve_dashboard()
-    try:
-        webbrowser.open(f"http://{HOST}:{PORT}")
-    except Exception:
-        pass
+    server = serve_dashboard()
+    if server is not None:
+        print(f"[Dashboard] Live HUD: {dashboard_url()}")
+    show_dashboard_window(force=True)
 
 
 if __name__ == "__main__":

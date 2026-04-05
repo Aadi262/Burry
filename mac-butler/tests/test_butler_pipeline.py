@@ -5,20 +5,31 @@ from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
     _brain_context_text,
     _clear_pending_dialogue,
+    _conversation_context_text,
     _contextualize_action,
     _deterministic_project_plan,
     _extract_news_topic,
     _direct_agent_plan_for_text,
+    _looks_like_followup_reference,
+    _maybe_add_info_followup,
     _normalize_response,
     _plan_with_brain,
     _project_snapshot_for_planning,
     _question_needs_brain_agents,
+    _recent_dialogue_context,
+    _remember_conversation_turn,
+    _resolve_followup_text,
     _rewrite_speech_with_agent_results,
     _resolve_pending_dialogue,
     _run_actions_with_response,
+    _tool_chat_response,
+    _should_use_brain_for_unknown,
+    _startup_session_hint,
+    _unknown_brain_response,
     _unknown_response_for_text,
     observe_and_followup,
     get_quick_response,
+    reset_conversation_context,
 )
 from intents.router import IntentResult
 
@@ -26,6 +37,7 @@ from intents.router import IntentResult
 class ButlerPipelineTests(unittest.TestCase):
     def tearDown(self):
         _clear_pending_dialogue()
+        reset_conversation_context()
 
     def test_contextualize_create_file_uses_workspace(self):
         action = {"type": "create_file_in_editor", "filename": "demo.py", "editor": "Cursor"}
@@ -63,6 +75,78 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIsNotNone(follow_up)
         self.assertEqual(follow_up.name, "create_file")
         self.assertEqual(follow_up.params["filename"], "Aditya")
+
+    def test_unknown_response_defaults_to_empty_for_substantive_text(self):
+        self.assertEqual(_unknown_response_for_text("you are integrating that"), "")
+
+    def test_should_use_brain_for_unknown_dialogue_followup(self):
+        self.assertTrue(_should_use_brain_for_unknown("you are integrating that"))
+        self.assertFalse(_should_use_brain_for_unknown("bye"))
+
+    @patch("butler.load_runtime_state")
+    def test_recent_dialogue_context_uses_runtime_state(self, mock_runtime):
+        mock_runtime.return_value = {
+            "last_heard_text": "what are you doing",
+            "last_spoken_text": "Working on integrating AI Trade Bot into mac-butler.",
+        }
+        context = _recent_dialogue_context()
+        self.assertIn("Last heard command", context)
+        self.assertIn("Last Butler reply", context)
+
+    def test_recent_dialogue_context_prefers_session_conversation(self):
+        _remember_conversation_turn(
+            "latest news in india",
+            "news",
+            "India inflation cooled and elections are dominating headlines.",
+        )
+        context = _recent_dialogue_context()
+        self.assertIn("[CONVERSATION]", context)
+        self.assertIn("latest news in india", context)
+
+    def test_followup_reference_detection(self):
+        self.assertTrue(_looks_like_followup_reference("you are integrating that"))
+        self.assertTrue(_looks_like_followup_reference("what about it"))
+        self.assertFalse(_looks_like_followup_reference("open spotify"))
+
+    @patch("butler._raw_llm", return_value="latest news in iran war")
+    def test_resolve_followup_text_uses_session_conversation(self, _mock_llm):
+        _remember_conversation_turn(
+            "latest news in iran war",
+            "news",
+            "Missile exchanges intensified overnight.",
+        )
+        resolved = _resolve_followup_text("what about that")
+        self.assertEqual(resolved, "latest news in iran war")
+
+    def test_run_actions_with_response_test_mode_remembers_turn(self):
+        response, results = _run_actions_with_response(
+            text="open google sheet",
+            response="Opening Google Sheet.",
+            actions=[],
+            intent_name="open_app",
+            test_mode=True,
+        )
+        self.assertEqual(response, "Opening Google Sheet.")
+        self.assertEqual(results, [])
+        self.assertIn("Opening Google Sheet.", _conversation_context_text())
+
+    @patch("butler._raw_llm", return_value="Yes. Integrating AI Trade Bot into mac-butler right now.")
+    @patch("butler.build_structured_context", return_value={"formatted": "[FOCUS]\n  project: mac-butler"})
+    @patch(
+        "butler.load_runtime_state",
+        return_value={
+            "last_heard_text": "what are you doing",
+            "last_spoken_text": "Working on integrating AI Trade Bot into mac-butler.",
+        },
+    )
+    def test_unknown_brain_response_uses_recent_dialogue_context(
+        self,
+        _mock_runtime,
+        _mock_context,
+        _mock_llm,
+    ):
+        response = _unknown_brain_response("you are integrating that")
+        self.assertIn("Integrating AI Trade Bot", response)
 
     def test_strip_repeated_project_from_task_clause(self):
         cleaned = _strip_repeated_project_from_task(
@@ -113,41 +197,61 @@ class ButlerPipelineTests(unittest.TestCase):
 
     @patch("butler._record")
     @patch("butler._speak_or_print")
-    @patch("butler._rewrite_speech_with_agent_results")
+    @patch("agents.runner.run_agent_async")
     @patch("butler.executor.run")
-    def test_run_actions_with_response_uses_agent_summary_directly_for_run_agent_only(
+    def test_run_actions_with_response_returns_immediate_voice_for_run_agent_only(
         self,
         mock_run,
-        mock_rewrite,
+        mock_run_agent_async,
         mock_speak_or_print,
         _mock_record,
     ):
-        mock_run.return_value = [
-            {
-                "action": "run_agent",
-                "status": "ok",
-                "result": "MLX VLM is trending and Onyx just shipped a new release.",
-            }
-        ]
-
-        final_response, _results = _run_actions_with_response(
+        final_response, results = _run_actions_with_response(
             text="trending repos",
             response="Checking trending repos.",
             actions=[{"type": "run_agent", "agent": "github_trending", "language": "python"}],
             test_mode=False,
         )
 
-        self.assertEqual(final_response, "MLX VLM is trending and Onyx just shipped a new release.")
-        mock_rewrite.assert_not_called()
+        self.assertEqual(final_response, "Checking trending repos.")
+        self.assertEqual(results[0]["status"], "queued")
+        mock_run_agent_async.assert_called_once()
+        mock_run.assert_not_called()
         mock_speak_or_print.assert_called_once_with(
-            "MLX VLM is trending and Onyx just shipped a new release.",
+            "Checking trending repos.",
             test_mode=False,
         )
+
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    @patch("agents.runner.run_agent_async")
+    @patch("butler.executor.run")
+    def test_run_actions_with_response_queues_agents_in_background(
+        self,
+        mock_executor_run,
+        mock_run_agent_async,
+        mock_speak_or_print,
+        mock_record,
+    ):
+        final_response, results = _run_actions_with_response(
+            text="latest ai news",
+            response="Checking the latest AI news.",
+            actions=[{"type": "run_agent", "agent": "news", "topic": "AI"}],
+            test_mode=False,
+            intent_name="question",
+        )
+
+        self.assertEqual(final_response, "Checking the latest AI news.")
+        self.assertEqual(results[0]["status"], "queued")
+        mock_run_agent_async.assert_called_once()
+        mock_executor_run.assert_not_called()
+        mock_speak_or_print.assert_called_once_with("Checking the latest AI news.", test_mode=False)
+        mock_record.assert_called_once()
 
     def test_brain_context_text_includes_request_and_hint(self):
         ctx = {"formatted": "[FOCUS]\n  project: mac-butler"}
         text = _brain_context_text(ctx, "check latest AI news")
-        self.assertIn("[USER REQUEST]", text)
+        self.assertIn("[CURRENT REQUEST]", text)
         self.assertIn("run_agent", text)
 
     @patch("projects.load_projects")
@@ -166,6 +270,56 @@ class ButlerPipelineTests(unittest.TestCase):
         text = _brain_context_text(ctx, "what should i do next")
         self.assertIn("[PROJECT SNAPSHOT]", text)
         self.assertIn("Verify deploy checks", text)
+
+    def test_brain_context_text_includes_recent_conversation_before_request(self):
+        _remember_conversation_turn(
+            "open mac-butler",
+            "open_project",
+            "Opening mac-butler.",
+        )
+        _remember_conversation_turn(
+            "now run the tests",
+            "shell",
+            "Running the test suite.",
+        )
+        ctx = {"formatted": "[FOCUS]\n  project: mac-butler"}
+        text = _brain_context_text(ctx, "what failed?")
+        self.assertIn("[RECENT CONVERSATION]", text)
+        self.assertIn("USER: open mac-butler", text)
+        self.assertIn("BURRY: Running the test suite.", text)
+        self.assertLess(text.index("[RECENT CONVERSATION]"), text.index("[CURRENT REQUEST]"))
+
+    @patch("memory.store.semantic_search", return_value=[{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}])
+    @patch("brain.ollama_client.chat_with_ollama")
+    def test_tool_chat_response_executes_recall_memory_before_final_reply(self, mock_chat, _mock_semantic):
+        mock_chat.side_effect = [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "recall_memory",
+                                "arguments": {"query": "auth decision"},
+                            }
+                        }
+                    ],
+                }
+            },
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "We already chose JWT over sessions.",
+                }
+            },
+        ]
+
+        result = _tool_chat_response("what did we decide about auth", {"formatted": "[FOCUS]\n  project: mac-butler"})
+
+        self.assertEqual(result["speech"], "We already chose JWT over sessions.")
+        self.assertEqual(result["actions"][0]["type"], "recall_memory")
+        self.assertEqual(result["results"][0]["status"], "ok")
 
     @patch("projects.load_projects")
     def test_project_snapshot_for_planning_prefers_real_project_state(self, mock_load_projects):
@@ -194,8 +348,10 @@ class ButlerPipelineTests(unittest.TestCase):
 
     @patch("projects.load_projects")
     @patch("butler.load_mac_state")
+    @patch("butler.get_active_tasks", return_value=[])
     def test_deterministic_project_plan_prefers_current_workspace_project(
         self,
+        _mock_tasks,
         mock_mac_state,
         mock_load_projects,
     ):
@@ -230,6 +386,36 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIn("Ai Trade Bot", plan["speech"])
         self.assertIn("Run the backend and frontend together", plan["speech"])
         self.assertEqual(plan["actions"], [])
+
+    @patch("projects.load_projects")
+    @patch("butler.load_mac_state")
+    @patch("butler.get_active_tasks", return_value=[])
+    def test_deterministic_project_plan_filters_stale_startup_setup_tasks(
+        self,
+        _mock_tasks,
+        mock_mac_state,
+        mock_load_projects,
+    ):
+        mock_mac_state.return_value = {"cursor_workspace": "/Users/adityatiwari/Burry/mac-butler"}
+        mock_load_projects.return_value = [
+            {
+                "name": "mac-butler",
+                "path": "/Users/adityatiwari/Burry/mac-butler",
+                "status": "active",
+                "completion": 84,
+                "next_tasks": [
+                    "Configure Brave MCP and GitHub MCP secrets.",
+                    "Install and wire a real local neural TTS backend.",
+                    "Upgrade live STT to a stronger local path.",
+                ],
+                "blockers": ["Voice follow-up is still weaker than the main TTS path."],
+            }
+        ]
+
+        plan = _deterministic_project_plan({"raw": {"editor": {"workspace_paths": []}}})
+
+        self.assertIn("Upgrade live STT", plan["speech"])
+        self.assertNotIn("Brave M C P", plan["speech"])
 
     @patch("projects.load_projects")
     @patch("butler.load_mac_state")
@@ -283,10 +469,26 @@ class ButlerPipelineTests(unittest.TestCase):
     def test_extract_news_topic_maps_air_to_ai(self):
         self.assertEqual(_extract_news_topic("but can you please tell me the latest air news"), "AI")
 
+    def test_extract_news_topic_strips_leading_preposition(self):
+        self.assertEqual(_extract_news_topic("can you tell me latest news on iran and us"), "iran and us")
+
+    @patch("butler.get_last_session_summary", return_value='Last active: Sun 18:53\nRequest: "latest news on google gemma"')
+    def test_startup_session_hint_uses_last_request(self, _mock_summary):
+        self.assertIn("Last time you asked about", _startup_session_hint())
+
     def test_direct_agent_plan_for_search_question(self):
         plan = _direct_agent_plan_for_text("what is qwen2.5?")
         self.assertIsNotNone(plan)
         self.assertEqual(plan["actions"][0]["agent"], "search")
+
+    def test_direct_agent_plan_for_url_fetch_question(self):
+        plan = _direct_agent_plan_for_text("read this article https://example.com/post")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["actions"][0]["agent"], "fetch")
+
+    def test_info_followup_is_added_for_news_and_search(self):
+        self.assertTrue(_maybe_add_info_followup("Gemma 4 just launched.", "news").endswith("Want more?"))
+        self.assertEqual(_maybe_add_info_followup("Opening Gmail compose.", "open_app"), "Opening Gmail compose.")
 
     def test_direct_agent_plan_for_hackernews_question(self):
         plan = _direct_agent_plan_for_text("what's on hackernews?")

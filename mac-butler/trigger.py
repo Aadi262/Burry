@@ -11,7 +11,11 @@ import atexit
 import threading
 from pathlib import Path
 
+import requests
+
 from daemon.clap_detector import ClapDetector
+from butler_config import BUTLER_MODEL_CHAINS, OLLAMA_LOCAL_URL, OLLAMA_MODEL
+from runtime import note_session_active
 from state import State, state
 
 SESSION_FLAG = Path("/tmp/butler_session.flag")
@@ -21,6 +25,72 @@ _shutdown_event = threading.Event()
 _session_thread: threading.Thread | None = None
 _clap_thread: threading.Thread | None = None
 _clap_detector: ClapDetector | None = None
+
+
+def _planning_keepalive_model() -> str:
+    chain = list(BUTLER_MODEL_CHAINS.get("planning") or [])
+    return str(chain[0] if chain else OLLAMA_MODEL)
+
+
+def _start_dashboard_server() -> None:
+    try:
+        from projects import serve_dashboard, show_dashboard_window
+        try:
+            from projects.dashboard import dashboard_url
+        except Exception:
+            dashboard_url = lambda: "http://127.0.0.1:3333"
+    except Exception as exc:
+        print(f"[Dashboard] HUD startup skipped: {exc}")
+        return
+
+    try:
+        server = serve_dashboard()
+    except Exception as exc:
+        print(f"[Dashboard] HUD startup failed: {exc}")
+        return
+
+    if server is not None:
+        print(f"[Dashboard] Live HUD: {dashboard_url()}")
+        try:
+            show_dashboard_window()
+        except Exception as exc:
+            print(f"[Dashboard] HUD window skipped: {exc}")
+
+
+def _warm_voice_runtime() -> None:
+    try:
+        from voice.stt import warm_stt
+
+        warm_stt()
+    except Exception as exc:
+        print(f"[Trigger] STT warmup skipped: {exc}")
+
+    try:
+        from voice.tts import warm_tts
+
+        warm_tts()
+    except Exception as exc:
+        print(f"[Trigger] TTS warmup skipped: {exc}")
+
+
+def _warm_planning_model() -> None:
+    model = _planning_keepalive_model()
+    try:
+        requests.post(
+            f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate",
+            json={
+                "model": model,
+                "prompt": " ",
+                "stream": False,
+                "keep_alive": "10m",
+                "options": {
+                    "num_predict": 1,
+                },
+            },
+            timeout=2.5,
+        )
+    except Exception:
+        return
 
 
 def _clear_session_flag() -> None:
@@ -37,7 +107,7 @@ def _run_continuous_session() -> None:
     """
     global _session_active
     import time
-    from butler import handle_command
+    from butler import handle_command, reset_conversation_context
     from voice.stt import listen_for_command
 
     print("[Trigger] Continuous session started — just speak, no clap needed between commands")
@@ -54,6 +124,8 @@ def _run_continuous_session() -> None:
                 continue
 
             try:
+                if state.current != State.LISTENING:
+                    state.transition(State.LISTENING)
                 text = listen_for_command(timeout=10.0, stop_event=_shutdown_event)
             except Exception as exc:
                 if _shutdown_event.is_set():
@@ -67,14 +139,20 @@ def _run_continuous_session() -> None:
             if text and len(text) > 2:
                 handle_command(text)  # blocking — returns only after TTS is done
     finally:
+        reset_conversation_context()
         _clear_session_flag()
         with _session_lock:
             _session_active = False
+        note_session_active(False, source="trigger")
 
 
 def on_trigger():
     global _session_active, _session_thread
-    from butler import run_startup_briefing
+    from butler import reset_conversation_context, run_startup_briefing
+    try:
+        from projects import show_dashboard_window
+    except Exception:
+        show_dashboard_window = None
 
     if _shutdown_event.is_set():
         return
@@ -88,6 +166,16 @@ def on_trigger():
             print("[Trigger] Session already running — speak a command")
             return
         _session_active = True
+
+    threading.Thread(target=_warm_planning_model, daemon=True).start()
+
+    note_session_active(True, source="trigger")
+    reset_conversation_context()
+    if show_dashboard_window is not None:
+        try:
+            show_dashboard_window(force=True)
+        except Exception:
+            pass
 
     if not SESSION_FLAG.exists():
         _mark_session_started()
@@ -141,6 +229,7 @@ def start_clap_trigger():
 def shutdown() -> None:
     _shutdown_event.set()
     _clear_session_flag()
+    note_session_active(False, source="shutdown")
     try:
         if _clap_detector is not None:
             _clap_detector.stop()
@@ -169,9 +258,12 @@ def main():
     args = parser.parse_args()
 
     print("=" * 50)
-    print("  🎩 Mac Butler — Trigger Active")
+    print("  🎩 Burry — Trigger Active")
     print("=" * 50)
     print("\nPress Ctrl+C to quit.\n")
+
+    _start_dashboard_server()
+    threading.Thread(target=_warm_voice_runtime, daemon=True).start()
 
     if args.both:
         global _clap_thread

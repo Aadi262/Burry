@@ -7,12 +7,18 @@ Updates automatically after each session.
 """
 
 import json
+import math
 import os
 import re
 from datetime import datetime
 from pathlib import Path
 
+import requests
+
+from butler_config import EMBED_MODEL, OLLAMA_LOCAL_URL
+
 MEMORY_PATH = Path(__file__).parent / "butler_memory.json"
+SESSION_DIR = Path(__file__).parent / "layers" / "sessions"
 
 
 def _default_memory() -> dict:
@@ -54,6 +60,124 @@ def _append_bounded(items: list[str], value: str, limit: int = 8) -> list[str]:
     kept = [item for item in items if item != cleaned]
     kept.append(cleaned)
     return kept[-limit:]
+
+
+def _embedding_text(text: str, result: str = "", context: str = "") -> str:
+    parts = [
+        " ".join(str(text or "").split()).strip(),
+        " ".join(str(result or "").split()).strip(),
+        " ".join(str(context or "").split()).strip(),
+    ]
+    combined = " ".join(part for part in parts if part).strip()
+    return combined[:1600]
+
+
+def _embed_text(text: str) -> list[float]:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return []
+    try:
+        response = requests.post(
+            f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/embeddings",
+            json={"model": EMBED_MODEL, "prompt": cleaned[:1600]},
+            timeout=8,
+        )
+        response.raise_for_status()
+        embedding = response.json().get("embedding", [])
+        if isinstance(embedding, list):
+            return [float(value) for value in embedding]
+    except Exception:
+        return []
+    return []
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(float(x) * float(y) for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(float(x) ** 2 for x in a))
+    norm_b = math.sqrt(sum(float(y) ** 2 for y in b))
+    if not norm_a or not norm_b:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def prepare_session_entry(entry: dict) -> dict:
+    prepared = dict(entry or {})
+    if isinstance(prepared.get("embedding"), list) and prepared.get("embedding"):
+        return prepared
+    embedding_text = _embedding_text(
+        prepared.get("context", "") or prepared.get("context_preview", "") or prepared.get("text", ""),
+        prepared.get("speech", "") or prepared.get("result", ""),
+        json.dumps(prepared.get("actions", [])[:2]) if isinstance(prepared.get("actions"), list) else "",
+    )
+    embedding = _embed_text(embedding_text)
+    if embedding:
+        prepared["embedding"] = embedding
+    return prepared
+
+
+def load_all_sessions(limit_days: int = 7) -> list[dict]:
+    entries: list[dict] = []
+    if not SESSION_DIR.exists():
+        return entries
+    for session_file in sorted(SESSION_DIR.glob("*.jsonl"), reverse=True)[:limit_days]:
+        for line in session_file.read_text(errors="ignore").splitlines():
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                entries.append(data)
+    return entries
+
+
+def load_recent_sessions(n: int = 5) -> list[dict]:
+    sessions = load_all_sessions(limit_days=14)
+    sessions.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+    return sessions[: max(1, n)]
+
+
+def semantic_search(query: str, n: int = 5) -> list[dict]:
+    query_text = " ".join(str(query or "").split()).strip()
+    if not query_text:
+        return []
+
+    query_embedding = _embed_text(query_text)
+    sessions = load_all_sessions(limit_days=14)
+    if not query_embedding or not sessions:
+        lowered = query_text.lower()
+        return [
+            entry
+            for entry in sessions
+            if lowered in str(entry.get("speech", "")).lower()
+            or lowered in str(entry.get("context", entry.get("context_preview", ""))).lower()
+        ][: max(1, n)]
+
+    scored: list[tuple[float, dict]] = []
+    for entry in sessions:
+        embedding = entry.get("embedding")
+        if not isinstance(embedding, list) or not embedding:
+            continue
+        score = cosine(query_embedding, embedding)
+        if score > 0:
+            enriched = dict(entry)
+            enriched["score"] = round(score, 4)
+            scored.append((score, enriched))
+
+    if not scored:
+        lowered = query_text.lower()
+        return [
+            entry
+            for entry in sessions
+            if lowered in str(entry.get("speech", "")).lower()
+            or lowered in str(entry.get("context", entry.get("context_preview", ""))).lower()
+        ][: max(1, n)]
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [entry for _score, entry in scored[: max(1, n)]]
 
 
 def _looks_like_verification_command(cmd: str) -> bool:
@@ -381,8 +505,9 @@ def record_session(
         "actions": actions,
         "results": results,
     }
+    embedded_entry = prepare_session_entry(entry)
     history = data.get("command_history", [])
-    history.append(entry)
+    history.append(embedded_entry)
     data["command_history"] = history[-50:]
 
     learned = data.get("learned_commands", {})

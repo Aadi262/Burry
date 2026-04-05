@@ -27,6 +27,7 @@ from butler_config import (
     SEARXNG_URL,
     VPS_HOSTS,
 )
+from brain.query_analyzer import analyze_query
 from context import build_structured_context
 from context.mac_activity import get_state_for_context, load_state as load_mac_state, start_watcher
 from executor.engine import Executor
@@ -48,7 +49,9 @@ from memory.store import (
     record_session,
     update_project_state,
 )
+from runtime import load_runtime_state, note_heard_text, note_intent
 from state import State, state
+from tasks import get_active_tasks
 from voice import listen_continuous, speak
 
 executor = Executor()
@@ -56,6 +59,70 @@ _WATCHER_LOCK = threading.Lock()
 _WATCHER_STARTED = False
 _PENDING_DIALOGUE_LOCK = threading.Lock()
 _PENDING_DIALOGUE: dict | None = None
+_CONVERSATION_LOCK = threading.Lock()
+_FOLLOWUP_PREFIXES = (
+    "and ",
+    "then ",
+    "so ",
+    "what about ",
+    "how about ",
+    "and what ",
+    "and who ",
+    "and why ",
+    "and how ",
+)
+
+
+class ConversationContext:
+    def __init__(self) -> None:
+        self.turns: list[dict] = []
+        self.last_spoken = ""
+        self.last_intent = ""
+        self.last_heard = ""
+
+    def add_turn(self, heard: str, intent: str, spoken: str) -> None:
+        entry = {
+            "heard": " ".join(str(heard or "").split()).strip(),
+            "intent": " ".join(str(intent or "").split()).strip(),
+            "spoken": " ".join(str(spoken or "").split()).strip(),
+            "time": datetime.now().isoformat(),
+        }
+        self.turns.append(entry)
+        self.turns = self.turns[-6:]
+        self.last_spoken = entry["spoken"]
+        self.last_intent = entry["intent"]
+        self.last_heard = entry["heard"]
+
+    def get_context_for_llm(self) -> str:
+        if not self.turns:
+            return ""
+        lines = ["[CONVERSATION]"]
+        for turn in self.turns[-3:]:
+            if turn["heard"]:
+                lines.append(f"  User: {turn['heard']}")
+            if turn["spoken"]:
+                lines.append(f"  Butler: {turn['spoken']}")
+        return "\n".join(lines)
+
+    def get_recent_turns_prompt(self, limit: int = 5) -> str:
+        if not self.turns:
+            return ""
+        lines = ["[RECENT CONVERSATION]"]
+        for turn in self.turns[-max(1, limit):]:
+            if turn["heard"]:
+                lines.append(f"  USER: {turn['heard']}")
+            if turn["spoken"]:
+                lines.append(f"  BURRY: {turn['spoken']}")
+        return "\n".join(lines)
+
+    def clear(self) -> None:
+        self.turns = []
+        self.last_spoken = ""
+        self.last_intent = ""
+        self.last_heard = ""
+
+
+_SESSION_CONVERSATION = ConversationContext()
 
 QUICK_RESPONSES = {
     "spotify_play": "Playing {song}.",
@@ -91,6 +158,17 @@ HELP_TEXT = (
 _briefing_done = False
 _SEARCH_CHECKED = False
 _BRAIN_STATUS_CHECKED = False
+_LOW_SIGNAL_STARTUP_PATTERNS = (
+    "brave mcp",
+    "github mcp",
+    "mcp secret",
+    "install piper",
+    "local neural tts backend",
+    "wire two-stage llm into butler",
+    "add task system",
+    "add observe loop",
+    "implement layered memory",
+)
 
 
 def _check_searxng() -> bool:
@@ -130,6 +208,47 @@ def _clear_pending_dialogue() -> None:
     global _PENDING_DIALOGUE
     with _PENDING_DIALOGUE_LOCK:
         _PENDING_DIALOGUE = None
+
+
+def reset_conversation_context() -> None:
+    with _CONVERSATION_LOCK:
+        _SESSION_CONVERSATION.clear()
+
+
+def _remember_conversation_turn(heard: str, intent_name: str, spoken: str) -> None:
+    if not spoken:
+        return
+    with _CONVERSATION_LOCK:
+        _SESSION_CONVERSATION.add_turn(heard, intent_name, spoken)
+
+
+def _conversation_context_text() -> str:
+    with _CONVERSATION_LOCK:
+        return _SESSION_CONVERSATION.get_context_for_llm()
+
+
+def _recent_turns_prompt_text(limit: int = 5) -> str:
+    with _CONVERSATION_LOCK:
+        prompt = _SESSION_CONVERSATION.get_recent_turns_prompt(limit=limit)
+    if prompt:
+        return prompt
+
+    try:
+        runtime_state = load_runtime_state()
+    except Exception:
+        return ""
+
+    if not isinstance(runtime_state, dict):
+        return ""
+
+    lines = ["[RECENT CONVERSATION]"]
+    last_heard = " ".join(str(runtime_state.get("last_heard_text", "")).split()).strip()
+    last_spoken = " ".join(str(runtime_state.get("last_spoken_text", "")).split()).strip()
+    if last_heard:
+        lines.append(f"  USER: {last_heard[:180]}")
+    if last_spoken:
+        lines.append(f"  BURRY: {last_spoken[:220]}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _resolve_pending_dialogue(text: str) -> IntentResult | None:
@@ -182,7 +301,163 @@ def _unknown_response_for_text(text: str) -> str:
     ):
         _set_pending_dialogue("file_name", editor=detect_editor_choice(text))
         return "What should I name the file?"
-    return "Try again?"
+    return ""
+
+
+def _should_use_brain_for_unknown(text: str) -> bool:
+    lowered = " ".join(str(text or "").lower().split())
+    if len(lowered.split()) < 3:
+        return False
+
+    starters = (
+        "what",
+        "why",
+        "how",
+        "who",
+        "when",
+        "where",
+        "can you",
+        "could you",
+        "would you",
+        "tell me",
+        "show me",
+        "give me",
+        "are you",
+        "do you",
+        "did you",
+        "you are",
+        "you're",
+        "we are",
+        "that",
+        "this",
+        "it",
+    )
+    if any(lowered.startswith(prefix) for prefix in starters):
+        return True
+
+    signal_words = {
+        "news",
+        "latest",
+        "mail",
+        "email",
+        "search",
+        "open",
+        "project",
+        "task",
+        "doing",
+        "build",
+        "working",
+    }
+    return len(lowered.split()) >= 5 and any(token in lowered for token in signal_words)
+
+
+def _looks_like_followup_reference(text: str) -> bool:
+    lowered = " ".join(str(text or "").lower().split())
+    if len(lowered.split()) < 2:
+        return False
+    if any(lowered.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES):
+        return True
+    if any(
+        phrase in lowered
+        for phrase in (
+            "you said",
+            "what you said",
+            "same thing",
+            "same topic",
+            "same one",
+        )
+    ):
+        return True
+    return any(
+        re.search(pattern, lowered) is not None
+        for pattern in (
+            r"\bthat\b",
+            r"\bit\b",
+            r"\bthis\b",
+            r"\bthere\b",
+            r"\bthey\b",
+            r"\bthem\b",
+        )
+    )
+
+
+def _recent_dialogue_context() -> str:
+    conversation = _conversation_context_text()
+    if conversation:
+        return conversation
+
+    try:
+        runtime_state = load_runtime_state()
+    except Exception:
+        return ""
+
+    if not isinstance(runtime_state, dict):
+        return ""
+
+    lines = []
+    last_heard = " ".join(str(runtime_state.get("last_heard_text", "")).split()).strip()
+    last_spoken = " ".join(str(runtime_state.get("last_spoken_text", "")).split()).strip()
+
+    if last_heard:
+        lines.append(f"Last heard command: {last_heard[:140]}")
+    if last_spoken:
+        lines.append(f"Last Butler reply: {last_spoken[:180]}")
+
+    return "\n".join(lines)
+
+
+def _unknown_brain_response(text: str, model: str | None = None) -> str:
+    ctx = build_structured_context()
+    dialogue = _recent_turns_prompt_text() or _recent_dialogue_context()
+    prompt = f"""You are Butler in an active voice session.
+
+Current work context:
+{ctx.get('formatted', '')[:220]}
+
+{dialogue}
+
+User just said: "{text}"
+
+If the user refers to "that", "it", or previous work, resolve it from the last Butler reply.
+Reply in under 18 words.
+If the request is still unclear, ask one short clarifying question instead of saying try again.
+Output ONLY the response text."""
+    fast_model = model or OLLAMA_FALLBACK or OLLAMA_MODEL
+    response = _normalize_response(
+        _raw_llm(prompt, model=fast_model, max_tokens=80),
+        max_words=18,
+    )
+    if not response or response == "Something went wrong.":
+        return ""
+    return response
+
+
+def _resolve_followup_text(text: str, model: str | None = None) -> str:
+    if not _looks_like_followup_reference(text):
+        return text
+    conversation = _recent_turns_prompt_text()
+    if not conversation:
+        return text
+
+    prompt = f"""Rewrite the user's follow-up into a standalone request using the recent conversation.
+
+{conversation}
+
+Follow-up: "{text}"
+
+Rules:
+- Keep the original meaning.
+- Resolve words like it, that, this, there, or you said.
+- Keep it under 18 words.
+- Output ONLY the rewritten request text.
+"""
+    rewritten = _normalize_response(
+        _raw_llm(prompt, model=model or OLLAMA_FALLBACK or OLLAMA_MODEL, max_tokens=80),
+        max_words=18,
+    ).strip().strip('"')
+    if not rewritten or rewritten == "Something went wrong.":
+        return text
+    return rewritten
 
 
 def _filename_from_follow_up(text: str) -> str:
@@ -204,13 +479,14 @@ def _filename_from_follow_up(text: str) -> str:
     return candidate
 
 
-def _reply_without_action(text: str, response: str, test_mode: bool = False) -> None:
+def _reply_without_action(text: str, response: str, test_mode: bool = False, intent_name: str = "") -> None:
     _speak_or_print(response, test_mode=test_mode)
-    _record(text, response, [])
+    _record(text, response, [], intent_name=intent_name or "reply")
     state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
 def _build_voice_prompt(intent: IntentResult, text: str) -> str:
+    conversation = _recent_turns_prompt_text()
     if intent.name == "what_next":
         ctx = build_structured_context()
         mac_state = get_state_for_context()
@@ -221,6 +497,8 @@ Current Mac state:
 
 Current work context:
 {ctx['formatted'][:320]}
+
+{conversation}
 
 User asked: "{text}"
 
@@ -236,6 +514,8 @@ His main projects are mac-butler and email-infra.
 Current work context:
 {ctx['formatted'][:220]}
 
+{conversation}
+
 User asked: "{text}"
 
 Answer directly in under 20 words.
@@ -248,9 +528,15 @@ Output ONLY the response text:"""
 def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
     parts = []
     formatted = str(ctx.get("formatted", "")).strip()
+    conversation = _recent_turns_prompt_text()
+
+    if formatted:
+        parts.append(formatted)
+    if conversation:
+        parts.append(conversation)
 
     if user_text:
-        parts.append(f"[USER REQUEST]\n  {user_text}")
+        parts.append(f"[CURRENT REQUEST]\n  {user_text}")
         lowered = user_text.lower()
         hints = []
         if any(token in lowered for token in ("news", "latest", "recent", "happening")):
@@ -278,11 +564,7 @@ def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
             if snapshot:
                 parts.insert(0, snapshot)
             if formatted:
-                parts.insert(1 if snapshot else 0, _strip_context_section(formatted, "[TASK LIST]"))
-        elif formatted:
-            parts.insert(0, formatted)
-    elif formatted:
-        parts.append(formatted)
+                parts[1 if snapshot else 0] = _strip_context_section(formatted, "[TASK LIST]")
 
     return "\n\n".join(part for part in parts if part).strip()
 
@@ -399,6 +681,83 @@ def _spoken_task(text: str, limit: int = 8) -> str:
     return _clip_words(cleaned, limit)
 
 
+def _filter_startup_items(items: list[str]) -> list[str]:
+    filtered = []
+    for item in items:
+        cleaned = " ".join(str(item or "").split()).strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if any(pattern in lowered for pattern in _LOW_SIGNAL_STARTUP_PATTERNS):
+            continue
+        filtered.append(cleaned)
+    return filtered
+
+
+def _meaningful_active_tasks(project_name: str) -> list[str]:
+    try:
+        tasks = get_active_tasks(project_name)
+    except Exception:
+        return []
+
+    titles = []
+    for task in tasks:
+        title = " ".join(str(task.get("title", "")).split()).strip()
+        if not title:
+            continue
+        lowered = title.lower()
+        if "test task for audit" in lowered:
+            continue
+        if any(pattern in lowered for pattern in _LOW_SIGNAL_STARTUP_PATTERNS):
+            continue
+        titles.append(title)
+    return titles
+
+
+def _maybe_add_info_followup(text: str, agent_name: str) -> str:
+    if agent_name not in {"news", "search"}:
+        return text
+    cleaned = _normalize_response(text, max_words=26)
+    if not cleaned:
+        return text
+    if cleaned.endswith("?"):
+        return cleaned
+    return _normalize_response(f"{cleaned} Want more?", max_words=30)
+
+
+def _startup_session_hint() -> str:
+    summary = " ".join(str(get_last_session_summary() or "").split())
+    if not summary or summary == "No previous session.":
+        return ""
+
+    action_match = re.search(r"Did:\s*(.+?)(?:\s+(?:Request|Result):|$)", summary, flags=re.IGNORECASE)
+    if action_match:
+        action = _clip_words(action_match.group(1).strip().strip('"'), 8)
+        if action:
+            return f"Last time I {action}."
+
+    request_match = re.search(r'Request:\s*"([^"]+)"', summary, flags=re.IGNORECASE)
+    if request_match:
+        request = request_match.group(1).strip()
+        request = re.sub(
+            r"^(?:can you|could you|would you|please|tell me|show me|give me|search for|search|find|look up)\s+",
+            "",
+            request,
+            flags=re.IGNORECASE,
+        )
+        request = _spoken_task(request, 8)
+        if request:
+            return f"Last time you asked about {request}."
+
+    result_match = re.search(r"Result:\s*(.+)$", summary, flags=re.IGNORECASE)
+    if result_match:
+        result = _clip_words(result_match.group(1).strip().strip('"'), 8)
+        if result:
+            return f"Last result: {result}."
+
+    return ""
+
+
 def _what_next_project(ctx: dict) -> tuple[dict | None, bool]:
     try:
         from projects import load_projects
@@ -442,14 +801,18 @@ def _deterministic_project_plan(ctx: dict, *, startup: bool = False) -> dict | N
         return None
 
     name = str(project.get("name", "")).strip() or "your current project"
-    next_tasks = [str(item).strip() for item in (project.get("next_tasks") or []) if str(item).strip()]
-    blockers = [str(item).strip() for item in (project.get("blockers") or []) if str(item).strip()]
+    task_titles = _meaningful_active_tasks(name)
+    next_tasks = _filter_startup_items(
+        task_titles or [str(item).strip() for item in (project.get("next_tasks") or []) if str(item).strip()]
+    )
+    blockers = _filter_startup_items([str(item).strip() for item in (project.get("blockers") or []) if str(item).strip()])
 
     first_task = _spoken_task(next_tasks[0] if next_tasks else "review the current status file", 8)
     raw_second_task = str(next_tasks[1]).strip() if len(next_tasks) > 1 else ""
     second_task = _spoken_task(raw_second_task, 5) if raw_second_task and len(raw_second_task.split()) <= 5 else ""
     raw_blocker = str(blockers[0]).strip() if blockers else ""
     blocker = _clip_words(raw_blocker, 7) if raw_blocker and len(raw_blocker.split()) <= 7 else ""
+    session_hint = _startup_session_hint() if startup else ""
 
     lead = f"You're already in {name}" if in_workspace else f"{name} is the clearest next move"
     task_clause = f"Start with {first_task}."
@@ -457,7 +820,7 @@ def _deterministic_project_plan(ctx: dict, *, startup: bool = False) -> dict | N
         task_clause = f"Start with {first_task}, then {second_task}."
 
     question = (
-        "Say open it, start it, or switch."
+        "Say recap, tasks, or news."
         if startup
         else (
             "Want the first step?"
@@ -467,6 +830,8 @@ def _deterministic_project_plan(ctx: dict, *, startup: bool = False) -> dict | N
     )
 
     variants = []
+    if session_hint:
+        variants.append(f"{lead}. {session_hint} {task_clause} {question}")
     if blocker and len(blocker.split()) <= 7:
         variants.append(f"{lead}. Biggest blocker is {blocker}. {task_clause} {question}")
     variants.append(f"{lead}. {task_clause} {question}")
@@ -493,31 +858,29 @@ def _deterministic_project_plan(ctx: dict, *, startup: bool = False) -> dict | N
 
 def _question_needs_brain_agents(text: str) -> bool:
     lowered = text.lower()
-    triggers = (
-        "latest",
-        "news",
-        "recent",
-        "hackernews",
-        "hacker news",
-        "reddit",
-        "market pulse",
-        "trending repos",
-        "trending repositories",
-        "look up",
-        "search",
-        "find",
-        "what is",
-        "github",
-        "pull request",
-        "pr ",
-        "issue",
-        "repo",
-        "vps",
-        "server",
-        "docker",
-        "container",
-    )
-    return any(trigger in lowered for trigger in triggers)
+    if any(
+        trigger in lowered
+        for trigger in (
+            "hackernews",
+            "hacker news",
+            "reddit",
+            "market pulse",
+            "trending repos",
+            "trending repositories",
+            "github",
+            "pull request",
+            "pr ",
+            "issue",
+            "repo",
+            "vps",
+            "server",
+            "docker",
+            "container",
+        )
+    ):
+        return True
+    decision = analyze_query(text, conversation=_conversation_context_text())
+    return decision["action"] in {"news", "search", "fetch"} and float(decision.get("confidence", 0.0)) >= 0.7
 
 
 def _extract_news_topic(text: str) -> str:
@@ -536,6 +899,7 @@ def _extract_news_topic(text: str) -> str:
         lowered,
     )
     candidate = re.sub(r"\s+", " ", candidate).strip(" .")
+    candidate = re.sub(r"^(?:on|for|regarding)\s+", "", candidate).strip()
     if candidate in {"", "ai", "air"}:
         return "AI and tech news"
     return candidate
@@ -599,7 +963,29 @@ def _direct_agent_plan_for_text(text: str) -> dict | None:
             "actions": [action],
         }
 
-    if any(token in lowered for token in ("what is", "look up", "search", "find")):
+    decision = analyze_query(text, conversation=_conversation_context_text())
+
+    if decision["action"] == "fetch":
+        url_match = re.search(
+            r"(https?://[^\s]+|www\.[^\s]+|\b[a-z0-9.-]+\.(?:com|org|net|io|ai|dev|app|co|in)\b)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        url = url_match.group(1) if url_match else ""
+        return {
+            "speech": "Reading that page.",
+            "actions": [{"type": "run_agent", "agent": "fetch", "query": text, "url": url}],
+        }
+
+    if decision["action"] == "news":
+        topic = _extract_news_topic(lowered)
+        spoken_topic = "AI news" if topic == "AI" else f"{topic} news" if topic != "AI and tech news" else "AI and tech news"
+        return {
+            "speech": f"Checking the latest {spoken_topic}.",
+            "actions": [{"type": "run_agent", "agent": "news", "topic": topic}],
+        }
+
+    if decision["action"] == "search":
         query = text.strip().rstrip("?")
         return {
             "speech": "Looking that up.",
@@ -641,6 +1027,247 @@ def _plan_with_brain(context_text: str, model: str | None = None) -> dict:
         "greeting": str(data.get("greeting", "")).strip(),
     }
     return plan
+
+
+TOOL_SYSTEM_PROMPT = """You are Burry, Aditya's Mac operator.
+
+Use tools when they will materially improve the answer or complete the action.
+Tool policy:
+- use open_project when the user wants to open or work on a named project
+- use run_shell for tests, git, server checks, and safe shell commands
+- use browse_web for latest information, search, or reading a page
+- use recall_memory for questions about past decisions, prior work, or session history
+- use take_screenshot_and_describe for screen questions
+
+Rules:
+- Keep the final spoken answer under 30 words unless summarizing a fetched page or news result
+- Sound direct and useful
+- If you already have enough context, answer directly without forcing a tool call
+- If the request is ambiguous, ask one short clarifying question
+"""
+
+
+def _project_path_for_name(name: str) -> str:
+    candidate = " ".join(str(name or "").split()).strip()
+    if not candidate:
+        return ""
+    try:
+        from projects import get_project
+
+        project = get_project(candidate)
+    except Exception:
+        project = None
+    if not project:
+        return ""
+    return str(project.get("path", "") or "").strip()
+
+
+def _tool_chat_messages(ctx: dict, user_text: str) -> list[dict]:
+    formatted = str(ctx.get("formatted", "") or "").strip()
+    recent = _recent_turns_prompt_text()
+    prompt_parts = []
+    if formatted:
+        prompt_parts.append(formatted[:800])
+    if recent:
+        prompt_parts.append(recent)
+    prompt_parts.append(f"[CURRENT REQUEST]\n  {user_text}")
+    return [
+        {"role": "system", "content": TOOL_SYSTEM_PROMPT},
+        {"role": "user", "content": "\n\n".join(part for part in prompt_parts if part)},
+    ]
+
+
+def _parse_tool_arguments(arguments) -> dict:
+    if isinstance(arguments, dict):
+        return dict(arguments)
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
+def _clip_tool_payload(value, limit: int = 2600):
+    if isinstance(value, dict):
+        clipped = {}
+        for key, item in value.items():
+            clipped[key] = _clip_tool_payload(item, limit=limit)
+        return clipped
+    if isinstance(value, list):
+        return [_clip_tool_payload(item, limit=limit) for item in value[:5]]
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: str = "") -> dict:
+    name = str(tool_name or "").strip()
+    args = dict(arguments or {})
+
+    if name == "open_project":
+        project_name = " ".join(str(args.get("name", "")).split()).strip()
+        action = {"type": "open_project", "name": project_name}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "open_project", "status": "error", "error": "No result"}
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {
+                "project": project_name,
+                "status": result.get("status", "ok"),
+                "result": _clip_tool_payload(result.get("result", "") or result.get("error", "")),
+            },
+        }
+
+    if name == "run_shell":
+        command = " ".join(str(args.get("command", "")).split()).strip()
+        project_name = " ".join(str(args.get("project", "")).split()).strip()
+        cwd = _project_path_for_name(project_name) or _first_workspace_path(ctx) or "~/Burry"
+        action = {"type": "run_command", "cmd": command, "cwd": cwd}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "run_command", "status": "error", "error": "No result"}
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {
+                "command": command,
+                "cwd": cwd,
+                "status": result.get("status", "ok"),
+                "result": _clip_tool_payload(result.get("result", "") or result.get("error", "")),
+            },
+        }
+
+    if name == "browse_web":
+        from agents.runner import run_agent
+
+        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
+        url = " ".join(str(args.get("url", "")).split()).strip()
+        if url:
+            action = {"type": "run_agent", "agent": "fetch", "query": query or f"Read {url}", "url": url}
+        else:
+            direct_plan = _direct_agent_plan_for_text(query)
+            if direct_plan and direct_plan.get("actions"):
+                action = dict(direct_plan["actions"][0])
+            else:
+                decision = analyze_query(query, conversation=_conversation_context_text())
+                if decision["action"] == "news":
+                    action = {"type": "run_agent", "agent": "news", "topic": _extract_news_topic(query.lower())}
+                else:
+                    action = {"type": "run_agent", "agent": "search", "query": query}
+        agent = str(action.get("agent", "")).strip()
+        input_data = {key: value for key, value in action.items() if key not in {"type", "agent"}}
+        result = run_agent(agent, input_data)
+        result_row = {
+            "action": "run_agent",
+            "status": result.get("status", "ok"),
+            "result": str(result.get("result", "") or ""),
+        }
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": [result_row],
+            "payload": {
+                "agent": agent,
+                "status": result.get("status", "ok"),
+                "result": _clip_tool_payload(result.get("result", "")),
+                "data": _clip_tool_payload(result.get("data", {})),
+            },
+        }
+
+    if name == "recall_memory":
+        from memory.store import semantic_search
+
+        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
+        matches = semantic_search(query, n=5)
+        items = [
+            {
+                "timestamp": str(item.get("timestamp", ""))[:16],
+                "context": _clip_tool_payload(item.get("context", item.get("context_preview", "")), limit=120),
+                "speech": _clip_tool_payload(item.get("speech", ""), limit=140),
+                "score": item.get("score", 0.0),
+            }
+            for item in matches
+        ]
+        return {
+            "tool": name,
+            "actions": [{"type": "recall_memory", "query": query}],
+            "results": [{"action": "recall_memory", "status": "ok", "result": f"{len(items)} matches"}],
+            "payload": {"query": query, "matches": items},
+        }
+
+    if name == "take_screenshot_and_describe":
+        from agents.vision import describe_screen
+
+        question = " ".join(str(args.get("question", "")).split()).strip() or "What is on the screen right now?"
+        answer = describe_screen(question)
+        return {
+            "tool": name,
+            "actions": [{"type": "take_screenshot_and_describe", "question": question}],
+            "results": [{"action": "take_screenshot_and_describe", "status": "ok", "result": answer}],
+            "payload": {"question": question, "result": _clip_tool_payload(answer, limit=220)},
+        }
+
+    return {
+        "tool": name or "unknown",
+        "actions": [],
+        "results": [{"action": name or "unknown", "status": "error", "error": "Unknown tool"}],
+        "payload": {"error": f"Unknown tool: {name or 'unknown'}"},
+    }
+
+
+def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
+    from brain.ollama_client import chat_with_ollama, pick_butler_model
+    from brain.tools import TOOLS
+
+    planning_model = pick_butler_model("planning", override=model)
+    voice_model = pick_butler_model("voice", override=model)
+    messages = _tool_chat_messages(ctx, text)
+    first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
+    message = first.get("message", {}) if isinstance(first, dict) else {}
+    assistant_content = " ".join(str(message.get("content", "")).split()).strip()
+    tool_calls = list(message.get("tool_calls") or [])
+    executed_actions: list[dict] = []
+    executed_results: list[dict] = []
+
+    if not tool_calls:
+        speech = _normalize_response(assistant_content, max_words=45)
+        return {"speech": speech, "actions": [], "results": []}
+
+    messages.append(
+        {
+            "role": "assistant",
+            "content": assistant_content,
+            "tool_calls": tool_calls,
+        }
+    )
+
+    for tool_call in tool_calls[:3]:
+        function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+        tool_name = str(function.get("name", "")).strip()
+        arguments = _parse_tool_arguments(function.get("arguments", {}))
+        outcome = _execute_tool_call(tool_name, arguments, ctx, user_text=text)
+        executed_actions.extend(outcome.get("actions", []))
+        executed_results.extend(outcome.get("results", []))
+        messages.append(
+            {
+                "role": "tool",
+                "name": tool_name,
+                "content": json.dumps(outcome.get("payload", {})),
+            }
+        )
+
+    final = chat_with_ollama(messages, voice_model, max_tokens=140, temperature=0.3)
+    final_message = final.get("message", {}) if isinstance(final, dict) else {}
+    final_speech = _normalize_response(str(final_message.get("content", "")).strip(), max_words=45)
+    if not final_speech:
+        final_speech = assistant_content or "Done."
+    return {"speech": final_speech, "actions": executed_actions, "results": executed_results}
 
 
 def observe_and_followup(
@@ -744,6 +1371,7 @@ def _run_actions_with_response(
     text: str,
     response: str,
     actions: list[dict],
+    intent_name: str = "",
     test_mode: bool = False,
     model: str | None = None,
 ) -> tuple[str, list]:
@@ -761,6 +1389,28 @@ def _run_actions_with_response(
         prepared_actions.append(current)
     actions = prepared_actions
     run_agent_only = bool(actions) and all(action.get("type") == "run_agent" for action in actions)
+
+    def _queue_background_agent(action: dict) -> dict:
+        try:
+            from agents.runner import run_agent_async
+
+            run_agent_async(
+                str(action.get("agent", "")).strip(),
+                {k: v for k, v in action.items() if k not in ("type", "agent")},
+            )
+            agent_name = str(action.get("agent", "")).strip() or "agent"
+            return {
+                "action": "run_agent",
+                "status": "queued",
+                "result": f"{agent_name} running in background",
+            }
+        except Exception as exc:
+            return {
+                "action": "run_agent",
+                "status": "error",
+                "error": str(exc),
+                "result": "",
+            }
 
     for action in actions:
         print(f"[Executor] before run: {action}")
@@ -783,17 +1433,31 @@ def _run_actions_with_response(
             ]
             final_response = first_error or (agent_summaries[0] if agent_summaries else response)
             print(f"[Butler]: {final_response}")
+            _remember_conversation_turn(text, intent_name or "action", final_response)
             state.transition(State.IDLE)
             return final_response, results
 
         print("[Executor] after run: done (test mode)")
         print(f"[Butler]: {response}")
+        _remember_conversation_turn(text, intent_name or "action", response)
         state.transition(State.IDLE)
         return response, []
 
-    should_delay_speech = any(action.get("type") == "run_agent" for action in actions)
+    queued_agent_results: dict[int, dict] = {}
+    sync_actions: list[dict] = []
+    sync_indexes: list[int] = []
+    for index, action in enumerate(actions):
+        if action.get("type") == "run_agent":
+            queued_agent_results[index] = _queue_background_agent(action)
+        else:
+            sync_actions.append(action)
+            sync_indexes.append(index)
+
+    should_delay_speech = False
     speaker_thread = None
-    if response and not should_delay_speech:
+    if response and queued_agent_results:
+        _speak_or_print(response, test_mode=False)
+    elif response and not should_delay_speech:
         speaker_thread = threading.Thread(
             target=speak,
             args=(response,),
@@ -801,7 +1465,15 @@ def _run_actions_with_response(
         )
         speaker_thread.start()
 
-    results = executor.run(actions) if actions else []
+    sync_results = executor.run(sync_actions) if sync_actions else []
+    results: list[dict] = []
+    sync_cursor = 0
+    for index, _action in enumerate(actions):
+        if index in queued_agent_results:
+            results.append(queued_agent_results[index])
+        else:
+            results.append(sync_results[sync_cursor])
+            sync_cursor += 1
     print(f"[Executor] after run: {results}")
 
     final_response = response
@@ -813,6 +1485,11 @@ def _run_actions_with_response(
         ),
         "",
     )
+    if queued_agent_results and not sync_actions and not first_error:
+        _record(text, final_response, actions, results=results, intent_name=intent_name or "action")
+        state.transition(State.WAITING)
+        return final_response, results
+
     if first_error:
         final_response = _normalize_response(first_error, max_words=18, single_sentence=True) or "That failed."
     else:
@@ -822,7 +1499,10 @@ def _run_actions_with_response(
             max_words=45,
         )
         if run_agent_only and direct_agent_response:
-            final_response = direct_agent_response
+            final_response = _maybe_add_info_followup(
+                direct_agent_response,
+                str(actions[0].get("agent", "")).strip().lower() if actions else "",
+            )
         else:
             rewritten = _rewrite_speech_with_agent_results(response, results, model=model)
             if rewritten:
@@ -855,7 +1535,7 @@ def _run_actions_with_response(
     if speaker_thread and speaker_thread.is_alive():
         speaker_thread.join(timeout=10)
 
-    _record(text, final_response, actions, results=results)
+    _record(text, final_response, actions, results=results, intent_name=intent_name or "action")
     state.transition(State.WAITING)
     return final_response, results
 
@@ -1081,8 +1761,15 @@ def _contextualize_action(action: dict | None, intent: IntentResult, ctx: dict) 
     return action
 
 
-def _record(text: str, speech: str, actions: list, results: list | None = None) -> None:
+def _record(
+    text: str,
+    speech: str,
+    actions: list,
+    results: list | None = None,
+    intent_name: str = "",
+) -> None:
     try:
+        _remember_conversation_turn(text, intent_name or "reply", speech)
         record_session(text[:100], speech[:200], actions, results=results or [])
         save_session(
             {
@@ -1211,13 +1898,14 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
             text="startup briefing",
             response=speech,
             actions=actions,
+            intent_name="briefing",
             test_mode=test_mode,
             model=model,
         )
         return
 
     _speak_or_print(speech, test_mode=test_mode)
-    _record("startup briefing", speech, [])
+    _record("startup briefing", speech, [], intent_name="briefing")
     state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
@@ -1246,20 +1934,36 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
     if intent_name == "butler_sleep":
         response = "Going quiet."
         _speak_or_print(response, test_mode=test_mode)
-        _record(intent.raw, response, [])
+        _record(intent.raw, response, [], intent_name=intent_name)
         state.transition(State.IDLE)
         return True
 
     if intent_name == "butler_help":
         _speak_or_print(HELP_TEXT, test_mode=test_mode)
-        _record(intent.raw, HELP_TEXT, [])
+        _record(intent.raw, HELP_TEXT, [], intent_name=intent_name)
         state.transition(State.WAITING)
         return True
 
     if intent_name == "butler_status":
         response = f"I'm {state.current.value}."
         _speak_or_print(response, test_mode=test_mode)
-        _record(intent.raw, response, [])
+        _record(intent.raw, response, [], intent_name=intent_name)
+        state.transition(State.WAITING)
+        return True
+
+    if intent_name == "mcp_status":
+        try:
+            from mcp import describe_servers
+
+            lines = describe_servers()
+        except Exception:
+            lines = []
+        if not lines:
+            response = "No M C P servers are configured right now."
+        else:
+            response = _normalize_response(". ".join(lines), max_words=22)
+        _speak_or_print(response, test_mode=test_mode)
+        _record(intent.raw, response, [], intent_name=intent_name)
         state.transition(State.WAITING)
         return True
 
@@ -1275,25 +1979,56 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
         print("[Butler] Still processing previous command")
         return
 
+    note_heard_text(text)
     state.transition(State.THINKING)
+    effective_text = text
     intent = _resolve_pending_dialogue(text) or route(text)
+    if _looks_like_followup_reference(text):
+        resolved_text = _resolve_followup_text(text, model=model)
+        normalized_original = " ".join(str(text or "").lower().split())
+        normalized_resolved = " ".join(str(resolved_text or "").lower().split())
+        if normalized_resolved and normalized_resolved != normalized_original:
+            rerouted = route(resolved_text)
+            if rerouted.name != "unknown" or intent.name in {"unknown", "question", "news"}:
+                effective_text = resolved_text
+                intent = rerouted
+                print(f"[Router] follow-up resolved: {effective_text}")
     print(f"[Router] {intent.name} {intent.params} (conf={intent.confidence:.2f})")
+    note_intent(intent.name, intent.params, intent.confidence, raw=text)
 
     if _handle_meta_intent(intent, test_mode=test_mode):
         return
 
     if intent.name == "clarify_song":
         _set_pending_dialogue("spotify_song")
-        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode)
+        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode, intent_name=intent.name)
         return
 
     if intent.name == "clarify_file":
         _set_pending_dialogue("file_name", editor=intent.params.get("editor", "auto"))
-        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode)
+        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode, intent_name=intent.name)
         return
 
     if intent.name == "unknown":
-        _reply_without_action(text, _unknown_response_for_text(text), test_mode=test_mode)
+        response = _unknown_response_for_text(effective_text)
+        if not response and _should_use_brain_for_unknown(effective_text):
+            ctx = build_structured_context()
+            tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+            response = tool_reply.get("speech", "") or _unknown_brain_response(effective_text, model=model)
+            if response:
+                _speak_or_print(response, test_mode=test_mode)
+                _record(
+                    text,
+                    response,
+                    tool_reply.get("actions", []),
+                    results=tool_reply.get("results", []),
+                    intent_name="unknown",
+                )
+                state.transition(State.WAITING if not test_mode else State.IDLE)
+                return
+        if not response:
+            response = "I didn't catch that. Say open, search, compose mail, or latest news."
+        _reply_without_action(text, response, test_mode=test_mode, intent_name="unknown")
         return
 
     _clear_pending_dialogue()
@@ -1307,13 +2042,27 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
             text=text,
             response=response,
             actions=[action] if action else [],
+            intent_name=intent.name,
             test_mode=test_mode,
             model=model,
         )
         return
 
     if intent.name == "what_next":
-        plan = _deterministic_project_plan(ctx) or _plan_with_brain(_brain_context_text(ctx, text), model=model)
+        plan = _deterministic_project_plan(ctx)
+        if not plan:
+            tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+            speech = tool_reply.get("speech", "") or "Back on mac-butler. Want to jump in?"
+            _speak_or_print(speech, test_mode=test_mode)
+            _record(
+                text,
+                speech,
+                tool_reply.get("actions", []),
+                results=tool_reply.get("results", []),
+                intent_name=intent.name,
+            )
+            state.transition(State.WAITING if not test_mode else State.IDLE)
+            return
         speech = _normalize_response(plan.get("speech", ""), max_words=40) or "Back on mac-butler. Want to jump in?"
         actions = [action for action in plan.get("actions", []) if isinstance(action, dict)]
         if actions:
@@ -1321,39 +2070,48 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
                 text=text,
                 response=speech,
                 actions=actions,
+                intent_name=intent.name,
                 test_mode=test_mode,
                 model=model,
             )
             return
-        _reply_without_action(text, speech, test_mode=test_mode)
+        _reply_without_action(text, speech, test_mode=test_mode, intent_name=intent.name)
         return
 
-    if intent.name == "question" and _question_needs_brain_agents(text):
-        plan = _direct_agent_plan_for_text(text) or _plan_with_brain(_brain_context_text(ctx, text), model=model)
-        speech = _normalize_response(plan.get("speech", ""), max_words=45) or "I don't know yet. Ask again in a shorter way."
-        actions = [action for action in plan.get("actions", []) if isinstance(action, dict)]
-        if actions:
-            _run_actions_with_response(
-                text=text,
-                response=speech,
-                actions=actions,
-                test_mode=test_mode,
-                model=model,
-            )
-            return
-        _reply_without_action(text, speech, test_mode=test_mode)
+    if intent.name == "question":
+        tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+        speech = tool_reply.get("speech", "") or "I don't know yet. Ask again in a shorter way."
+        _speak_or_print(speech, test_mode=test_mode)
+        _record(
+            text,
+            speech,
+            tool_reply.get("actions", []),
+            results=tool_reply.get("results", []),
+            intent_name=intent.name,
+        )
+        state.transition(State.WAITING if not test_mode else State.IDLE)
         return
 
-    prompt = _build_voice_prompt(intent, text)
-    fast_model = model or OLLAMA_FALLBACK or OLLAMA_MODEL
-    response = _normalize_response(
-        _raw_llm(prompt, model=fast_model, max_tokens=80),
-        max_words=24,
-    )
+    tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+    response = tool_reply.get("speech", "")
+    if not response:
+        prompt = _build_voice_prompt(intent, effective_text)
+        fast_model = model or OLLAMA_FALLBACK or OLLAMA_MODEL
+        response = _normalize_response(
+            _raw_llm(prompt, model=fast_model, max_tokens=80),
+            max_words=24,
+        )
     if not response or response == "Something went wrong.":
         response = "I don't know yet. Ask again in a shorter way."
-
-    _reply_without_action(text, response, test_mode=test_mode)
+    _speak_or_print(response, test_mode=test_mode)
+    _record(
+        text,
+        response,
+        tool_reply.get("actions", []),
+        results=tool_reply.get("results", []),
+        intent_name=intent.name,
+    )
+    state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
 def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: bool = False) -> None:

@@ -11,6 +11,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from memory.store import prepare_session_entry, semantic_search
+
 MEMORY_DIR = Path(__file__).parent / "layers"
 MEMORY_INDEX = MEMORY_DIR / "MEMORY.md"
 PROJECTS_DIR = MEMORY_DIR / "projects"
@@ -106,27 +108,14 @@ def save_session(session_data: dict) -> None:
     _ensure_dirs()
     date = datetime.now().strftime("%Y-%m-%d")
     path = SESSIONS_DIR / f"{date}.jsonl"
+    prepared = prepare_session_entry(session_data)
     with open(path, "a") as handle:
-        handle.write(json.dumps(session_data) + "\n")
+        handle.write(json.dumps(prepared) + "\n")
 
 
 def search_sessions(query: str, max_results: int = 3) -> list:
-    """Search session logs — keyword only, don't load everything."""
-    results = []
-    for session_file in sorted(SESSIONS_DIR.glob("*.jsonl"), reverse=True)[:7]:
-        for line in session_file.read_text(errors="ignore").split("\n"):
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                speech = data.get("speech", "")
-                if query.lower() in speech.lower():
-                    results.append(data)
-                    if len(results) >= max_results:
-                        return results
-            except Exception:
-                continue
-    return results
+    """Search session logs semantically, with keyword fallback handled in store."""
+    return semantic_search(query, n=max_results)
 
 
 if __name__ == "__main__":
