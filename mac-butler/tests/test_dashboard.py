@@ -76,6 +76,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("network-canvas", html)
         self.assertIn("Ask Burry anything", html)
         self.assertIn('type="module" src="/app.js?v=', html)
+        self.assertIn('"wsUrl"', html)
         self.assertIn("search ranveer alahabadia on youtube", html)
 
     @patch("projects.dashboard.subprocess.Popen")

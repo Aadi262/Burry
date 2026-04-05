@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import importlib.util
 import os
@@ -18,6 +19,11 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
+
+try:
+    import websockets
+except ImportError:
+    websockets = None
 
 try:
     from .github_sync import get_github_context
@@ -41,7 +47,9 @@ HUD_PID_PATH = Path("/tmp/burry_hud.pid")
 HUD_LOG_PATH = Path("/tmp/burry_hud.log")
 HOST = "127.0.0.1"
 PREFERRED_PORT = 3333
+WS_PREFERRED_PORT = 3334
 PORT = PREFERRED_PORT
+WS_PORT = WS_PREFERRED_PORT
 USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
 _SERVER: ThreadingHTTPServer | None = None
 _SERVER_THREAD: threading.Thread | None = None
@@ -49,6 +57,11 @@ _SERVER_LOCK = threading.Lock()
 _WINDOW_LOCK = threading.Lock()
 _LAST_WINDOW_OPENED_AT = 0.0
 STREAM_INTERVAL_SECONDS = 0.35
+_WS_LOOP: asyncio.AbstractEventLoop | None = None
+_WS_SERVER_THREAD: threading.Thread | None = None
+_WS_CLIENTS: set = set()
+_WS_CLIENTS_LOCK = threading.Lock()
+_WS_WATCHER_THREAD: threading.Thread | None = None
 
 
 def _status_rank(status: str) -> int:
@@ -94,8 +107,11 @@ def _dashboard_github_context(projects: list[dict]) -> str:
     return ("[GITHUB]\n" + " | ".join(items))[:350]
 
 
-def _select_port(preferred: int = PREFERRED_PORT) -> int:
+def _select_port(preferred: int = PREFERRED_PORT, exclude: set[int] | None = None) -> int:
+    blocked = set(exclude or set())
     for candidate in range(preferred, preferred + 12):
+        if candidate in blocked:
+            continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -110,6 +126,10 @@ def _select_port(preferred: int = PREFERRED_PORT) -> int:
 
 def dashboard_url() -> str:
     return f"http://{HOST}:{PORT}"
+
+
+def dashboard_ws_url() -> str:
+    return f"ws://{HOST}:{WS_PORT}/ws"
 
 
 def _timestamp() -> str:
@@ -369,6 +389,7 @@ def _dashboard_payload() -> dict:
     return {
         "projects": projects,
         "operator": operator_snapshot(projects),
+        "wsUrl": dashboard_ws_url(),
         "githubContext": _dashboard_github_context(projects),
         "generatedAt": _timestamp(),
     }
@@ -394,6 +415,114 @@ def _write_dashboard() -> None:
 def _event_stream_message(payload: dict) -> bytes:
     body = json.dumps(payload, separators=(",", ":"))
     return f"data: {body}\n\n".encode("utf-8")
+
+
+async def _ws_handler(websocket) -> None:
+    path = getattr(getattr(websocket, "request", None), "path", "/ws")
+    if path != "/ws":
+        await websocket.close(code=1008, reason="Invalid path")
+        return
+
+    with _WS_CLIENTS_LOCK:
+        _WS_CLIENTS.add(websocket)
+
+    try:
+        await websocket.send(
+            json.dumps(
+                {"type": "operator", "payload": operator_snapshot()},
+                separators=(",", ":"),
+            )
+        )
+        await websocket.wait_closed()
+    finally:
+        with _WS_CLIENTS_LOCK:
+            _WS_CLIENTS.discard(websocket)
+
+
+async def _ws_broadcast(message: str) -> None:
+    with _WS_CLIENTS_LOCK:
+        clients = list(_WS_CLIENTS)
+
+    stale = []
+    for client in clients:
+        try:
+            await client.send(message)
+        except Exception:
+            stale.append(client)
+
+    if stale:
+        with _WS_CLIENTS_LOCK:
+            for client in stale:
+                _WS_CLIENTS.discard(client)
+
+
+def _broadcast_operator_snapshot(payload: dict | None = None) -> None:
+    if _WS_LOOP is None or not _WS_LOOP.is_running():
+        return
+    message = json.dumps(
+        {"type": "operator", "payload": payload or operator_snapshot()},
+        separators=(",", ":"),
+    )
+    asyncio.run_coroutine_threadsafe(_ws_broadcast(message), _WS_LOOP)
+
+
+def _watch_operator_state() -> None:
+    last_payload = ""
+    while True:
+        with _WS_CLIENTS_LOCK:
+            has_clients = bool(_WS_CLIENTS)
+        if not has_clients:
+            time.sleep(0.2)
+            continue
+
+        payload = operator_snapshot()
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        if encoded != last_payload:
+            _broadcast_operator_snapshot(payload)
+            last_payload = encoded
+        time.sleep(0.12)
+
+
+def _start_ws_watcher() -> None:
+    global _WS_WATCHER_THREAD
+    if _WS_WATCHER_THREAD is not None and _WS_WATCHER_THREAD.is_alive():
+        return
+    _WS_WATCHER_THREAD = threading.Thread(target=_watch_operator_state, daemon=True, name="burry-ws-watch")
+    _WS_WATCHER_THREAD.start()
+
+
+def _run_ws_server() -> None:
+    global _WS_LOOP
+
+    loop = asyncio.new_event_loop()
+    _WS_LOOP = loop
+    asyncio.set_event_loop(loop)
+
+    async def _serve():
+        return await websockets.serve(_ws_handler, HOST, WS_PORT)
+
+    server = loop.run_until_complete(_serve())
+    try:
+        loop.run_forever()
+    finally:
+        server.close()
+        loop.run_until_complete(server.wait_closed())
+        loop.close()
+
+
+def _start_ws_server() -> bool:
+    global _WS_SERVER_THREAD, WS_PORT
+
+    if websockets is None:
+        return False
+    if _WS_SERVER_THREAD is not None and _WS_SERVER_THREAD.is_alive():
+        return True
+
+    WS_PORT = _select_port(WS_PREFERRED_PORT, exclude={PORT})
+    _WS_SERVER_THREAD = threading.Thread(target=_run_ws_server, daemon=True, name="burry-ws")
+    _WS_SERVER_THREAD.start()
+    _start_ws_watcher()
+    return True
 
 
 def _serve_asset(handler: BaseHTTPRequestHandler, path: Path, content_type: str) -> None:
@@ -489,10 +618,10 @@ def serve_dashboard():
     """
 
     global _SERVER, _SERVER_THREAD, PORT
-    _write_dashboard()
-
     with _SERVER_LOCK:
         if _SERVER is not None and _SERVER_THREAD is not None and _SERVER_THREAD.is_alive():
+            _start_ws_server()
+            _write_dashboard()
             return _SERVER
 
         class Handler(BaseHTTPRequestHandler):
@@ -539,7 +668,7 @@ def serve_dashboard():
                 try:
                     parsed = urlparse(self.path)
                     if parsed.path == "/health":
-                        self._send_json({"ok": True, "url": dashboard_url(), "port": PORT})
+                        self._send_json({"ok": True, "url": dashboard_url(), "port": PORT, "ws_url": dashboard_ws_url()})
                         return
                     if parsed.path == "/api/stream":
                         self.send_response(200)
@@ -638,6 +767,8 @@ def serve_dashboard():
 
         _SERVER_THREAD = threading.Thread(target=_SERVER.serve_forever, daemon=True)
         _SERVER_THREAD.start()
+        _start_ws_server()
+        _write_dashboard()
         return _SERVER
 
 

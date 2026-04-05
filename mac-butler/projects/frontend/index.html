@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Burry Live Operator</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body data-state="idle" data-focus="state">
+  <canvas id="network-canvas" aria-hidden="true"></canvas>
+  <div class="background-lights" aria-hidden="true"></div>
+
+  <div class="hud-shell">
+    <header class="topbar">
+      <div class="brand-mark">BURRY OS</div>
+
+      <div class="state-pill" id="state-pill">
+        <span class="state-pill-label" id="state-pill-label">IDLE</span>
+        <span class="state-pill-note" id="state-pill-note">Standing by for the next wake-up.</span>
+      </div>
+
+      <div class="mode-strip" id="mode-strip">
+        <button class="mode-button" id="mode-mood" data-focus="mood" type="button">Focused</button>
+        <button class="mode-button" id="mode-session" data-focus="session" type="button">Standby</button>
+        <button class="mode-button is-active" id="mode-state" data-focus="state" type="button">Idle</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="rail rail-left">
+        <section class="panel runtime-panel">
+          <div class="panel-label">Runtime</div>
+          <div class="runtime-grid" id="system-chips"></div>
+        </section>
+
+        <section class="panel workspace-panel">
+          <div class="panel-label">Workspace</div>
+          <div class="workspace-grid">
+            <article class="workspace-card">
+              <span class="workspace-label">Focus Project</span>
+              <strong class="workspace-value" id="workspace-project">Unknown</strong>
+            </article>
+            <article class="workspace-card">
+              <span class="workspace-label">Frontmost App</span>
+              <strong class="workspace-value" id="workspace-app">Unknown</strong>
+            </article>
+            <article class="workspace-card">
+              <span class="workspace-label">Workspace</span>
+              <strong class="workspace-value" id="workspace-name">Unknown</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel pending-panel" id="pending-panel">
+          <div class="panel-label">Pending Work</div>
+          <div class="task-list" id="task-list"></div>
+        </section>
+      </aside>
+
+      <main class="center-column">
+        <section class="orb-panel">
+          <div class="orb-summary" id="orb-summary">BURRY ● IDLE · Focus: waiting · Unknown</div>
+
+          <div class="orb-stage">
+            <canvas id="orb-canvas" aria-label="Burry neural voice core"></canvas>
+          </div>
+        </section>
+
+        <section class="panel transcript-panel">
+          <div class="transcript-header">
+            <div class="panel-label">Transcript</div>
+            <div class="transcript-status" id="transcript-status">Live</div>
+          </div>
+
+          <div class="transcript-log" id="transcript-log"></div>
+
+          <form class="command-bar" id="command-form">
+            <button class="mic-button" id="mic-button" type="button" aria-label="Record a command">
+              <span class="mic-indicator"></span>
+              <span>Mic</span>
+            </button>
+            <input
+              class="command-input"
+              id="command-input"
+              name="command"
+              type="text"
+              autocomplete="off"
+              placeholder="Ask Burry anything..."
+            >
+            <button class="send-button" id="send-button" type="submit">Send</button>
+          </form>
+        </section>
+      </main>
+
+      <aside class="rail rail-right">
+        <section class="panel project-panel">
+          <div class="panel-label">Project Truth</div>
+          <div class="project-list" id="project-list"></div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="ticker-bar">
+      <div class="ticker-track" id="event-track">Burry event feed will appear here.</div>
+    </footer>
+  </div>
+
+  <script id="burry-bootstrap" type="application/json">__BURRY_BOOTSTRAP_JSON__</script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
