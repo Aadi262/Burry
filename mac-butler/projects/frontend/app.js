@@ -32,6 +32,7 @@ const refs = {
   orbCanvas: document.getElementById("orb-canvas"),
   statePillLabel: document.getElementById("state-pill-label"),
   statePillNote: document.getElementById("state-pill-note"),
+  toolPillStrip: document.getElementById("tool-pill-strip"),
   modeMood: document.getElementById("mode-mood"),
   modeSession: document.getElementById("mode-session"),
   modeState: document.getElementById("mode-state"),
@@ -39,11 +40,13 @@ const refs = {
   workspaceProject: document.getElementById("workspace-project"),
   workspaceApp: document.getElementById("workspace-app"),
   workspaceName: document.getElementById("workspace-name"),
+  memoryRecallList: document.getElementById("memory-recall-list"),
   pendingPanel: document.getElementById("pending-panel"),
   taskList: document.getElementById("task-list"),
   orbSummary: document.getElementById("orb-summary"),
   transcriptStatus: document.getElementById("transcript-status"),
   transcriptLog: document.getElementById("transcript-log"),
+  toolStream: document.getElementById("tool-stream"),
   commandForm: document.getElementById("command-form"),
   commandInput: document.getElementById("command-input"),
   micButton: document.getElementById("mic-button"),
@@ -68,6 +71,14 @@ function basenamePath(value) {
   if (!text) return "Unknown";
   const parts = text.split("/").filter(Boolean);
   return parts[parts.length - 1] || text;
+}
+
+function toolPresentation(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  if (normalized === "browse_web") return { label: "Browsing", icon: "🌐" };
+  if (normalized === "recall_memory") return { label: "Reading", icon: "💾" };
+  if (normalized === "take_screenshot_and_describe") return { label: "Seeing", icon: "👁" };
+  return { label: "Executing", icon: "⚡" };
 }
 
 function pseudoRandom(seed) {
@@ -591,7 +602,7 @@ class BurryOrb {
   }
 
   setState(nextState) {
-    const cleaned = ["idle", "listening", "thinking", "speaking"].includes(nextState) ? nextState : "idle";
+    const cleaned = ["idle", "listening", "thinking", "executing", "speaking"].includes(nextState) ? nextState : "idle";
     if (cleaned === this.state) return;
     if (this.state === "thinking" && cleaned === "speaking") {
       this.collapsePulse = { start: performance.now(), duration: 800 };
@@ -659,6 +670,9 @@ class BurryOrb {
       tangentOffset = sway * 24;
       tangentOffsetB = twist * 22;
       pulseScale = 1 + (0.08 * ((Math.sin(seconds * 6 + meta.phaseA) + 1) / 2));
+    } else if (mode === "executing") {
+      radialScale = 1 + (0.015 * Math.sin(seconds * 3.6 + meta.phaseA));
+      pulseScale = 1 + (0.12 * ((Math.sin(seconds * 7 + meta.phaseA) + 1) / 2));
     } else if (mode === "speaking") {
       pulseScale = 1 + (this.simulatedSpeakingLevel * 0.38);
       radialScale = 1 + (this.simulatedSpeakingLevel * 0.03);
@@ -677,6 +691,8 @@ class BurryOrb {
       ? this.micLevel
       : this.state === "speaking"
         ? this.simulatedSpeakingLevel
+        : this.state === "executing"
+          ? 0.34 + (Math.sin(seconds * 12) * 0.06)
         : this.state === "thinking"
           ? 0.28 + (Math.sin(seconds * 8) * 0.12)
           : 0.08;
@@ -698,6 +714,8 @@ class BurryOrb {
 
     let rotationSpeed = this.state === "listening"
       ? 0.003
+      : this.state === "executing"
+        ? 0.0026
       : this.state === "thinking"
         ? 0.0022
         : this.state === "speaking"
@@ -744,6 +762,8 @@ class BurryOrb {
     this._updateEdgePositions();
     this.edgeMaterial.opacity = this.state === "speaking"
       ? 0.7
+      : this.state === "executing"
+        ? 0.78
       : this.state === "thinking"
         ? 0.48
         : this.state === "listening"
@@ -752,23 +772,43 @@ class BurryOrb {
     this.edgeMaterial.color.set(
       this.state === "speaking"
         ? 0x6feaff
+        : this.state === "executing"
+          ? 0xffd37a
         : this.state === "thinking"
           ? 0x2e7eff
           : 0x1a5aff
     );
 
     this.rings.forEach((ring, index) => {
-      const baseSpeed = ring.speed * (this.state === "listening" ? 3 : this.state === "thinking" ? 2.2 : this.state === "speaking" ? 1.4 : 1);
+      const baseSpeed = ring.speed * (
+        this.state === "listening"
+          ? 3
+          : this.state === "executing"
+            ? 2.6
+            : this.state === "thinking"
+              ? 2.2
+              : this.state === "speaking"
+                ? 1.4
+                : 1
+      );
       ring.group.rotation[ring.spinAxis] += baseSpeed * delta;
       const pulse = this.state === "thinking" ? (15 / ring.baseMajor) * Math.sin(seconds * 4 + index) : 0;
       ring.group.scale.setScalar(1 + pulse);
-      ring.material.opacity = this.state === "speaking" ? 0.78 : this.state === "listening" ? 0.72 : 0.6;
+      ring.material.opacity = this.state === "speaking" ? 0.78 : this.state === "executing" ? 0.8 : this.state === "listening" ? 0.72 : 0.6;
       if (ring.material.color) {
-        ring.material.color.set(this.state === "thinking" ? 0x4f8fff : this.state === "speaking" ? 0x8af0ff : 0x00d4ff);
+        ring.material.color.set(
+          this.state === "thinking"
+            ? 0x4f8fff
+            : this.state === "executing"
+              ? 0xffc266
+              : this.state === "speaking"
+                ? 0x8af0ff
+                : 0x00d4ff
+        );
       }
     });
 
-    this.floor.material.opacity = this.state === "speaking" ? 0.62 : this.state === "listening" ? 0.54 : 0.48;
+    this.floor.material.opacity = this.state === "speaking" ? 0.62 : this.state === "executing" ? 0.58 : this.state === "listening" ? 0.54 : 0.48;
     this._updateWaveform(seconds);
     this.composer.render();
     requestAnimationFrame(this._animate);
@@ -783,14 +823,16 @@ function formatClock(value) {
 }
 
 function normalizeMode(data) {
+  if (Array.isArray(data.active_tools) && data.active_tools.length) return "executing";
   const state = String(data.state || "").toLowerCase();
-  if (["idle", "listening", "thinking", "speaking"].includes(state)) return state;
+  if (["idle", "listening", "thinking", "executing", "speaking"].includes(state)) return state;
   return data.session_active ? "listening" : "idle";
 }
 
 function pillNote(data, mode) {
   if (mode === "listening") return "Mic is hot. Burry is listening for the next move.";
   if (mode === "thinking") return "Context, tools, and memory are routing through the operator stack.";
+  if (mode === "executing") return "Tool calls are running now. Watch the stream and memory panels for live progress.";
   if (mode === "speaking") return "Burry is replying now. Transcript and task truth stay live.";
   return "Standing by for the next wake-up.";
 }
@@ -851,6 +893,39 @@ function renderRuntime(data) {
   refs.workspaceProject.textContent = data.focus_project || "Unknown";
   refs.workspaceApp.textContent = data.frontmost_app || "Unknown";
   refs.workspaceName.textContent = basenamePath(data.workspace);
+}
+
+function renderToolPills(data) {
+  const tools = Array.isArray(data.active_tools) ? data.active_tools : [];
+  refs.toolPillStrip.innerHTML = tools.map((tool) => {
+    const info = toolPresentation(tool);
+    return `
+      <div class="tool-pill">
+        <span>${info.icon}</span>
+        <span class="tool-pill-dot"></span>
+        <span>${info.label}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderMemoryRecall(data) {
+  const memory = data.memory_recall || {};
+  const matches = Array.isArray(memory.matches) ? memory.matches : [];
+  if (!matches.length) {
+    refs.memoryRecallList.innerHTML = `<div class="recall-item"><div class="recall-empty">No memory recall yet. Ask Burry about a prior decision or recent work.</div></div>`;
+    return;
+  }
+  refs.memoryRecallList.innerHTML = `
+    <article class="recall-item">
+      <span class="recall-item-query">${memory.query || "Recent Recall"}</span>
+      ${matches.map((match) => `
+        <div class="recall-bullet">
+          ${match.speech || match.context || "Recalled memory"}${match.timestamp ? ` — ${match.timestamp}` : ""}
+        </div>
+      `).join("")}
+    </article>
+  `;
 }
 
 function renderTasks(data, projectItems) {
@@ -966,10 +1041,55 @@ function renderTranscript(data) {
   if (nearBottom) refs.transcriptLog.scrollTop = refs.transcriptLog.scrollHeight;
 }
 
+function renderToolStream(data) {
+  const stream = Array.isArray(data.tool_stream) ? data.tool_stream : [];
+  const rows = [...stream];
+  const agent = data.last_agent_result || {};
+  if (agent.agent && agent.result && !rows.some((row) => row.tool === `agent:${agent.agent}` || row.detail === agent.result)) {
+    rows.push({
+      tool: `agent:${agent.agent}`,
+      status: agent.status || "done",
+      detail: agent.result,
+      at: agent.at,
+    });
+  }
+  const recentRows = rows.slice(-4).reverse();
+  if (!recentRows.length) {
+    refs.toolStream.innerHTML = `
+      <div class="tool-stream-label">Live Tool Stream</div>
+      <div class="tool-stream-item">
+        <span class="tool-stream-status"></span>
+        <div><strong>Idle</strong> Tool activity will appear here when Burry starts reading, browsing, or executing.</div>
+        <span class="tool-stream-time">Now</span>
+      </div>
+    `;
+    return;
+  }
+  refs.toolStream.innerHTML = `
+    <div class="tool-stream-label">Live Tool Stream</div>
+    ${recentRows.map((row) => {
+      const status = String(row.status || "").toLowerCase();
+      const rowClass = status === "running" ? "is-running" : status === "error" ? "is-error" : "is-done";
+      const info = toolPresentation(String(row.tool || ""));
+      return `
+        <div class="tool-stream-item ${rowClass}">
+          <span class="tool-stream-status"></span>
+          <div><strong>${info.label}</strong> ${row.detail || status || "done"}</div>
+          <span class="tool-stream-time">${formatClock(row.at)}</span>
+        </div>
+      `;
+    }).join("")}
+  `;
+}
+
 function renderTicker(data) {
   const events = Array.isArray(data.events) ? data.events : [];
   if (events.length) {
     refs.eventTrack.textContent = events.map((event) => `${event.kind || "event"} · ${event.message || ""}`).join("   •   ");
+    return;
+  }
+  if (data.last_agent_result && data.last_agent_result.result) {
+    refs.eventTrack.textContent = `${formatClock(data.last_agent_result.at || data.updated_at)} · Agent ${data.last_agent_result.agent || "background"} · ${data.last_agent_result.result}`;
     return;
   }
   const brain = (data.systems || []).find((item) => item.name === "Brain");
@@ -986,9 +1106,12 @@ function renderOperator(data) {
   refs.transcriptStatus.textContent = operator.session_active ? "Live" : "Standby";
   setButlerState(mode, pillNote(operator, mode));
   refs.orbSummary.textContent = orbStatusLine(operator);
+  renderToolPills(operator);
   renderRuntime(operator);
+  renderMemoryRecall(operator);
   renderTasks(operator, projects);
   renderTranscript(operator);
+  renderToolStream(operator);
   renderTicker(operator);
 }
 

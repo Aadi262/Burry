@@ -289,9 +289,19 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIn("BURRY: Running the test suite.", text)
         self.assertLess(text.index("[RECENT CONVERSATION]"), text.index("[CURRENT REQUEST]"))
 
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_memory_recall")
+    @patch("butler.note_tool_started")
     @patch("memory.store.semantic_search", return_value=[{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}])
     @patch("brain.ollama_client.chat_with_ollama")
-    def test_tool_chat_response_executes_recall_memory_before_final_reply(self, mock_chat, _mock_semantic):
+    def test_tool_chat_response_executes_recall_memory_before_final_reply(
+        self,
+        mock_chat,
+        _mock_semantic,
+        mock_tool_started,
+        mock_memory_recall,
+        mock_tool_finished,
+    ):
         mock_chat.side_effect = [
             {
                 "message": {
@@ -320,7 +330,12 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertEqual(result["speech"], "We already chose JWT over sessions.")
         self.assertEqual(result["actions"][0]["type"], "recall_memory")
         self.assertEqual(result["results"][0]["status"], "ok")
+        mock_tool_started.assert_called_once()
+        mock_memory_recall.assert_called_once()
+        mock_tool_finished.assert_called_once()
 
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_tool_started")
     @patch(
         "browser.agent.BrowsingAgent.search",
         return_value={
@@ -330,7 +345,13 @@ class ButlerPipelineTests(unittest.TestCase):
         },
     )
     @patch("brain.ollama_client.chat_with_ollama")
-    def test_tool_chat_response_executes_browse_web_via_browser_agent(self, mock_chat, _mock_search):
+    def test_tool_chat_response_executes_browse_web_via_browser_agent(
+        self,
+        mock_chat,
+        _mock_search,
+        mock_tool_started,
+        mock_tool_finished,
+    ):
         mock_chat.side_effect = [
             {
                 "message": {
@@ -362,6 +383,8 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIn("Claude 4.5", result["speech"])
         self.assertEqual(result["actions"][0]["type"], "browse_web")
         self.assertEqual(result["results"][0]["action"], "browse_web")
+        mock_tool_started.assert_called_once()
+        mock_tool_finished.assert_called_once()
 
     @patch("projects.load_projects")
     def test_project_snapshot_for_planning_prefers_real_project_state(self, mock_load_projects):

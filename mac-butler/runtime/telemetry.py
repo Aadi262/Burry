@@ -48,6 +48,13 @@ def _default_runtime_state() -> dict:
             "result": "",
             "at": "",
         },
+        "active_tools": [],
+        "tool_stream": [],
+        "last_memory_recall": {
+            "query": "",
+            "matches": [],
+            "at": "",
+        },
         "events": [],
     }
 
@@ -232,5 +239,84 @@ def note_agent_result(agent: str, status: str, result: str) -> None:
                 "agent": payload["agent"],
                 "status": payload["status"],
             },
+        )
+        _save_unlocked(data)
+
+
+def note_tool_started(tool: str, detail: str = "") -> None:
+    payload = {
+        "tool": _clip_text(tool, limit=48),
+        "status": "running",
+        "detail": _clip_text(detail, limit=180),
+        "at": _now_iso(),
+    }
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        active = [str(item).strip() for item in list(data.get("active_tools") or []) if str(item).strip()]
+        if payload["tool"] and payload["tool"] not in active:
+            active.append(payload["tool"])
+        data["active_tools"] = active[:6]
+        stream = list(data.get("tool_stream") or [])
+        stream.append(payload)
+        data["tool_stream"] = stream[-10:]
+        _append_event(
+            data,
+            "tool",
+            f"Tool {payload['tool']}: {payload['detail'] or 'running'}",
+            {"tool": payload["tool"], "status": payload["status"]},
+        )
+        _save_unlocked(data)
+
+
+def note_tool_finished(tool: str, status: str, detail: str = "") -> None:
+    payload = {
+        "tool": _clip_text(tool, limit=48),
+        "status": _clip_text(status or "ok", limit=20),
+        "detail": _clip_text(detail, limit=180),
+        "at": _now_iso(),
+    }
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        active = [str(item).strip() for item in list(data.get("active_tools") or []) if str(item).strip()]
+        data["active_tools"] = [item for item in active if item != payload["tool"]][:6]
+        stream = list(data.get("tool_stream") or [])
+        stream.append(payload)
+        data["tool_stream"] = stream[-10:]
+        _append_event(
+            data,
+            "tool",
+            f"Tool {payload['tool']}: {payload['detail'] or payload['status']}",
+            {"tool": payload["tool"], "status": payload["status"]},
+        )
+        _save_unlocked(data)
+
+
+def note_memory_recall(query: str, matches: list[dict] | None = None) -> None:
+    query_text = _clip_text(query, limit=120)
+    items = []
+    for match in list(matches or [])[:3]:
+        if not isinstance(match, dict):
+            continue
+        items.append(
+            {
+                "timestamp": _clip_text(match.get("timestamp", ""), limit=24),
+                "context": _clip_text(match.get("context", ""), limit=120),
+                "speech": _clip_text(match.get("speech", ""), limit=140),
+                "score": float(match.get("score", 0.0) or 0.0),
+            }
+        )
+    payload = {
+        "query": query_text,
+        "matches": items,
+        "at": _now_iso(),
+    }
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        data["last_memory_recall"] = payload
+        _append_event(
+            data,
+            "memory",
+            f"Recalled {len(items)} memory matches for {query_text or 'recent context'}",
+            {"query": query_text, "count": len(items)},
         )
         _save_unlocked(data)

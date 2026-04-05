@@ -27,6 +27,15 @@ class DashboardTests(unittest.TestCase):
             "focus_project": "mac-butler",
             "frontmost_app": "Terminal",
             "workspace": "/Users/adityatiwari/Burry/mac-butler",
+            "active_tools": ["browse_web"],
+            "tool_stream": [
+                {"tool": "browse_web", "status": "running", "detail": "latest ai news", "at": "2026-04-05T19:22:55"}
+            ],
+            "memory_recall": {
+                "query": "auth decision",
+                "matches": [{"speech": "Decided JWT, no sessions.", "timestamp": "2026-04-05T11:00:00"}],
+                "at": "2026-04-05T19:22:54",
+            },
             "tasks": ["Ship live operator HUD"],
             "systems": [
                 {"name": "Voice", "status": "edge", "detail": "en-US-AvaMultilingualNeural", "tone": "healthy"}
@@ -69,12 +78,15 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("/app.js", html)
         self.assertIn("BURRY OS", html)
         self.assertIn("Workspace", html)
+        self.assertIn("Recalled", html)
         self.assertIn("Transcript", html)
         self.assertIn("Project Truth", html)
         self.assertIn("project-list", html)
         self.assertIn("orb-canvas", html)
         self.assertIn("network-canvas", html)
         self.assertIn("Ask Burry anything", html)
+        self.assertIn("tool-pill-strip", html)
+        self.assertIn("tool-stream", html)
         self.assertIn('type="module" src="/app.js?v=', html)
         self.assertIn('"wsUrl"', html)
         self.assertIn("search ranveer alahabadia on youtube", html)
@@ -156,6 +168,13 @@ class DashboardTests(unittest.TestCase):
                 "frontmost_app": "Terminal",
                 "workspace": "/Users/adityatiwari/Burry/mac-butler",
             },
+            "active_tools": ["recall_memory"],
+            "tool_stream": [{"tool": "recall_memory", "status": "ok", "detail": "Found 3 matches", "at": "2026-04-06T12:00:00"}],
+            "last_memory_recall": {
+                "query": "auth decision",
+                "matches": [{"speech": "Decided JWT, no sessions.", "score": 0.91}],
+                "at": "2026-04-06T12:00:00",
+            },
             "events": [],
             "last_intent": {},
         }
@@ -171,6 +190,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["focus_project"], "mac-butler")
         self.assertEqual(payload["frontmost_app"], "Terminal")
         self.assertEqual(payload["workspace"], "/Users/adityatiwari/Burry/mac-butler")
+        self.assertEqual(payload["active_tools"], ["recall_memory"])
+        self.assertEqual(payload["memory_recall"]["query"], "auth decision")
 
 
 if __name__ == "__main__":

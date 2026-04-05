@@ -56,6 +56,25 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["last_agent_result"]["result"], "AI headlines ready")
         self.assertEqual(state["events"][-1]["kind"], "agent_result")
 
+    def test_tool_activity_and_memory_recall_persist_runtime_state(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            runtime_path = Path(tempdir) / "runtime_state.json"
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path):
+                telemetry.note_tool_started("browse_web", "latest AI news")
+                telemetry.note_tool_finished("browse_web", "ok", "Read 3 pages")
+                telemetry.note_memory_recall(
+                    "auth decision",
+                    [{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}],
+                )
+                state = telemetry.load_runtime_state()
+
+        self.assertEqual(state["active_tools"], [])
+        self.assertEqual(state["tool_stream"][-2]["status"], "running")
+        self.assertEqual(state["tool_stream"][-1]["status"], "ok")
+        self.assertEqual(state["last_memory_recall"]["query"], "auth decision")
+        self.assertEqual(state["last_memory_recall"]["matches"][0]["speech"], "Decided JWT, no sessions.")
+        self.assertEqual(state["events"][-1]["kind"], "memory")
+
 
 if __name__ == "__main__":
     unittest.main()

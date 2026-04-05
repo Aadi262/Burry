@@ -52,6 +52,11 @@ body[data-state="thinking"] {
   --state-glow: rgba(255, 170, 0, 0.22);
 }
 
+body[data-state="executing"] {
+  --state-color: #ffd37a;
+  --state-glow: rgba(255, 170, 0, 0.28);
+}
+
 body[data-state="speaking"] {
   --state-color: #f6feff;
   --state-glow: rgba(232, 244, 255, 0.3);
@@ -99,6 +104,13 @@ body[data-state="speaking"] {
   align-items: center;
 }
 
+.topbar-center {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .brand-mark {
   font-family: "SF Mono", "JetBrains Mono", monospace;
   color: var(--text-dim);
@@ -108,6 +120,8 @@ body[data-state="speaking"] {
 }
 
 .state-pill {
+  flex: 1;
+  min-width: 0;
   height: 48px;
   border-radius: 999px;
   border: 1px solid var(--pill-border);
@@ -119,6 +133,40 @@ body[data-state="speaking"] {
   gap: 14px;
   padding: 0 20px;
   overflow: hidden;
+}
+
+.tool-pill-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tool-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 170, 0, 0.28);
+  background: rgba(255, 170, 0, 0.08);
+  color: #ffd37a;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tool-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+  animation: pulse-dot 1s ease-in-out infinite;
 }
 
 .state-pill::before {
@@ -310,6 +358,7 @@ body[data-state="speaking"] {
 }
 
 .workspace-panel,
+.recall-panel,
 .project-panel,
 .pending-panel {
   display: flex;
@@ -320,6 +369,50 @@ body[data-state="speaking"] {
 .workspace-grid {
   display: grid;
   gap: 10px;
+}
+
+.memory-recall-list,
+.tool-stream {
+  min-height: 0;
+  overflow: auto;
+}
+
+.memory-recall-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recall-item {
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: rgba(1, 13, 31, 0.94);
+  padding: 12px 14px;
+}
+
+.recall-item-query {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.recall-bullet {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.recall-bullet + .recall-bullet {
+  margin-top: 8px;
+}
+
+.recall-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .workspace-card {
@@ -457,7 +550,7 @@ body[data-state="speaking"] {
 
 .transcript-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 14px;
 }
 
@@ -480,6 +573,71 @@ body[data-state="speaking"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.tool-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.76);
+  background: rgba(1, 5, 16, 0.78);
+  padding: 10px 12px;
+}
+
+.tool-stream-label {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.tool-stream-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tool-stream-item strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tool-stream-item.is-running strong {
+  color: #ffd37a;
+}
+
+.tool-stream-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px currentColor;
+}
+
+.tool-stream-item.is-running .tool-stream-status {
+  background: #ffd37a;
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.tool-stream-item.is-done .tool-stream-status {
+  background: var(--success);
+}
+
+.tool-stream-item.is-error .tool-stream-status {
+  background: var(--danger);
+}
+
+.tool-stream-time {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .transcript-entry {
@@ -787,6 +945,7 @@ body[data-state="speaking"] {
 .project-panel,
 .transcript-panel,
 .pending-panel,
+.recall-panel,
 .runtime-panel,
 .workspace-panel {
   overflow: hidden;

@@ -22,9 +22,12 @@
     <header class="topbar">
       <div class="brand-mark">BURRY OS</div>
 
-      <div class="state-pill" id="state-pill">
-        <span class="state-pill-label" id="state-pill-label">IDLE</span>
-        <span class="state-pill-note" id="state-pill-note">Standing by for the next wake-up.</span>
+      <div class="topbar-center">
+        <div class="state-pill" id="state-pill">
+          <span class="state-pill-label" id="state-pill-label">IDLE</span>
+          <span class="state-pill-note" id="state-pill-note">Standing by for the next wake-up.</span>
+        </div>
+        <div class="tool-pill-strip" id="tool-pill-strip"></div>
       </div>
 
       <div class="mode-strip" id="mode-strip">
@@ -59,6 +62,11 @@
           </div>
         </section>
 
+        <section class="panel recall-panel">
+          <div class="panel-label">Recalled</div>
+          <div class="memory-recall-list" id="memory-recall-list"></div>
+        </section>
+
         <section class="panel pending-panel" id="pending-panel">
           <div class="panel-label">Pending Work</div>
           <div class="task-list" id="task-list"></div>
@@ -81,6 +89,8 @@
           </div>
 
           <div class="transcript-log" id="transcript-log"></div>
+
+          <div class="tool-stream" id="tool-stream"></div>
 
           <form class="command-bar" id="command-form">
             <button class="mic-button" id="mic-button" type="button" aria-label="Record a command">

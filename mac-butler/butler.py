@@ -49,7 +49,14 @@ from memory.store import (
     record_session,
     update_project_state,
 )
-from runtime import load_runtime_state, note_heard_text, note_intent
+from runtime import (
+    load_runtime_state,
+    note_heard_text,
+    note_intent,
+    note_memory_recall,
+    note_tool_finished,
+    note_tool_started,
+)
 from state import State, state
 from tasks import get_active_tasks
 from voice import listen_continuous, speak
@@ -1110,9 +1117,11 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
 
     if name == "open_project":
         project_name = " ".join(str(args.get("name", "")).split()).strip()
+        note_tool_started(name, project_name or "opening project")
         action = {"type": "open_project", "name": project_name}
         results = executor.run([action])
         result = results[0] if results else {"action": "open_project", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
         return {
             "tool": name,
             "actions": [action],
@@ -1127,10 +1136,12 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
     if name == "run_shell":
         command = " ".join(str(args.get("command", "")).split()).strip()
         project_name = " ".join(str(args.get("project", "")).split()).strip()
+        note_tool_started(name, command or project_name or "running shell command")
         cwd = _project_path_for_name(project_name) or _first_workspace_path(ctx) or "~/Burry"
         action = {"type": "run_command", "cmd": command, "cwd": cwd}
         results = executor.run([action])
         result = results[0] if results else {"action": "run_command", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
         return {
             "tool": name,
             "actions": [action],
@@ -1149,6 +1160,7 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
 
         query = " ".join(str(args.get("query", "")).split()).strip() or user_text
         url = " ".join(str(args.get("url", "")).split()).strip()
+        note_tool_started(name, url or query or "browsing web")
         browser = BrowsingAgent(model=pick_butler_model("voice"))
         if url:
             action = {"type": "browse_web", "mode": "fetch", "query": query or f"Read {url}", "url": url}
@@ -1156,6 +1168,7 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
         else:
             action = {"type": "browse_web", "mode": "search", "query": query}
             result = browser.search(query, question=user_text or query)
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", ""))
         result_row = {
             "action": "browse_web",
             "status": result.get("status", "ok"),
@@ -1177,6 +1190,7 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
         from memory.store import semantic_search
 
         query = " ".join(str(args.get("query", "")).split()).strip() or user_text
+        note_tool_started(name, query or "recalling memory")
         matches = semantic_search(query, n=5)
         items = [
             {
@@ -1187,6 +1201,8 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
             }
             for item in matches
         ]
+        note_memory_recall(query, items)
+        note_tool_finished(name, "ok", f"Found {len(items)} memory matches")
         return {
             "tool": name,
             "actions": [{"type": "recall_memory", "query": query}],
@@ -1198,7 +1214,9 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
         from agents.vision import describe_screen
 
         question = " ".join(str(args.get("question", "")).split()).strip() or "What is on the screen right now?"
+        note_tool_started(name, question)
         answer = describe_screen(question)
+        note_tool_finished(name, "ok", answer)
         return {
             "tool": name,
             "actions": [{"type": "take_screenshot_and_describe", "question": question}],
@@ -1206,6 +1224,7 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
             "payload": {"question": question, "result": _clip_tool_payload(answer, limit=220)},
         }
 
+    note_tool_finished(name or "unknown", "error", "Unknown tool")
     return {
         "tool": name or "unknown",
         "actions": [],
