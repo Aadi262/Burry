@@ -27,7 +27,7 @@ from butler_config import (
     VPS_HOSTS,
 )
 from context import build_structured_context
-from context.mac_activity import get_state_for_context, start_watcher
+from context.mac_activity import get_state_for_context, load_state as load_mac_state, start_watcher
 from executor.engine import Executor
 from intents.router import (
     IntentResult,
@@ -247,8 +247,6 @@ Output ONLY the response text:"""
 def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
     parts = []
     formatted = str(ctx.get("formatted", "")).strip()
-    if formatted:
-        parts.append(formatted)
 
     if user_text:
         parts.append(f"[USER REQUEST]\n  {user_text}")
@@ -265,7 +263,231 @@ def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
         if hints:
             parts.append("[AGENT HINTS]\n" + "\n".join(hints))
 
+        if any(
+            phrase in lowered
+            for phrase in (
+                "what should i do next",
+                "what's next",
+                "whats next",
+                "what next",
+                "next step",
+            )
+        ):
+            snapshot = _project_snapshot_for_planning()
+            if snapshot:
+                parts.insert(0, snapshot)
+            if formatted:
+                parts.insert(1 if snapshot else 0, _strip_context_section(formatted, "[TASK LIST]"))
+        elif formatted:
+            parts.insert(0, formatted)
+    elif formatted:
+        parts.append(formatted)
+
     return "\n\n".join(part for part in parts if part).strip()
+
+
+def _strip_context_section(text: str, header: str) -> str:
+    if not text or not header:
+        return text
+    lines = text.splitlines()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == header:
+            skipping = True
+            continue
+        if skipping and stripped.startswith("[") and stripped.endswith("]"):
+            skipping = False
+        if not skipping:
+            kept.append(line)
+    return "\n".join(line for line in kept if line.strip())
+
+
+def _project_snapshot_for_planning() -> str:
+    try:
+        from projects import load_projects
+    except Exception:
+        return ""
+
+    projects = load_projects()
+    if not projects:
+        return ""
+
+    ordered = sorted(
+        projects,
+        key=lambda item: (
+            {"active": 0, "paused": 1, "done": 2}.get(item.get("status", "paused"), 9),
+            -(int(item.get("completion", 0))),
+            -(int((item.get("last_opened") or "0").replace("-", "").replace(":", "").replace("T", "").replace("Z", "")[:14] or "0")),
+        ),
+    )
+
+    lines = ["[PROJECT SNAPSHOT]"]
+    for project in ordered[:3]:
+        next_task = str((project.get("next_tasks") or ["none"])[0]).strip() or "none"
+        blocker = str((project.get("blockers") or ["none"])[0]).strip() or "none"
+        lines.append(
+            f"  {project.get('name', 'unknown')}: next={next_task[:64]} | blocker={blocker[:64]}"
+        )
+    return "\n".join(lines)
+
+
+def _normalize_path_key(path: str) -> str:
+    text = os.path.expanduser(str(path or "")).strip()
+    if not text:
+        return ""
+    return os.path.normpath(text).rstrip("/").lower()
+
+
+def _project_from_path(path: str, projects: list[dict]) -> dict | None:
+    candidate = _normalize_path_key(path)
+    if not candidate:
+        return None
+
+    best: tuple[int, dict] | None = None
+    for project in projects:
+        root = _normalize_path_key(project.get("path", ""))
+        if not root:
+            continue
+        if candidate == root or candidate.startswith(root + os.sep):
+            score = len(root)
+            if best is None or score > best[0]:
+                best = (score, project)
+    return best[1] if best else None
+
+
+def _recent_speech_keys(limit: int = 6) -> set[str]:
+    try:
+        memory = _load_memory()
+    except Exception:
+        return set()
+
+    history = memory.get("command_history", [])
+    recent: set[str] = set()
+    for entry in history[-limit:]:
+        speech = str(entry.get("speech", "")).strip().lower()
+        if speech:
+            recent.add(re.sub(r"[^a-z0-9]+", "", speech))
+    return recent
+
+
+def _clip_words(text: str, limit: int = 12) -> str:
+    cleaned = " ".join(str(text or "").split()).strip(" .,;:-")
+    if not cleaned:
+        return ""
+    words = cleaned.split()
+    if len(words) <= limit:
+        return cleaned
+    trimmed = words[:limit]
+    while trimmed and trimmed[-1].lower() in {"if", "and", "or", "to", "for", "with"}:
+        trimmed = trimmed[:-1]
+    return " ".join(trimmed).rstrip(",;:-")
+
+
+def _spoken_task(text: str, limit: int = 8) -> str:
+    cleaned = re.sub(r"\([^)]*\)", "", str(text or ""))
+    cleaned = cleaned.replace("—", " - ").replace("–", " - ")
+    lowered = cleaned.lower()
+    for token in (" - ", " if ", " because ", " when ", "; "):
+        index = lowered.find(token)
+        if index != -1:
+            cleaned = cleaned[:index]
+            break
+    cleaned = " ".join(cleaned.split()).strip(" .,;:-")
+    return _clip_words(cleaned, limit)
+
+
+def _what_next_project(ctx: dict) -> tuple[dict | None, bool]:
+    try:
+        from projects import load_projects
+    except Exception:
+        return (None, False)
+
+    projects = load_projects()
+    if not projects:
+        return (None, False)
+
+    workspace_candidates = []
+    mac_state = load_mac_state()
+    workspace = str(mac_state.get("cursor_workspace", "")).strip()
+    if workspace:
+        workspace_candidates.append(workspace)
+    workspace_candidates.extend(ctx.get("raw", {}).get("editor", {}).get("workspace_paths", []) or [])
+    remembered = _get_last_project()
+    if remembered:
+        workspace_candidates.append(remembered)
+
+    for candidate in workspace_candidates:
+        project = _project_from_path(candidate, projects)
+        if project:
+            return (project, True)
+
+    ordered = sorted(
+        projects,
+        key=lambda item: (
+            {"active": 0, "paused": 1, "done": 2}.get(item.get("status", "paused"), 9),
+            -int(item.get("completion", 0)),
+            str(item.get("last_opened", "")),
+        ),
+        reverse=False,
+    )
+    return (ordered[0], False) if ordered else (None, False)
+
+
+def _deterministic_project_plan(ctx: dict, *, startup: bool = False) -> dict | None:
+    project, in_workspace = _what_next_project(ctx)
+    if not project:
+        return None
+
+    name = str(project.get("name", "")).strip() or "your current project"
+    next_tasks = [str(item).strip() for item in (project.get("next_tasks") or []) if str(item).strip()]
+    blockers = [str(item).strip() for item in (project.get("blockers") or []) if str(item).strip()]
+
+    first_task = _spoken_task(next_tasks[0] if next_tasks else "review the current status file", 8)
+    raw_second_task = str(next_tasks[1]).strip() if len(next_tasks) > 1 else ""
+    second_task = _spoken_task(raw_second_task, 5) if raw_second_task and len(raw_second_task.split()) <= 5 else ""
+    raw_blocker = str(blockers[0]).strip() if blockers else ""
+    blocker = _clip_words(raw_blocker, 7) if raw_blocker and len(raw_blocker.split()) <= 7 else ""
+
+    lead = f"You're already in {name}" if in_workspace else f"{name} is the clearest next move"
+    task_clause = f"Start with {first_task}."
+    if second_task and second_task.lower() != first_task.lower() and len(f"{first_task} {second_task}".split()) <= 12:
+        task_clause = f"Start with {first_task}, then {second_task}."
+
+    question = (
+        "Say open it, start it, or switch."
+        if startup
+        else (
+            "Want the first step?"
+            if in_workspace
+            else "Want me to open it or map the first step?"
+        )
+    )
+
+    variants = []
+    if blocker and len(blocker.split()) <= 7:
+        variants.append(f"{lead}. Biggest blocker is {blocker}. {task_clause} {question}")
+    variants.append(f"{lead}. {task_clause} {question}")
+    variants.append(f"{lead}. Next move is {first_task}. {question}")
+
+    recent = _recent_speech_keys()
+    chosen = variants[0]
+    for variant in variants:
+        key = re.sub(r"[^a-z0-9]+", "", variant.lower())
+        if key not in recent:
+            chosen = variant
+            break
+
+    speech = _normalize_response(chosen, max_words=45)
+    return {
+        "speech": speech,
+        "spoken_text": speech,
+        "actions": [],
+        "focus": name,
+        "why_now": first_task,
+        "greeting": "",
+    }
 
 
 def _question_needs_brain_agents(text: str) -> bool:
@@ -372,6 +594,7 @@ def observe_and_followup(
     trivial_actions = {
         "open_app",
         "quit_app",
+        "open_project",
         "open_folder",
         "create_and_open",
         "open_terminal",
@@ -870,8 +1093,10 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
     state.transition(State.THINKING)
     ctx = build_structured_context()
     _warn_if_search_offline()
-    context_text = _brain_context_text(ctx, "startup briefing")
-    plan = _plan_with_brain(context_text, model=model)
+    plan = _deterministic_project_plan(ctx, startup=True)
+    if not plan:
+        context_text = _brain_context_text(ctx, "startup briefing")
+        plan = _plan_with_brain(context_text, model=model)
     speech = _normalize_response(plan.get("speech", ""), max_words=35)
     if not speech:
         speech = "Back on mac-butler. Want to jump in?"
@@ -965,7 +1190,7 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
         return
 
     if intent.name == "what_next":
-        plan = _plan_with_brain(_brain_context_text(ctx, text), model=model)
+        plan = _deterministic_project_plan(ctx) or _plan_with_brain(_brain_context_text(ctx, text), model=model)
         speech = _normalize_response(plan.get("speech", ""), max_words=40) or "Back on mac-butler. Want to jump in?"
         actions = [action for action in plan.get("actions", []) if isinstance(action, dict)]
         if actions:

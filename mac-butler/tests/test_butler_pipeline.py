@@ -6,9 +6,11 @@ from butler import (
     _brain_context_text,
     _clear_pending_dialogue,
     _contextualize_action,
+    _deterministic_project_plan,
     _direct_agent_plan_for_text,
     _normalize_response,
     _plan_with_brain,
+    _project_snapshot_for_planning,
     _question_needs_brain_agents,
     _resolve_pending_dialogue,
     _unknown_response_for_text,
@@ -89,11 +91,139 @@ class ButlerPipelineTests(unittest.TestCase):
         )
         self.assertEqual(observation, "Docker looks healthy overall.")
 
+    def test_observe_and_followup_skips_open_project_results(self):
+        observation = observe_and_followup(
+            {"speech": "Opening Adpilot."},
+            [{"action": "open_project", "status": "ok", "result": "opened Adpilot in antigravity"}],
+            test_mode=False,
+        )
+        self.assertEqual(observation, "")
+
     def test_brain_context_text_includes_request_and_hint(self):
         ctx = {"formatted": "[FOCUS]\n  project: mac-butler"}
         text = _brain_context_text(ctx, "check latest AI news")
         self.assertIn("[USER REQUEST]", text)
         self.assertIn("run_agent", text)
+
+    @patch("projects.load_projects")
+    def test_brain_context_text_includes_project_snapshot_for_what_next(self, mock_load_projects):
+        mock_load_projects.return_value = [
+            {
+                "name": "Adpilot",
+                "status": "active",
+                "completion": 94,
+                "last_opened": "2026-04-05T15:00:00",
+                "next_tasks": ["Verify deploy checks"],
+                "blockers": ["OAuth still needs final setup"],
+            }
+        ]
+        ctx = {"formatted": "[FOCUS]\n  project: Adpilot"}
+        text = _brain_context_text(ctx, "what should i do next")
+        self.assertIn("[PROJECT SNAPSHOT]", text)
+        self.assertIn("Verify deploy checks", text)
+
+    @patch("projects.load_projects")
+    def test_project_snapshot_for_planning_prefers_real_project_state(self, mock_load_projects):
+        mock_load_projects.return_value = [
+            {
+                "name": "Adpilot",
+                "status": "active",
+                "completion": 94,
+                "last_opened": "2026-04-05T15:00:00",
+                "next_tasks": ["Verify deploy checks"],
+                "blockers": ["OAuth still needs final setup"],
+            },
+            {
+                "name": "mac-butler",
+                "status": "active",
+                "completion": 71,
+                "last_opened": "2026-04-05T14:00:00",
+                "next_tasks": ["Tighten follow-up voice behavior"],
+                "blockers": ["Project OS layer is not fully wired yet"],
+            },
+        ]
+        snapshot = _project_snapshot_for_planning()
+        self.assertIn("[PROJECT SNAPSHOT]", snapshot)
+        self.assertIn("Adpilot", snapshot)
+        self.assertIn("Verify deploy checks", snapshot)
+
+    @patch("projects.load_projects")
+    @patch("butler.load_mac_state")
+    def test_deterministic_project_plan_prefers_current_workspace_project(
+        self,
+        mock_mac_state,
+        mock_load_projects,
+    ):
+        mock_mac_state.return_value = {
+            "cursor_workspace": "/Users/adityatiwari/Desktop/Development/Ai Trade Bot"
+        }
+        mock_load_projects.return_value = [
+            {
+                "name": "mac-butler",
+                "path": "~/Burry/mac-butler",
+                "status": "active",
+                "completion": 80,
+                "next_tasks": ["Install Piper"],
+                "blockers": ["TTS is still weak"],
+            },
+            {
+                "name": "Ai Trade Bot",
+                "path": "/Users/adityatiwari/Desktop/Development/Ai Trade Bot",
+                "status": "active",
+                "completion": 70,
+                "next_tasks": [
+                    "Run the backend and frontend together",
+                    "Manually QA the new Signals desk flow",
+                ],
+                "blockers": ["Runtime QA is still pending"],
+            },
+        ]
+
+        plan = _deterministic_project_plan({"raw": {"editor": {"workspace_paths": []}}})
+
+        self.assertEqual(plan["focus"], "Ai Trade Bot")
+        self.assertIn("Ai Trade Bot", plan["speech"])
+        self.assertIn("Run the backend and frontend together", plan["speech"])
+        self.assertEqual(plan["actions"], [])
+
+    @patch("projects.load_projects")
+    @patch("butler.load_mac_state")
+    @patch("butler._load_memory")
+    def test_deterministic_project_plan_avoids_repeating_recent_speech(
+        self,
+        mock_load_memory,
+        mock_mac_state,
+        mock_load_projects,
+    ):
+        recent = (
+            "You're already in Ai Trade Bot. Biggest blocker is Runtime QA is still pending. "
+            "Start with Run the backend and frontend together, then Manually QA the new Signals desk flow. "
+            "Want me to break down the first step?"
+        )
+        mock_load_memory.return_value = {
+            "command_history": [{"speech": recent}],
+        }
+        mock_mac_state.return_value = {
+            "cursor_workspace": "/Users/adityatiwari/Desktop/Development/Ai Trade Bot"
+        }
+        mock_load_projects.return_value = [
+            {
+                "name": "Ai Trade Bot",
+                "path": "/Users/adityatiwari/Desktop/Development/Ai Trade Bot",
+                "status": "active",
+                "completion": 70,
+                "next_tasks": [
+                    "Run the backend and frontend together",
+                    "Manually QA the new Signals desk flow",
+                ],
+                "blockers": ["Runtime QA is still pending"],
+            }
+        ]
+
+        plan = _deterministic_project_plan({"raw": {"editor": {"workspace_paths": []}}})
+
+        self.assertNotEqual(plan["speech"], recent)
+        self.assertNotIn("needs attention", plan["speech"].lower())
 
     def test_question_needs_brain_agents_for_external_lookup(self):
         self.assertTrue(_question_needs_brain_agents("what is the latest ai news"))

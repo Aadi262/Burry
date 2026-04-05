@@ -137,6 +137,20 @@ class TestMemoryStore(unittest.TestCase):
         self.assertLess(len(summary), 400,
             f"Summary too long for LLM prompt: {len(summary)} chars")
 
+    def test_summary_does_not_echo_last_speech(self):
+        from memory.store import record_session, get_last_session_summary
+
+        record_session(
+            context_summary="what should i do next",
+            speech="Hey. mac-butler needs attention. Wire two-stage llm into butler.",
+            actions=[],
+        )
+
+        summary = get_last_session_summary()
+        self.assertIn("what should i do next", summary.lower())
+        self.assertNotIn("needs attention", summary.lower())
+        self.assertNotIn('Said: "', summary)
+
     def test_memory_file_created(self):
         from memory.store import record_session
         record_session("test", "test speech", [])

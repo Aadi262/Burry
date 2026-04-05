@@ -99,6 +99,7 @@ Rules:
 5. Do not write speech here.
 6. Prefer mac-butler or email-infra by name when the context supports it.
 7. Do not invent vague work if the context already points to a concrete task.
+8. Prefer [PROJECT SNAPSHOT] over [TASK LIST] when both are present.
 
 Return exactly this schema:
 {
@@ -575,7 +576,7 @@ def send_to_ollama(context_text: str, model: str | None = None) -> str:
     planner_model = pick_butler_model("planning", override=model)
     speech_model = pick_butler_model("voice", override=model)
     greeting = _random_greeting()
-    compact_vps_mode = USE_VPS_OLLAMA and bool(VPS_OLLAMA_URL)
+    compact_vps_mode = _backend_for_model(planner_model) == "vps"
     context_limit = 220 if compact_vps_mode else 600
     plan_max_tokens = 90 if compact_vps_mode else 260
     speech_max_tokens = 180
@@ -600,6 +601,7 @@ Rules:
         plan_prompt = f"""You are a planning engine for Aditya.
 Rules you MUST follow:
 - If context contains project names, use them directly
+- Prefer [PROJECT SNAPSHOT] over [TASK LIST] when both exist
 - NEVER write "current work" — use the actual project name
 - NEVER write "next useful step" — name the actual task
 - mac-butler = his local voice operator agent project
@@ -652,15 +654,7 @@ Output ONLY JSON:"""
             focus = "email-infra"
 
     if next_action in {"", "The next useful step is visible."} or "next useful step" in next_action.lower():
-        lowered = context_text.lower()
-        if "two-stage" in lowered and "mac-butler" in lowered:
-            next_action = "wire the two-stage LLM into mac-butler"
-        elif "trust score" in lowered and "email-infra" in lowered:
-            next_action = "design the trust score formula for email-infra"
-        elif "reputation" in lowered and "email-infra" in lowered:
-            next_action = "build the reputation graph schema for email-infra"
-        else:
-            next_action = "finish the next concrete task"
+        next_action = "resolve the top blocker"
 
     spoken_next_action = _strip_repeated_project_from_task(focus, next_action)
 
@@ -717,7 +711,7 @@ Output ONLY JSON:"""
             speech = speech_raw.strip()
 
     if not speech:
-        speech = f"{greeting}. {focus} needs attention. {spoken_next_action.capitalize()}. Want to tackle that now?"
+        speech = f"{greeting}. Next up in {focus}: {spoken_next_action}. Want me to line up the first step?"
     elif not speech.lower().startswith(final_greeting.lower()):
         speech = f"{final_greeting}. {speech}"
 

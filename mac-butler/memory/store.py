@@ -531,6 +531,8 @@ def get_last_session_summary() -> str:
         ts = "recently"
 
     actions = last.get("actions", [])
+    results = last.get("results", []) or []
+    request = _clip(last.get("context", ""), 70)
     action_parts = []
     for action in actions[:2]:
         action_type = action.get("type", "")
@@ -542,12 +544,17 @@ def get_last_session_summary() -> str:
             action_parts.append(f"ran {action.get('cmd', '')[:25]}")
 
     lines = [f"Last active: {ts}"]
+    if request:
+        lines.append(f'Request: "{request}"')
     if action_parts:
         lines.append(f"Did: {', '.join(action_parts)}")
-    speech = last.get("speech", "")[:70]
-    if speech:
-        lines.append(f'Said: "{speech}"')
-    return "\n".join(lines)
+    else:
+        for result in results[:1]:
+            summary = _summarize_result(result)
+            if summary:
+                lines.append(f"Result: {summary}")
+                break
+    return "\n".join(lines[:3])
 
 
 if __name__ == "__main__":
