@@ -1,95 +1,164 @@
 <svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="180" y1="120" x2="1380" y2="760" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#09111A"/>
-      <stop offset="0.55" stop-color="#0D1623"/>
-      <stop offset="1" stop-color="#061018"/>
+    <linearGradient id="bg" x1="180" y1="40" x2="1450" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06080D"/>
+      <stop offset="0.45" stop-color="#09111B"/>
+      <stop offset="1" stop-color="#05070B"/>
     </linearGradient>
-    <linearGradient id="panel" x1="296" y1="246" x2="1206" y2="662" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#102131" stop-opacity="0.92"/>
-      <stop offset="1" stop-color="#0B1725" stop-opacity="0.72"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="336" y1="254" x2="1102" y2="708" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#52B7FF"/>
-      <stop offset="1" stop-color="#6CFFD0"/>
-    </linearGradient>
-    <radialGradient id="orbA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1244 220) rotate(90) scale(220 280)">
-      <stop stop-color="#6CFFD0" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#6CFFD0" stop-opacity="0"/>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(360 300) rotate(18) scale(520 360)">
+      <stop stop-color="#2DE4FF" stop-opacity="0.42"/>
+      <stop offset="0.55" stop-color="#19BFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#19BFFF" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="orbB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(330 660) rotate(90) scale(240 300)">
-      <stop stop-color="#52B7FF" stop-opacity="0.32"/>
-      <stop offset="1" stop-color="#52B7FF" stop-opacity="0"/>
+    <radialGradient id="limeGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1210 690) rotate(-12) scale(500 320)">
+      <stop stop-color="#54FFBC" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#54FFBC" stop-opacity="0"/>
     </radialGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="18" result="blur"/>
+    <radialGradient id="amberGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1120 170) rotate(10) scale(300 180)">
+      <stop stop-color="#FFC96B" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#FFC96B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="frameStroke" x1="180" y1="90" x2="1400" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4CE0FF" stop-opacity="0.74"/>
+      <stop offset="0.5" stop-color="#90F7FF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#61FFB4" stop-opacity="0.56"/>
+    </linearGradient>
+    <linearGradient id="titleFill" x1="224" y1="240" x2="760" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#C9F7FF"/>
+      <stop offset="1" stop-color="#8CF0FF"/>
+    </linearGradient>
+    <linearGradient id="panelFill" x1="944" y1="150" x2="1410" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101925" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#0A121B" stop-opacity="0.78"/>
+    </linearGradient>
+    <linearGradient id="terminalFill" x1="214" y1="586" x2="848" y2="824" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1621" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#0A1018" stop-opacity="0.82"/>
+    </linearGradient>
+    <filter id="softBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="32"/>
+    </filter>
+    <filter id="crispGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+    <pattern id="dots" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#8DDFFF" fill-opacity="0.08"/>
+    </pattern>
   </defs>
 
   <rect width="1600" height="900" fill="url(#bg)"/>
-  <rect width="1600" height="900" fill="url(#orbA)"/>
-  <rect width="1600" height="900" fill="url(#orbB)"/>
+  <rect width="1600" height="900" fill="url(#dots)"/>
+  <rect width="1600" height="900" fill="url(#cyanGlow)"/>
+  <rect width="1600" height="900" fill="url(#limeGlow)"/>
+  <rect width="1600" height="900" fill="url(#amberGlow)"/>
 
-  <g opacity="0.14">
-    <path d="M0 140H1600" stroke="#8FD6FF"/>
-    <path d="M0 300H1600" stroke="#8FD6FF"/>
-    <path d="M0 460H1600" stroke="#8FD6FF"/>
-    <path d="M0 620H1600" stroke="#8FD6FF"/>
-    <path d="M0 780H1600" stroke="#8FD6FF"/>
-    <path d="M220 0V900" stroke="#8FD6FF"/>
-    <path d="M480 0V900" stroke="#8FD6FF"/>
-    <path d="M740 0V900" stroke="#8FD6FF"/>
-    <path d="M1000 0V900" stroke="#8FD6FF"/>
-    <path d="M1260 0V900" stroke="#8FD6FF"/>
+  <g opacity="0.18">
+    <path d="M115 178H1485" stroke="#6DDCFF"/>
+    <path d="M115 724H1485" stroke="#6DDCFF"/>
+    <path d="M180 104V796" stroke="#6DDCFF"/>
+    <path d="M1420 104V796" stroke="#6DDCFF"/>
   </g>
 
-  <rect x="214" y="170" width="1172" height="560" rx="34" fill="url(#panel)" stroke="rgba(143,214,255,0.18)"/>
+  <g opacity="0.08">
+    <path d="M204 0V900" stroke="#84E7FF"/>
+    <path d="M468 0V900" stroke="#84E7FF"/>
+    <path d="M732 0V900" stroke="#84E7FF"/>
+    <path d="M996 0V900" stroke="#84E7FF"/>
+    <path d="M1260 0V900" stroke="#84E7FF"/>
+    <path d="M0 172H1600" stroke="#84E7FF"/>
+    <path d="M0 342H1600" stroke="#84E7FF"/>
+    <path d="M0 512H1600" stroke="#84E7FF"/>
+    <path d="M0 682H1600" stroke="#84E7FF"/>
+  </g>
 
-  <g filter="url(#glow)">
-    <path d="M286 262H540" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
-    <path d="M286 632H1316" stroke="url(#accent)" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+  <rect x="180" y="104" width="1240" height="692" rx="40" fill="#09111A" fill-opacity="0.34" stroke="url(#frameStroke)"/>
+
+  <circle cx="1136" cy="418" r="226" stroke="#7FE6FF" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="1136" cy="418" r="164" stroke="#7FE6FF" stroke-opacity="0.1" stroke-width="2"/>
+  <circle cx="1136" cy="418" r="96" fill="#102231" fill-opacity="0.52" stroke="#7FE6FF" stroke-opacity="0.14"/>
+  <circle cx="1136" cy="418" r="10" fill="#52FFBC"/>
+
+  <g filter="url(#softBlur)">
+    <circle cx="548" cy="278" r="94" fill="#20D8FF" fill-opacity="0.24"/>
+    <circle cx="1102" cy="372" r="54" fill="#54FFBC" fill-opacity="0.2"/>
+    <circle cx="1268" cy="644" r="72" fill="#FFD06C" fill-opacity="0.16"/>
+  </g>
+
+  <text x="224" y="174" fill="#66F0C6" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="23" letter-spacing="8">LOCAL PROJECT OS</text>
+
+  <text x="220" y="364" fill="url(#titleFill)" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="178" font-weight="700">BURRY</text>
+
+  <text x="226" y="444" fill="#E5F5FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="36">
+    Local operator infrastructure for projects, agents, execution, and memory.
+  </text>
+
+  <text x="226" y="504" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="26">
+    Butler is the runtime. Project OS is the truth layer. The repo is the operating surface.
+  </text>
+
+  <g filter="url(#crispGlow)">
+    <path d="M224 552H758" stroke="#48DCFF" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.96">
+    <rect x="224" y="596" width="626" height="194" rx="28" fill="url(#terminalFill)" stroke="#1B3141"/>
+    <circle cx="260" cy="636" r="8" fill="#FF7C72"/>
+    <circle cx="286" cy="636" r="8" fill="#F7D154"/>
+    <circle cx="312" cy="636" r="8" fill="#53D769"/>
+    <text x="346" y="644" fill="#9EB9CB" font-family="SFMono-Regular, Menlo, monospace" font-size="20">operator shell</text>
+
+    <text x="256" y="694" fill="#5CF2C5" font-family="SFMono-Regular, Menlo, monospace" font-size="24">&gt; open adpilot</text>
+    <text x="256" y="732" fill="#7BE7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="24">&gt; what's happening in AI today</text>
+    <text x="256" y="770" fill="#E7F4FF" font-family="SFMono-Regular, Menlo, monospace" font-size="24">&gt; open dashboard</text>
+  </g>
+
+  <g>
+    <rect x="936" y="154" width="392" height="150" rx="28" fill="url(#panelFill)" stroke="#213444"/>
+    <rect x="1010" y="344" width="374" height="150" rx="28" fill="url(#panelFill)" stroke="#213444"/>
+    <rect x="938" y="536" width="430" height="150" rx="28" fill="url(#panelFill)" stroke="#213444"/>
+
+    <circle cx="980" cy="200" r="9" fill="#55FFBC"/>
+    <circle cx="1052" cy="390" r="9" fill="#56DFFF"/>
+    <circle cx="982" cy="582" r="9" fill="#FFC86C"/>
+
+    <text x="1008" y="208" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="28" font-weight="600">Project OS</text>
+    <text x="1008" y="248" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      Registry, blockers, next actions, deploy targets,
+    </text>
+    <text x="1008" y="276" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      health, verification, and local truth.
+    </text>
+
+    <text x="1080" y="398" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="28" font-weight="600">Agent Routing</text>
+    <text x="1080" y="438" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      Free-source news, Hacker News, Reddit,
+    </text>
+    <text x="1080" y="466" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      GitHub trending, review, coding, and VPS flows.
+    </text>
+
+    <text x="1010" y="590" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="28" font-weight="600">Execution Memory</text>
+    <text x="1010" y="630" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      Actions run, outputs get analyzed, results are
+    </text>
+    <text x="1010" y="658" fill="#9DB5C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="21">
+      written back, and the dashboard stays honest.
+    </text>
   </g>
 
   <g opacity="0.92">
-    <rect x="286" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
-    <rect x="634" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
-    <rect x="982" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
-    <rect x="286" y="424" width="502" height="180" rx="24" fill="#0D1C2A" stroke="#18354A"/>
-    <rect x="808" y="424" width="506" height="180" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+    <rect x="226" y="144" width="162" height="46" rx="15" fill="#101923" stroke="#1F3446"/>
+    <text x="248" y="173" fill="#D8F7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="19">APPLE SILICON</text>
+
+    <rect x="404" y="144" width="134" height="46" rx="15" fill="#101923" stroke="#1F3446"/>
+    <text x="436" y="173" fill="#D8F7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="19">OFFLINE</text>
+
+    <rect x="554" y="144" width="118" height="46" rx="15" fill="#101923" stroke="#1F3446"/>
+    <text x="583" y="173" fill="#D8F7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="19">OLLAMA</text>
   </g>
-
-  <g filter="url(#glow)">
-    <circle cx="338" cy="310" r="7" fill="#6CFFD0"/>
-    <circle cx="686" cy="310" r="7" fill="#52B7FF"/>
-    <circle cx="1034" cy="310" r="7" fill="#6CFFD0"/>
-    <circle cx="338" cy="470" r="7" fill="#52B7FF"/>
-    <circle cx="860" cy="470" r="7" fill="#6CFFD0"/>
-  </g>
-
-  <text x="286" y="120" fill="#7DE8CA" font-family="SF Pro Display, Arial, sans-serif" font-size="24" letter-spacing="10">BURRY</text>
-  <text x="286" y="236" fill="#F5FBFF" font-family="SF Pro Display, Arial, sans-serif" font-size="92" font-weight="700">PROJECT OS</text>
-  <text x="292" y="688" fill="#9DB1C2" font-family="SF Pro Text, Arial, sans-serif" font-size="28">
-    local operator • project memory • model routing • dashboard truth
-  </text>
-
-  <text x="338" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Voice + Actions</text>
-  <text x="338" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">phi4 voice, safe executor, open-project chain</text>
-
-  <text x="686" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Model Routing</text>
-  <text x="686" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">qwen coder 14b + deepseek r1 14b on local</text>
-
-  <text x="1034" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Project Intelligence</text>
-  <text x="1034" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">registry, blockers, runtime health, verification</text>
-
-  <text x="338" y="480" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="22" font-weight="600">Execution Memory</text>
-  <text x="338" y="520" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">Every meaningful Butler action now writes back into project memory:</text>
-  <text x="338" y="556" fill="#DCEBFA" font-family="SF Mono, Menlo, monospace" font-size="18">last_action  last_status  last_test  last_verified  recent_failures</text>
-
-  <text x="860" y="480" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="22" font-weight="600">Command Center</text>
-  <text x="860" y="520" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">The dashboard tracks completion, blockers, next tasks, git state,</text>
-  <text x="860" y="556" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">last verification, and health signals across active products.</text>
 </svg>
