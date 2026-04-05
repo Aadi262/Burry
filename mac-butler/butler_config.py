@@ -113,12 +113,16 @@ AUTO_PLAY_MUSIC = True
 DEFAULT_MUSIC_MODE = "focus"
 
 # --- Voice output ---
-TTS_BACKEND = "auto"
-TTS_VOICE = "Tara"        # Natural options on this Mac: Tara (IN), Samantha (US), Daniel (UK), Rishi (IN)
-TTS_RATE = 158            # Words per minute (158 = natural human pace)
+TTS_ENGINE = "kokoro"     # "kokoro" | "say" | "auto"
+TTS_VOICE = "af_bella"    # Kokoro voice; fallback `say` uses Daniel automatically
+TTS_SPEED = 1.0
 TTS_MAX_WORDS = 40        # Hard cap on spoken words
 PIPER_MODEL_PATH = ""
 PIPER_CONFIG_PATH = ""
+
+# Backward-compatible aliases for older code/docs.
+TTS_BACKEND = TTS_ENGINE
+TTS_RATE = 165
 
 # --- Voice input ---
 VOICE_FOLLOWUP_ENABLED = True

@@ -19,3 +19,4 @@ mac-butler/secrets/local_secrets.json
 mac-butler/projects/dashboard.html
 mac-butler/mac_butler.egg-info/
 mac-butler/comprehensive_run_*.log
+mac-butler/voice/models/

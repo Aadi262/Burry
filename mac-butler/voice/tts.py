@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-tts.py — Butler's natural voice layer.
+tts.py — Butler's local voice layer.
 
-Uses macOS `say` with the best available premium voice.
-Heavy text shaping before speaking: breath pauses between sentences,
-acronym expansion, and word trimming so it sounds like a human colleague.
+Priority chain:
+1. Kokoro neural TTS on Apple Silicon when available.
+2. macOS `say` fallback so Butler never goes silent or crashes.
 """
+
+from __future__ import annotations
 
 import re
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
-from butler_config import TTS_MAX_WORDS, TTS_RATE, TTS_VOICE
+from butler_config import TTS_ENGINE, TTS_MAX_WORDS, TTS_SPEED, TTS_VOICE
+
+MODELS_DIR = Path(__file__).resolve().parent / "models"
+KOKORO_MODEL_PATH = MODELS_DIR / "kokoro-v1.0.onnx"
+KOKORO_VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
 
 
 @lru_cache(maxsize=1)
@@ -34,20 +41,37 @@ def _available_voices() -> set[str]:
     return voices
 
 
-def _pick_voice() -> str:
+def _pick_say_voice() -> str:
     available = _available_voices()
-    for candidate in (TTS_VOICE, "Tara", "Samantha", "Daniel", "Rishi"):
-        if candidate and (not available or candidate in available):
+    for candidate in ("Daniel", "Samantha", "Tara", "Rishi"):
+        if not available or candidate in available:
             return candidate
-    return TTS_VOICE or "Samantha"
+    return "Daniel"
+
+
+@lru_cache(maxsize=1)
+def _get_kokoro():
+    from kokoro_onnx import Kokoro
+
+    return Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
 
 
 def describe_tts() -> dict:
-    return {"backend": "macos", "voice": _pick_voice(), "rate": TTS_RATE}
+    engine = (TTS_ENGINE or "auto").lower()
+    if engine != "say" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
+        return {"backend": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED}
+    return {"backend": "say", "voice": _pick_say_voice(), "rate": 165}
 
 
-def shape_for_speech(text: str) -> str:
-    cleaned = re.sub(r"\[\[slnc\s+\d+\]\]", " ", text or "")
+def _shape_for_speech(text: str) -> str:
+    cleaned = text or ""
+    cleaned = re.sub(r"\[\[slnc\s+\d+\]\]", " ", cleaned)
+    cleaned = re.sub(r"[*_`#]", "", cleaned)
+    cleaned = re.sub(r"https?://\S+", "", cleaned)
+    cleaned = cleaned.replace("LLM", "L L M")
+    cleaned = cleaned.replace("API", "A P I")
+    cleaned = cleaned.replace("VPS", "V P S")
+    cleaned = cleaned.replace("MCP", "M C P")
     cleaned = cleaned.replace('"', "")
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     words = cleaned.split()
@@ -58,28 +82,56 @@ def shape_for_speech(text: str) -> str:
     return cleaned
 
 
+def shape_for_speech(text: str) -> str:
+    """Compatibility wrapper for older callers/tests."""
+    return _shape_for_speech(text)
+
+
+def _try_kokoro(text: str) -> bool:
+    engine = (TTS_ENGINE or "auto").lower()
+    if engine == "say":
+        return False
+    if not KOKORO_MODEL_PATH.exists() or not KOKORO_VOICES_PATH.exists():
+        return False
+
+    try:
+        import sounddevice as sd
+
+        kokoro = _get_kokoro()
+        samples, rate = kokoro.create(
+            text,
+            voice=TTS_VOICE or "af_bella",
+            speed=float(TTS_SPEED or 1.0),
+            lang="en-us",
+        )
+        print(f"[Voice] 🔊 (kokoro:{TTS_VOICE or 'af_bella'}) {text[:120]}")
+        sd.play(samples, rate)
+        sd.wait()
+        return True
+    except Exception as exc:
+        print(f"[Voice] Kokoro unavailable, falling back to say: {exc}")
+        return False
+
+
+def _say_fallback(text: str) -> None:
+    voice = _pick_say_voice()
+    print(f"[Voice] 🔊 ({voice}) {text[:120]}")
+    subprocess.run(
+        ["say", "-v", voice, "-r", "165", text],
+        check=False,
+    )
+
+
 def speak(text: str) -> None:
-    clean_text = shape_for_speech(text)
-    if not clean_text:
+    clean = _shape_for_speech(text)
+    if not clean:
         return
-    voice = _pick_voice()
-    print(f"[Voice] 🔊 ({voice}) {clean_text[:120]}")
-    subprocess.run(["say", "-v", voice, "-r", str(TTS_RATE), clean_text], check=False)
+    if _try_kokoro(clean):
+        return
+    _say_fallback(clean)
 
 
 if __name__ == "__main__":
     print("=== Butler TTS Test ===\n")
-    info = describe_tts()
-    print(f"Backend: {info['backend']}, Voice: {info['voice']}, Rate: {info['rate']}\n")
-
-    sample = (
-        "Still grinding. [[slnc 300]] "
-        "mac-butler's voice loop needs tightening. "
-        "DKIM validation is still pending in email-infra. "
-        "Want to start with the voice fix?"
-    )
-    print(f"Raw:\n{sample}\n")
-    shaped = shape_for_speech(sample)
-    print(f"Shaped:\n{shaped}\n")
-    speak(sample)
-    print("Done!")
+    print(describe_tts())
+    speak("Good morning. mac-butler is ready. Want to jump in?")

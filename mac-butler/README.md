@@ -12,7 +12,7 @@ Everything runs locally. No API keys. No cloud round-trips.
 - Specialist agents for news, search, VPS inspection, memory compression, code generation, GitHub MCP calls, and bug finding
 - Optional Brave Search MCP and GitHub MCP integration
 - Background heartbeat and bug-hunter daemons for quiet monitoring
-- Better local English voice output with pronunciation shaping and optional Piper support
+- Local neural TTS with Kokoro on Apple Silicon, plus safe macOS `say` fallback
 - Keyboard trigger and clap trigger support
 - Short post-briefing follow-up window using text input for now
 
@@ -50,8 +50,9 @@ VPS_HOSTS = []
 OLLAMA_MODEL = "qwen2.5:14b"
 OLLAMA_FALLBACK = None
 SPOTIFY_ENABLED = True
-TTS_BACKEND = "auto"
-TTS_VOICE = "Flo (English (US))"
+TTS_ENGINE = "kokoro"
+TTS_VOICE = "af_bella"
+TTS_SPEED = 1.0
 PIPER_MODEL_PATH = ""
 ```
 
