@@ -1144,27 +1144,20 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
         }
 
     if name == "browse_web":
-        from agents.runner import run_agent
+        from browser.agent import BrowsingAgent
+        from brain.ollama_client import pick_butler_model
 
         query = " ".join(str(args.get("query", "")).split()).strip() or user_text
         url = " ".join(str(args.get("url", "")).split()).strip()
+        browser = BrowsingAgent(model=pick_butler_model("voice"))
         if url:
-            action = {"type": "run_agent", "agent": "fetch", "query": query or f"Read {url}", "url": url}
+            action = {"type": "browse_web", "mode": "fetch", "query": query or f"Read {url}", "url": url}
+            result = browser.fetch(url, query or f"Read {url}")
         else:
-            direct_plan = _direct_agent_plan_for_text(query)
-            if direct_plan and direct_plan.get("actions"):
-                action = dict(direct_plan["actions"][0])
-            else:
-                decision = analyze_query(query, conversation=_conversation_context_text())
-                if decision["action"] == "news":
-                    action = {"type": "run_agent", "agent": "news", "topic": _extract_news_topic(query.lower())}
-                else:
-                    action = {"type": "run_agent", "agent": "search", "query": query}
-        agent = str(action.get("agent", "")).strip()
-        input_data = {key: value for key, value in action.items() if key not in {"type", "agent"}}
-        result = run_agent(agent, input_data)
+            action = {"type": "browse_web", "mode": "search", "query": query}
+            result = browser.search(query, question=user_text or query)
         result_row = {
-            "action": "run_agent",
+            "action": "browse_web",
             "status": result.get("status", "ok"),
             "result": str(result.get("result", "") or ""),
         }
@@ -1173,7 +1166,7 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
             "actions": [action],
             "results": [result_row],
             "payload": {
-                "agent": agent,
+                "mode": action.get("mode", "search"),
                 "status": result.get("status", "ok"),
                 "result": _clip_tool_payload(result.get("result", "")),
                 "data": _clip_tool_payload(result.get("data", {})),

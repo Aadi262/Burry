@@ -321,6 +321,48 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertEqual(result["actions"][0]["type"], "recall_memory")
         self.assertEqual(result["results"][0]["status"], "ok")
 
+    @patch(
+        "browser.agent.BrowsingAgent.search",
+        return_value={
+            "status": "ok",
+            "result": "Claude 4.5 lowered enterprise cost and improved context handling.",
+            "data": {"tool": "browser_search", "sources": ["searxng"]},
+        },
+    )
+    @patch("brain.ollama_client.chat_with_ollama")
+    def test_tool_chat_response_executes_browse_web_via_browser_agent(self, mock_chat, _mock_search):
+        mock_chat.side_effect = [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "browse_web",
+                                "arguments": {"query": "what is the new product from claude"},
+                            }
+                        }
+                    ],
+                }
+            },
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "Claude 4.5 lowered enterprise cost and improved context handling.",
+                }
+            },
+        ]
+
+        result = _tool_chat_response(
+            "what is the new product from claude",
+            {"formatted": "[FOCUS]\n  project: mac-butler"},
+        )
+
+        self.assertIn("Claude 4.5", result["speech"])
+        self.assertEqual(result["actions"][0]["type"], "browse_web")
+        self.assertEqual(result["results"][0]["action"], "browse_web")
+
     @patch("projects.load_projects")
     def test_project_snapshot_for_planning_prefers_real_project_state(self, mock_load_projects):
         mock_load_projects.return_value = [
