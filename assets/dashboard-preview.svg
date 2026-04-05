@@ -1,0 +1,144 @@
+<svg width="1600" height="980" viewBox="0 0 1600 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="130" y1="30" x2="1470" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#081018"/>
+      <stop offset="0.5" stop-color="#0B131D"/>
+      <stop offset="1" stop-color="#070B11"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(260 180) rotate(10) scale(360 260)">
+      <stop stop-color="#2CE1FF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#2CE1FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1310 840) rotate(-12) scale(420 240)">
+      <stop stop-color="#54FFBC" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#54FFBC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="frame" x1="98" y1="92" x2="1490" y2="884" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3DDCFF" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#61FFB4" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="card" x1="170" y1="210" x2="1390" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111A24" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#0B1118" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="progressA" x1="0" y1="0" x2="260" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3FA6FF"/>
+      <stop offset="1" stop-color="#62F1C3"/>
+    </linearGradient>
+    <filter id="blurGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="980" rx="0" fill="url(#bg)"/>
+  <rect width="1600" height="980" fill="url(#glowA)"/>
+  <rect width="1600" height="980" fill="url(#glowB)"/>
+
+  <g opacity="0.08">
+    <path d="M0 170H1600" stroke="#7FDBFF"/>
+    <path d="M0 340H1600" stroke="#7FDBFF"/>
+    <path d="M0 510H1600" stroke="#7FDBFF"/>
+    <path d="M0 680H1600" stroke="#7FDBFF"/>
+    <path d="M0 850H1600" stroke="#7FDBFF"/>
+    <path d="M220 0V980" stroke="#7FDBFF"/>
+    <path d="M490 0V980" stroke="#7FDBFF"/>
+    <path d="M760 0V980" stroke="#7FDBFF"/>
+    <path d="M1030 0V980" stroke="#7FDBFF"/>
+    <path d="M1300 0V980" stroke="#7FDBFF"/>
+  </g>
+
+  <rect x="92" y="88" width="1416" height="804" rx="34" fill="#0C131C" fill-opacity="0.36" stroke="url(#frame)"/>
+
+  <text x="148" y="156" fill="#69F0C7" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="22" letter-spacing="8">BURRY OS</text>
+  <text x="146" y="228" fill="#F1F8FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="72" font-weight="700">Project Dashboard</text>
+  <text x="148" y="274" fill="#93AABC" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="24">Live status, blockers, next actions, and verification across active products.</text>
+  <text x="1218" y="154" fill="#93AABC" font-family="SFMono-Regular, Menlo, monospace" font-size="18">updated 2026-04-05 17:06</text>
+
+  <g filter="url(#blurGlow)">
+    <path d="M148 302H460" stroke="#3DDBFF" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g>
+    <rect x="142" y="334" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+    <rect x="596" y="334" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+    <rect x="1050" y="334" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+    <rect x="142" y="592" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+    <rect x="596" y="592" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+    <rect x="1050" y="592" width="408" height="230" rx="26" fill="url(#card)" stroke="#213342"/>
+
+    <rect x="454" y="366" width="74" height="30" rx="14" fill="#123126"/>
+    <text x="475" y="387" fill="#61F1C3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">ACTIVE</text>
+    <rect x="908" y="366" width="74" height="30" rx="14" fill="#123126"/>
+    <text x="929" y="387" fill="#61F1C3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">ACTIVE</text>
+    <rect x="1362" y="366" width="74" height="30" rx="14" fill="#123126"/>
+    <text x="1383" y="387" fill="#61F1C3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">ACTIVE</text>
+    <rect x="454" y="624" width="74" height="30" rx="14" fill="#123126"/>
+    <text x="475" y="645" fill="#61F1C3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">ACTIVE</text>
+    <rect x="916" y="624" width="66" height="30" rx="14" fill="#312614"/>
+    <text x="934" y="645" fill="#FFCA6B" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">PAUSED</text>
+    <rect x="1362" y="624" width="74" height="30" rx="14" fill="#123126"/>
+    <text x="1383" y="645" fill="#61F1C3" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="600">ACTIVE</text>
+
+    <text x="174" y="388" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">mac-butler</text>
+    <text x="628" y="388" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">Adpilot</text>
+    <text x="1082" y="388" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">AI SDR</text>
+    <text x="174" y="646" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">Ai Trade Bot</text>
+    <text x="628" y="646" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">Reachout</text>
+    <text x="1082" y="646" fill="#F3F9FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="700">LinkedPilot</text>
+
+    <text x="174" y="422" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Local Mac + Ollama</text>
+    <text x="628" y="422" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Docker + Railway/VPS</text>
+    <text x="1082" y="422" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">VPS + Vercel</text>
+    <text x="174" y="680" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Local app + API</text>
+    <text x="628" y="680" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Workspace / planning root</text>
+    <text x="1082" y="680" fill="#8FA8BA" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Vercel + Railway</text>
+
+    <rect x="174" y="446" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="174" y="446" width="282" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="474" y="459" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">84%</text>
+
+    <rect x="628" y="446" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="628" y="446" width="255" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="928" y="459" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">76%</text>
+
+    <rect x="1082" y="446" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="1082" y="446" width="276" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="1382" y="459" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">82%</text>
+
+    <rect x="174" y="704" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="174" y="704" width="212" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="474" y="717" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">63%</text>
+
+    <rect x="628" y="704" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="628" y="704" width="154" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="928" y="717" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">46%</text>
+
+    <rect x="1082" y="704" width="336" height="12" rx="6" fill="#16212D"/>
+    <rect x="1082" y="704" width="262" height="12" rx="6" fill="url(#progressA)"/>
+    <text x="1382" y="717" fill="#DDF7FF" font-family="SFMono-Regular, Menlo, monospace" font-size="16">78%</text>
+
+    <text x="174" y="492" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="174" y="516" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Ship project registry and dashboard truth.</text>
+    <text x="174" y="540" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: follow-up voice still repeats.</text>
+
+    <text x="628" y="492" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="628" y="516" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Verify live routes against FEATURE_STATUS.</text>
+    <text x="628" y="540" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: stack truth needs reconciliation.</text>
+
+    <text x="1082" y="492" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="1082" y="516" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Start phase 7 sidecar and discovery delta.</text>
+    <text x="1082" y="540" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: polish and late roadmap phases.</text>
+
+    <text x="174" y="750" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="174" y="774" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Finish JWT auth and live trade safeguards.</text>
+    <text x="174" y="798" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: monitoring still needs a clean pass.</text>
+
+    <text x="628" y="750" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="628" y="774" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Consolidate docs and decide the real app root.</text>
+    <text x="628" y="798" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: canonical product root is unclear.</text>
+
+    <text x="1082" y="750" fill="#9FB7C8" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="15" letter-spacing="2">NEXT</text>
+    <text x="1082" y="774" fill="#EAF4FF" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="18">Finish inbox safety and production deploy pass.</text>
+    <text x="1082" y="798" fill="#FF7676" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="17">Blocker: final safety flow still unfinished.</text>
+  </g>
+</svg>

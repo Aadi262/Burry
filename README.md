@@ -37,12 +37,30 @@ The main product in this repo is [`mac-butler`](mac-butler): a local Mac operato
 project state, routes actions, speaks through a local voice, runs tools safely, and writes the
 results back into memory.
 
+## Product Views
+
+<p align="center">
+  <img src="assets/dashboard-preview.svg" alt="Burry dashboard preview" width="100%" />
+</p>
+
+<p align="center">
+  <em>Project OS dashboard with live project state, blockers, progress, and next actions.</em>
+</p>
+
+<p align="center">
+  <img src="assets/butler-session.svg" alt="Butler live operator session preview" width="100%" />
+</p>
+
+<p align="center">
+  <em>Butler session flow: command, routing, specialist agent output, and local operator response.</em>
+</p>
+
 ## Inside This Repo
 
 | Area | Purpose |
 | --- | --- |
 | `mac-butler/` | Core product: Butler runtime, agents, project OS, dashboard, memory, voice, tests |
-| `assets/` | Public-facing visuals for the repo |
+| `assets/` | Public-facing visuals, hero banner, and product previews |
 | `Butler Vault/` | Local notes and private operating memory kept outside the public product surface |
 | `README.md` | GitHub landing page for the whole Burry system |
 
@@ -131,7 +149,9 @@ If you want the full operator detail, configuration, and action surface, read
 ```text
 Burry/
 ├── assets/
-│   └── burry-banner.svg
+│   ├── burry-banner.svg
+│   ├── dashboard-preview.svg
+│   └── butler-session.svg
 ├── Butler Vault/
 │   └── local operator notes and private memory
 ├── mac-butler/
