@@ -6,6 +6,7 @@ Real-time STT using mlx-whisper on Apple Silicon with faster-whisper fallback.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from pathlib import Path
@@ -18,6 +19,8 @@ SILENCE_END_S = 0.7
 MIN_SPEECH_S = 0.4
 MAX_SPEECH_S = 8.0
 MLX_MODEL = "mlx-community/whisper-small-mlx"
+POST_TTS_COOLDOWN_S = 0.85
+RECENT_TTS_WINDOW_S = 8.0
 
 _MODEL = None
 _BACKEND = "none"
@@ -118,6 +121,59 @@ def transcribe(audio: np.ndarray) -> str:
     return ""
 
 
+def _recent_speech_snapshot() -> tuple[str, float]:
+    try:
+        from .tts import recent_speech_snapshot
+
+        return recent_speech_snapshot()
+    except Exception:
+        return ("", 0.0)
+
+
+def _sleep_for_recent_tts(stop_event: threading.Event | None = None) -> None:
+    _spoken, spoken_at = _recent_speech_snapshot()
+    if spoken_at <= 0:
+        return
+
+    remaining = POST_TTS_COOLDOWN_S - (time.monotonic() - spoken_at)
+    while remaining > 0:
+        if stop_event and stop_event.is_set():
+            return
+        nap = min(0.05, remaining)
+        time.sleep(nap)
+        remaining -= nap
+
+
+def _normalized_tokens(text: str) -> list[str]:
+    cleaned = str(text or "").lower()
+    cleaned = cleaned.replace("a i", "ai")
+    cleaned = cleaned.replace("air news", "ai news")
+    cleaned = re.sub(r"[^a-z0-9\s]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned.split()
+
+
+def _strip_recent_speech_echo(text: str) -> str:
+    transcript_tokens = _normalized_tokens(text)
+    if not transcript_tokens:
+        return ""
+
+    spoken_text, spoken_at = _recent_speech_snapshot()
+    if not spoken_text or (time.monotonic() - spoken_at) > RECENT_TTS_WINDOW_S:
+        return " ".join(transcript_tokens)
+
+    spoken_tokens = _normalized_tokens(spoken_text)
+    overlap = 0
+    max_overlap = min(len(spoken_tokens), len(transcript_tokens))
+    for size in range(max_overlap, 2, -1):
+        if transcript_tokens[:size] == spoken_tokens[-size:] or transcript_tokens[:size] == spoken_tokens[:size]:
+            overlap = size
+            break
+
+    cleaned_tokens = transcript_tokens[overlap:] if overlap else transcript_tokens
+    return " ".join(cleaned_tokens).strip()
+
+
 def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> str:
     try:
         import sounddevice as sd
@@ -126,6 +182,10 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
 
     if not is_voice_follow_up_available():
         return input("[You] ").strip()
+    if stop_event and stop_event.is_set():
+        return ""
+
+    _sleep_for_recent_tts(stop_event)
     if stop_event and stop_event.is_set():
         return ""
 
@@ -184,7 +244,8 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
     if len(audio) / SAMPLE_RATE < MIN_SPEECH_S:
         return ""
 
-    text = transcribe(audio)
+    raw_text = transcribe(audio)
+    text = _strip_recent_speech_echo(raw_text)
     if text:
         print(f"[STT] Heard: '{text}'")
     return text

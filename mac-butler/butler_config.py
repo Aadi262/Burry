@@ -18,7 +18,7 @@ VPS_HOSTS = [
 # Orchestrator handles planning + speech (runs every trigger)
 # VPS Ollama offloading
 # Set USE_VPS_OLLAMA = True once your VPS is configured.
-USE_VPS_OLLAMA = True
+USE_VPS_OLLAMA = False
 VPS_OLLAMA_URL = "http://194.163.146.149:8765/ollama"
 VPS_OLLAMA_USER = "butler"
 VPS_OLLAMA_PASS = ""      # stored locally in secrets/local_secrets.json

@@ -114,6 +114,20 @@ def _fallback_items_summary(items: list[dict], empty_message: str) -> str:
     return _limit_words("\n".join(lines), limit=150)
 
 
+def _fallback_text_summary(material: str, empty_message: str) -> str:
+    lines = []
+    for raw_line in str(material or "").splitlines():
+        cleaned = " ".join(raw_line.split()).strip(" -")
+        if not cleaned:
+            continue
+        lines.append(f"- {cleaned[:120]}")
+        if len(lines) >= 3:
+            break
+    if not lines:
+        return empty_message
+    return _limit_words("\n".join(lines), limit=150)
+
+
 def _safe_model_summary(
     prompt: str,
     model: str,
@@ -618,8 +632,10 @@ def _news_agent(data: dict, model: str) -> dict:
     if not material or len(material.strip()) < 20:
         prompt = f"Summarize what you know about recent {topic} news in under 50 words."
         try:
-            summary = _call_model(prompt, model, max_tokens=100)
+            summary = _limit_words(_call_model(prompt, model, max_tokens=100), limit=150)
         except Exception:
+            summary = f"I couldn't fetch live {topic} news right now."
+        if not summary:
             summary = f"I couldn't fetch live {topic} news right now."
         return {"status": "ok", "result": summary, "data": {}}
 
@@ -630,7 +646,9 @@ Material:
 {material[:2200]}
 
 Summary:"""
-    summary = _call_model(prompt, model, max_tokens=160)
+    summary = _limit_words(_call_model(prompt, model, max_tokens=160), limit=150)
+    if not summary or _summary_has_raw_artifacts(summary):
+        summary = _fallback_text_summary(material, f"I couldn't fetch live {topic} news right now.")
     return {"status": "ok", "result": summary, "data": search_data}
 
 

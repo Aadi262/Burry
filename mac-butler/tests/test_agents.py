@@ -5,6 +5,7 @@ from agents.runner import (
     _call_model,
     _fetch_github_trending_items,
     _github_agent,
+    _news_agent,
     _pick_model,
     _search_agent,
     run_agent,
@@ -71,6 +72,14 @@ class AgentTests(unittest.TestCase):
         self.assertIsInstance(result["data"], dict)
         self.assertIsInstance(result["data"]["items"], list)
         self.assertEqual(len(result["data"]["items"]), 3)
+
+    @patch("agents.runner._call_model", return_value="")
+    @patch("agents.runner._fetch_headlines", return_value="Headline 1\nHeadline 2\nHeadline 3")
+    def test_news_agent_falls_back_when_model_returns_empty(self, _mock_fetch, _mock_call):
+        result = _news_agent({"topic": "AI", "hours": 24}, "test-model")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["result"])
+        self.assertIn("Headline 1", result["result"])
 
     @patch("agents.runner._call_model", return_value="- LocalLLaMA is active\n- OSS agent tooling is rising")
     @patch("agents.runner._fetch_json")

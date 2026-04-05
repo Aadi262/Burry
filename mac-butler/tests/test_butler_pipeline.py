@@ -7,6 +7,7 @@ from butler import (
     _clear_pending_dialogue,
     _contextualize_action,
     _deterministic_project_plan,
+    _extract_news_topic,
     _direct_agent_plan_for_text,
     _normalize_response,
     _plan_with_brain,
@@ -278,6 +279,9 @@ class ButlerPipelineTests(unittest.TestCase):
         plan = _direct_agent_plan_for_text("what is the latest AI news?")
         self.assertIsNotNone(plan)
         self.assertEqual(plan["actions"][0]["agent"], "news")
+
+    def test_extract_news_topic_maps_air_to_ai(self):
+        self.assertEqual(_extract_news_topic("but can you please tell me the latest air news"), "AI")
 
     def test_direct_agent_plan_for_search_question(self):
         plan = _direct_agent_plan_for_text("what is qwen2.5?")

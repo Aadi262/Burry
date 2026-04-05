@@ -638,7 +638,10 @@ class Executor:
             editor_name = "vscode"
         else:
             editor_name = "auto"
-        return self.open_editor(path=str(filepath), editor=editor_name, mode="smart")
+        open_result = self.open_editor(path=str(filepath), editor=editor_name, mode="smart")
+        if "not installed" in open_result.lower():
+            return f"created {filepath}, but {open_result}"
+        return f"created {filepath} and {open_result}"
 
     def open_in_editor(self, app: str, path: str) -> str:
         normalized = (app or "").lower()

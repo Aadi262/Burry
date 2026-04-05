@@ -29,6 +29,9 @@ KOKORO_VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
 TTS_LOCK_PATH = Path(tempfile.gettempdir()) / "mac-butler-tts.lock"
 TTS_LOCK_TIMEOUT_SECONDS = 12.0
 _PROCESS_TTS_LOCK = threading.Lock()
+_RECENT_SPEECH_LOCK = threading.Lock()
+_LAST_SPOKEN_TEXT = ""
+_LAST_SPOKEN_AT = 0.0
 
 
 @lru_cache(maxsize=1)
@@ -71,6 +74,18 @@ def describe_tts() -> dict:
     if engine != "say" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
         return {"backend": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED}
     return {"backend": "say", "voice": _pick_say_voice(), "rate": 165}
+
+
+def recent_speech_snapshot() -> tuple[str, float]:
+    with _RECENT_SPEECH_LOCK:
+        return _LAST_SPOKEN_TEXT, _LAST_SPOKEN_AT
+
+
+def _remember_recent_speech(text: str) -> None:
+    global _LAST_SPOKEN_TEXT, _LAST_SPOKEN_AT
+    with _RECENT_SPEECH_LOCK:
+        _LAST_SPOKEN_TEXT = text
+        _LAST_SPOKEN_AT = time.monotonic()
 
 
 @contextmanager
@@ -197,8 +212,10 @@ def speak(text: str) -> None:
             print("[Voice] Skipping overlapping speech.")
             return
         if _try_kokoro(clean):
+            _remember_recent_speech(clean)
             return
         _say_fallback(clean)
+        _remember_recent_speech(clean)
 
 
 if __name__ == "__main__":

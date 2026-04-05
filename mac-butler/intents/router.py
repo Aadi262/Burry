@@ -7,6 +7,7 @@ Deterministic intent router. No LLM. Handles common commands instantly.
 from __future__ import annotations
 
 import re
+import urllib.parse
 
 APP_MAP = {
     "visual studio code": "Visual Studio Code",
@@ -351,6 +352,10 @@ def _editor_name(editor: str) -> str:
     return "Visual Studio Code" if editor == "vscode" else "Cursor" if editor == "cursor" else "editor"
 
 
+def _youtube_search_url(query: str) -> str:
+    return f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
+
+
 def extract_requested_filename(text: str) -> str:
     compact = _normalize_spaces(text)
     patterns = (
@@ -386,7 +391,43 @@ def extract_requested_filename(text: str) -> str:
 def route(text: str) -> Intent:
     lowered = _normalize_spaces(text.lower())
 
-    match = re.match(r"^play\s+(.+)$", lowered)
+    youtube_match = re.search(r"(?:search|find)\s+(.+?)\s+(?:on|in)\s+youtube\b", lowered)
+    if youtube_match:
+        query = youtube_match.group(1).strip(" .!?")
+        if query:
+            return Intent(
+                "open_app",
+                {
+                    "app": ("browser", _youtube_search_url(query)),
+                    "name": "YouTube results",
+                },
+                raw=text,
+            )
+
+    youtube_match = re.search(r"(?:open|launch|start)\s+youtube\s+(?:and\s+)?search\s+(.+)$", lowered)
+    if youtube_match:
+        query = youtube_match.group(1).strip(" .!?")
+        if query:
+            return Intent(
+                "open_app",
+                {
+                    "app": ("browser", _youtube_search_url(query)),
+                    "name": "YouTube results",
+                },
+                raw=text,
+            )
+
+    if re.search(r"\bcompose\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b", lowered):
+        return Intent(
+            "open_app",
+            {
+                "app": ("browser", "https://mail.google.com/mail/u/0/#inbox?compose=new"),
+                "name": "Gmail compose",
+            },
+            raw=text,
+        )
+
+    match = re.match(r"^(?:play|put on)\s+(.+)$", lowered)
     if match:
         query = clean_song_query(match.group(1).strip())
         if is_ambiguous_song_query(query):
@@ -394,6 +435,16 @@ def route(text: str) -> Intent:
         for key, value in MUSIC_MODES.items():
             if key in query:
                 return Intent("spotify_mode", {"mode": value}, raw=text)
+        return Intent("spotify_play", {"song": query}, raw=text)
+
+    match = re.search(
+        r"(?:change|switch)\s+(?:the\s+)?(?:music|song|track)(?:\s+to)?\s+(.+)$",
+        lowered,
+    )
+    if match:
+        query = clean_song_query(match.group(1).strip())
+        if is_ambiguous_song_query(query):
+            return Intent("clarify_song", raw=text)
         return Intent("spotify_play", {"song": query}, raw=text)
 
     if any(value in lowered for value in ("pause music", "stop music", "pause spotify", "mute")):
@@ -482,7 +533,7 @@ def route(text: str) -> Intent:
         )
     ):
         return Intent("market", {"topics": ["AI agents", "LLMs", "open source"]}, raw=text)
-    if any(value in lowered for value in ("ai news", "tech news")):
+    if any(value in lowered for value in ("ai news", "a i news", "air news", "tech news")):
         topic = "tech" if "tech news" in lowered else "AI"
         return Intent("news", {"topic": topic, "hours": 24}, raw=text)
     if any(
@@ -580,6 +631,29 @@ def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
         if filename:
             return Intent("create_file", {"filename": filename, "editor": editor}, raw=text)
         return Intent("clarify_file", {"editor": editor}, confidence=0.55, raw=text)
+
+    m = re.search(r"\b(?:search|find)\s+(.+?)\s+(?:on|in)\s+youtube\b", lowered)
+    if m:
+        query = m.group(1).strip(" .!?")
+        if query:
+            return Intent(
+                "open_app",
+                {
+                    "app": ("browser", _youtube_search_url(query)),
+                    "name": "YouTube results",
+                },
+                raw=text,
+            )
+
+    if re.search(r"\bcompose\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b", lowered):
+        return Intent(
+            "open_app",
+            {
+                "app": ("browser", "https://mail.google.com/mail/u/0/#inbox?compose=new"),
+                "name": "Gmail compose",
+            },
+            raw=text,
+        )
 
     # open a new project window anywhere in text
     if re.search(r"\b(?:open|launch|start)\s+(?:a\s+)?new project\b", lowered):

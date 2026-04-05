@@ -10,6 +10,11 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(result.params["song"], "mockingbird")
         self.assertEqual(result.to_action()["type"], "search_and_play")
 
+    def test_change_music_phrase_routes_to_spotify_search(self):
+        result = route("can you change the music to shape of you")
+        self.assertEqual(result.name, "spotify_play")
+        self.assertEqual(result.params["song"], "shape of you")
+
     def test_play_song_strips_streaming_suffix(self):
         result = route("play mockingbird by eminem on spotify")
         self.assertEqual(result.name, "spotify_play")
@@ -34,6 +39,16 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(result.name, "open_app")
         self.assertEqual(result.to_action()["type"], "open_url_in_browser")
         self.assertIn("netflix", result.to_action()["url"])
+
+    def test_search_youtube_routes_to_results_page(self):
+        result = route("search ranveer alahabadia on youtube")
+        self.assertEqual(result.name, "open_app")
+        self.assertIn("youtube.com/results", result.to_action()["url"])
+
+    def test_compose_mail_routes_to_gmail_compose(self):
+        result = route("can you compose a new mail")
+        self.assertEqual(result.name, "open_app")
+        self.assertIn("compose=new", result.to_action()["url"])
 
     def test_pause_music_routes_to_pause(self):
         result = route("pause music")
@@ -82,6 +97,11 @@ class IntentRouterTests(unittest.TestCase):
         result = route("what's happening in AI today")
         self.assertEqual(result.name, "market")
         self.assertEqual(result.to_action()["agent"], "market")
+
+    def test_air_news_routes_to_ai_news(self):
+        result = route("tell me the latest air news")
+        self.assertEqual(result.name, "news")
+        self.assertEqual(result.params["topic"], "AI")
 
     def test_whats_reddit_saying_routes_to_agent(self):
         result = route("what's reddit saying")

@@ -520,6 +520,27 @@ def _question_needs_brain_agents(text: str) -> bool:
     return any(trigger in lowered for trigger in triggers)
 
 
+def _extract_news_topic(text: str) -> str:
+    lowered = text.lower()
+    lowered = lowered.replace("a i", "ai")
+    lowered = lowered.replace("air news", "ai news")
+
+    if "tech news" in lowered:
+        return "tech"
+    if re.search(r"\bai\b.*\bnews\b", lowered) or re.search(r"\bnews\b.*\bai\b", lowered):
+        return "AI"
+
+    candidate = re.sub(
+        r"\b(you know|checking|check|tell me|show me|give me|can you|could you|would you|please|but|what is|what's|latest|recent|news|about|the)\b",
+        " ",
+        lowered,
+    )
+    candidate = re.sub(r"\s+", " ", candidate).strip(" .")
+    if candidate in {"", "ai", "air"}:
+        return "AI and tech news"
+    return candidate
+
+
 def _direct_agent_plan_for_text(text: str) -> dict | None:
     lowered = text.lower().strip().rstrip("?")
 
@@ -561,10 +582,10 @@ def _direct_agent_plan_for_text(text: str) -> dict | None:
         }
 
     if any(token in lowered for token in ("latest", "news", "recent")):
-        topic = re.sub(r"\b(what is|what's|tell me|show me|give me|the|latest|recent|news|about)\b", " ", lowered)
-        topic = re.sub(r"\s+", " ", topic).strip(" .") or "AI and tech news"
+        topic = _extract_news_topic(lowered)
+        spoken_topic = "AI news" if topic == "AI" else f"{topic} news" if topic != "AI and tech news" else "AI and tech news"
         return {
-            "speech": f"Checking the latest {topic}.",
+            "speech": f"Checking the latest {spoken_topic}.",
             "actions": [{"type": "run_agent", "agent": "news", "topic": topic}],
         }
 

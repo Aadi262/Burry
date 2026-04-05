@@ -68,6 +68,13 @@ class ExecutorTests(unittest.TestCase):
         result = Executor().open_editor(editor="vscode", mode="smart")
         self.assertEqual(result, "Visual Studio Code is not installed")
 
+    @patch.object(Executor, "open_editor", return_value="Visual Studio Code is not installed")
+    def test_create_file_in_editor_reports_created_path_even_if_editor_missing(self, _mock_open_editor):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            result = Executor().create_file_in_editor("demo.txt", editor="vscode", directory=tmpdir)
+            self.assertIn(str(Path(tmpdir) / "demo.txt"), result)
+        self.assertIn("Visual Studio Code is not installed", result)
+
     @patch("executor.engine.subprocess.run")
     def test_run_command_creates_missing_cwd_and_caps_output(self, mock_run):
         mock_run.return_value = MagicMock(stdout="x" * 350, stderr="")
