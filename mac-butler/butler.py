@@ -20,6 +20,7 @@ import requests
 
 from butler_config import (
     BUTLER_MODELS,
+    DAILY_INTEL_ENABLED,
     OLLAMA_FALLBACK,
     OLLAMA_LOCAL_URL,
     OLLAMA_MODEL,
@@ -496,6 +497,12 @@ def _question_needs_brain_agents(text: str) -> bool:
         "latest",
         "news",
         "recent",
+        "hackernews",
+        "hacker news",
+        "reddit",
+        "market pulse",
+        "trending repos",
+        "trending repositories",
         "look up",
         "search",
         "find",
@@ -515,6 +522,43 @@ def _question_needs_brain_agents(text: str) -> bool:
 
 def _direct_agent_plan_for_text(text: str) -> dict | None:
     lowered = text.lower().strip().rstrip("?")
+
+    if any(token in lowered for token in ("what's happening in ai", "whats happening in ai", "market pulse")):
+        return {
+            "speech": "Checking the AI market pulse.",
+            "actions": [{"type": "run_agent", "agent": "market", "topics": ["AI agents", "LLMs", "open source"]}],
+        }
+
+    if any(token in lowered for token in ("hackernews", "hacker news")):
+        return {
+            "speech": "Checking Hacker News.",
+            "actions": [{"type": "run_agent", "agent": "hackernews", "limit": 10}],
+        }
+
+    if any(token in lowered for token in ("reddit saying", "reddit buzz", "what's reddit", "whats reddit", "reddit")):
+        return {
+            "speech": "Checking Reddit.",
+            "actions": [
+                {
+                    "type": "run_agent",
+                    "agent": "reddit",
+                    "subreddits": ["MachineLearning", "LocalLLaMA", "programming"],
+                    "limit": 5,
+                }
+            ],
+        }
+
+    if any(token in lowered for token in ("trending repos", "trending repositories", "github trending")):
+        return {
+            "speech": "Checking trending repos.",
+            "actions": [{"type": "run_agent", "agent": "github_trending", "language": "python", "since": "daily"}],
+        }
+
+    if "tech news" in lowered:
+        return {
+            "speech": "Checking the latest tech news.",
+            "actions": [{"type": "run_agent", "agent": "news", "topic": "tech"}],
+        }
 
     if any(token in lowered for token in ("latest", "news", "recent")):
         topic = re.sub(r"\b(what is|what's|tell me|show me|give me|the|latest|recent|news|about)\b", " ", lowered)
@@ -689,9 +733,31 @@ def _run_actions_with_response(
         prepared_actions.append(current)
     actions = prepared_actions
 
+    for action in actions:
+        print(f"[Executor] before run: {action}")
     if test_mode:
-        for action in actions:
-            print(f"[Executor] before run: {action}")
+        run_agent_only = bool(actions) and all(action.get("type") == "run_agent" for action in actions)
+        if run_agent_only:
+            results = executor.run(actions)
+            print(f"[Executor] after run: {results}")
+            first_error = next(
+                (
+                    str(result.get("error", "")).strip()
+                    for result in results
+                    if result.get("status") == "error" and str(result.get("error", "")).strip()
+                ),
+                "",
+            )
+            agent_summaries = [
+                str(result.get("result", "")).strip()
+                for result in results
+                if result.get("status") == "ok" and str(result.get("result", "")).strip()
+            ]
+            final_response = first_error or (agent_summaries[0] if agent_summaries else response)
+            print(f"[Butler]: {final_response}")
+            state.transition(State.IDLE)
+            return final_response, results
+
         print("[Executor] after run: done (test mode)")
         print(f"[Butler]: {response}")
         state.transition(State.IDLE)
@@ -1100,6 +1166,10 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
     speech = _normalize_response(plan.get("speech", ""), max_words=35)
     if not speech:
         speech = "Back on mac-butler. Want to jump in?"
+    if DAILY_INTEL_ENABLED:
+        intel_line = _startup_intelligence_line()
+        if intel_line:
+            speech = _normalize_response(f"{speech} {intel_line}", max_words=55)
 
     actions = [action for action in plan.get("actions", []) if isinstance(action, dict)]
     if actions:
@@ -1115,6 +1185,25 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
     _speak_or_print(speech, test_mode=test_mode)
     _record("startup briefing", speech, [])
     state.transition(State.WAITING if not test_mode else State.IDLE)
+
+
+def _startup_intelligence_line() -> str:
+    try:
+        from agents.runner import run_agent
+    except Exception:
+        return ""
+
+    try:
+        result = run_agent("hackernews", {"limit": 3})
+    except Exception:
+        return ""
+
+    items = result.get("data", {}).get("items", []) if isinstance(result, dict) else []
+    titles = [str(item.get("title", "")).strip() for item in items[:3] if str(item.get("title", "")).strip()]
+    if not titles:
+        return ""
+    clipped = ", ".join(title[:56].rstrip(" .,;:-") for title in titles)
+    return f"Top on HN: {clipped}."
 
 
 def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:

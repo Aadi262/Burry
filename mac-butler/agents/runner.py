@@ -6,8 +6,10 @@ Specialist agent runner for Butler's delegated tasks.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -34,6 +36,9 @@ ROUTED_MODELS["default"] = OLLAMA_MODEL
 
 _installed_models: set[str] = set()
 _LAST_FETCH_DATA: dict = {}
+_SEARXNG_AVAILABLE: bool | None = None
+REDDIT_HEADERS = {"User-Agent": "Butler/1.0"}
+GITHUB_HEADERS = {"User-Agent": "Butler/1.0"}
 
 
 def _get_installed_models() -> set[str]:
@@ -62,7 +67,7 @@ def _prepare_model_request(model: str) -> None:
         _unload_model(candidate)
 
 
-def _call_model(prompt: str, model: str, max_tokens: int = 400) -> str:
+def _call_model(prompt: str, model: str, max_tokens: int = 400, timeout: int = 90) -> str:
     _prepare_model_request(model)
     url, headers, _backend = _get_request_target_for_model(model)
     payload = {
@@ -76,9 +81,63 @@ def _call_model(prompt: str, model: str, max_tokens: int = 400) -> str:
             "num_ctx": 1024,
         },
     }
-    response = requests.post(url, json=payload, headers=headers, timeout=90)
+    response = requests.post(url, json=payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.json().get("response", "").strip()
+
+
+def _limit_words(text: str, limit: int = 150) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    words = cleaned.split()
+    if len(words) <= limit:
+        return cleaned
+    return " ".join(words[:limit]).rstrip(",;:-") + "..."
+
+
+def _truncate_items(items: list[dict], limit: int = 5) -> list[dict]:
+    return [dict(item) for item in items[:limit] if isinstance(item, dict)]
+
+
+def _fallback_items_summary(items: list[dict], empty_message: str) -> str:
+    if not items:
+        return empty_message
+    lines = []
+    for item in items[:3]:
+        title = str(item.get("title", "")).strip() or "Untitled"
+        score = item.get("score")
+        if score is None:
+            lines.append(f"- {title}")
+        else:
+            lines.append(f"- {title} ({score})")
+    return _limit_words("\n".join(lines), limit=150)
+
+
+def _safe_model_summary(
+    prompt: str,
+    model: str,
+    items: list[dict],
+    *,
+    empty_message: str,
+    max_tokens: int = 180,
+    timeout: int = 12,
+) -> str:
+    if not items:
+        return empty_message
+    try:
+        summary = _call_model(prompt, model, max_tokens=max_tokens, timeout=timeout)
+        cleaned = _limit_words(summary, limit=150)
+        if cleaned and not _summary_has_raw_artifacts(cleaned):
+            return cleaned
+    except Exception:
+        pass
+    return _fallback_items_summary(items, empty_message)
+
+
+def _summary_has_raw_artifacts(text: str) -> bool:
+    lowered = text.lower()
+    return ("http://" in lowered or "https://" in lowered or " | " in text or text.count('"') % 2 == 1)
 
 
 def _get_exa_api_key() -> str:
@@ -123,9 +182,28 @@ def _jina_fetch(url: str) -> str:
         return ""
 
 
+def _searxng_available(force_refresh: bool = False) -> bool:
+    global _SEARXNG_AVAILABLE
+    if _SEARXNG_AVAILABLE is not None and not force_refresh:
+        return _SEARXNG_AVAILABLE
+
+    from butler_config import SEARXNG_URL
+
+    try:
+        response = requests.get(f"{SEARXNG_URL}/", timeout=0.5)
+        _SEARXNG_AVAILABLE = response.status_code == 200
+    except Exception:
+        _SEARXNG_AVAILABLE = False
+    return bool(_SEARXNG_AVAILABLE)
+
+
 def _searxng_search(query: str, num: int = 8) -> list:
     """Fetch raw results from local SearXNG."""
+    global _SEARXNG_AVAILABLE
     from butler_config import SEARXNG_URL
+
+    if not _searxng_available():
+        return []
 
     try:
         response = requests.get(
@@ -136,7 +214,7 @@ def _searxng_search(query: str, num: int = 8) -> list:
                 "categories": "general",
                 "language": "en",
             },
-            timeout=6,
+            timeout=1.5,
         )
         response.raise_for_status()
         results = response.json().get("results", [])
@@ -149,6 +227,7 @@ def _searxng_search(query: str, num: int = 8) -> list:
             for item in results[:num]
         ]
     except Exception:
+        _SEARXNG_AVAILABLE = False
         return []
 
 
@@ -193,6 +272,298 @@ def _exa_search(query: str, num: int = 5) -> list:
         return []
 
 
+def _collect_search_items(query: str, count: int = 5) -> tuple[list[dict], list[str]]:
+    sources: list[str] = []
+    seen: set[str] = set()
+    items: list[dict] = []
+
+    searx_results = _searxng_search(query, num=max(5, count))
+    if searx_results:
+        sources.append("searxng")
+
+    for result in searx_results:
+        title = str(result.get("title", "")).strip()
+        url = str(result.get("url", "")).strip()
+        key = url or title.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "title": title,
+                "url": url,
+                "content": str(result.get("content", "")).strip(),
+                "query": query,
+            }
+        )
+        if len(items) >= count:
+            break
+
+    return items, sources
+
+
+def _fetch_json(url: str, *, params: dict | None = None, headers: dict | None = None, timeout: int = 8) -> object:
+    response = requests.get(url, params=params or {}, headers=headers or {}, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
+def _fetch_hackernews_items(limit: int = 10) -> list[dict]:
+    try:
+        story_ids = _fetch_json("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=8)
+        items: list[dict] = []
+        for story_id in list(story_ids or [])[: max(10, limit)]:
+            story = _fetch_json(
+                f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json",
+                timeout=8,
+            )
+            if not isinstance(story, dict):
+                continue
+            score = int(story.get("score") or 0)
+            if score <= 100:
+                continue
+            items.append(
+                {
+                    "title": str(story.get("title", "")).strip(),
+                    "url": str(story.get("url", "") or f"https://news.ycombinator.com/item?id={story_id}").strip(),
+                    "score": score,
+                    "comments": int(story.get("descendants") or 0),
+                    "by": str(story.get("by", "")).strip(),
+                    "id": story_id,
+                }
+            )
+            if len(items) >= limit:
+                break
+        return items
+    except Exception:
+        return []
+
+
+def _fetch_reddit_items(subreddits: list[str], limit: int = 5) -> list[dict]:
+    items: list[dict] = []
+    seen: set[str] = set()
+    for subreddit in subreddits:
+        try:
+            payload = _fetch_json(
+                f"https://www.reddit.com/r/{subreddit}/hot.json",
+                params={"limit": limit},
+                headers=REDDIT_HEADERS,
+                timeout=8,
+            )
+        except Exception:
+            continue
+        children = (
+            payload.get("data", {}).get("children", [])
+            if isinstance(payload, dict)
+            else []
+        )
+        for child in children:
+            post = child.get("data", {}) if isinstance(child, dict) else {}
+            score = int(post.get("score") or 0)
+            if score <= 200:
+                continue
+            permalink = str(post.get("permalink", "")).strip()
+            url = str(post.get("url", "")).strip() or (
+                f"https://www.reddit.com{permalink}" if permalink else ""
+            )
+            title = str(post.get("title", "")).strip()
+            key = url or title.lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "subreddit": subreddit,
+                    "title": title,
+                    "url": url,
+                    "score": score,
+                    "comments": int(post.get("num_comments") or 0),
+                }
+            )
+    items.sort(key=lambda item: (int(item.get("score") or 0), int(item.get("comments") or 0)), reverse=True)
+    return items[: max(1, limit)]
+
+
+def _fetch_github_trending_items(language: str = "python", since: str = "daily", limit: int = 5) -> list[dict]:
+    try:
+        response = requests.get(
+            f"https://github.com/trending/{language}",
+            params={"since": since},
+            headers=GITHUB_HEADERS,
+            timeout=4,
+        )
+        response.raise_for_status()
+        items: list[dict] = []
+        seen: set[str] = set()
+        blocks = re.findall(r'<article class="Box-row">(.*?)</article>', response.text, re.S)
+        for block in blocks:
+            repo_match = re.search(r'<h2[^>]*>.*?href="/([^"#?]+/[^"#?]+)"', block, re.S)
+            if not repo_match:
+                continue
+            full_name = repo_match.group(1).strip()
+            if not full_name or full_name in seen:
+                continue
+            seen.add(full_name)
+            desc_match = re.search(r'<p[^>]*class="[^"]*color-fg-muted[^"]*"[^>]*>(.*?)</p>', block, re.S)
+            desc = _strip_html(desc_match.group(1)) if desc_match else ""
+            star_match = re.search(rf'href="/{re.escape(full_name)}/stargazers"[^>]*>(.*?)</a>', block, re.S)
+            star_text = _strip_html(star_match.group(1)) if star_match else ""
+            stars = int(star_text.replace(",", "")) if star_text.replace(",", "").isdigit() else None
+            items.append(
+                {
+                    "title": full_name,
+                    "url": f"https://github.com/{full_name}",
+                    "description": desc,
+                    "score": stars,
+                    "language": language,
+                }
+            )
+            if len(items) >= limit:
+                break
+        if items:
+            return items
+    except Exception:
+        pass
+
+    try:
+        response = requests.get(
+            "https://api.gitterapp.com/repositories",
+            params={"language": language, "since": since},
+            headers=GITHUB_HEADERS,
+            timeout=2,
+        )
+        response.raise_for_status()
+        data = response.json()
+        items = []
+        for repo in data[:limit]:
+            name = str(repo.get("name", "")).strip()
+            author = str(repo.get("author", "")).strip()
+            full_name = f"{author}/{name}".strip("/") if author else name
+            items.append(
+                {
+                    "title": full_name,
+                    "url": str(repo.get("url", "")).strip() or f"https://github.com/{full_name}",
+                    "description": str(repo.get("description", "")).strip(),
+                    "score": int(repo.get("stars", 0) or 0),
+                    "language": str(repo.get("language", language)).strip() or language,
+                }
+            )
+        if items:
+            return items
+    except Exception:
+        pass
+
+    try:
+        text = _jina_fetch(f"https://github.com/trending/{language}?since={since}")
+        items = []
+        seen: set[str] = set()
+        for line in text.splitlines():
+            cleaned = " ".join(line.split()).strip()
+            if "/" not in cleaned or cleaned.startswith("http"):
+                continue
+            repo_match = re.search(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", cleaned)
+            if not repo_match:
+                continue
+            full_name = repo_match.group(1)
+            if full_name in seen:
+                continue
+            seen.add(full_name)
+            description = ""
+            if " - " in cleaned:
+                description = cleaned.split(" - ", 1)[1].strip()
+            items.append(
+                {
+                    "title": full_name,
+                    "url": f"https://github.com/{full_name}",
+                    "description": description,
+                    "score": None,
+                    "language": language,
+                }
+            )
+            if len(items) >= limit:
+                break
+        return items
+    except Exception:
+        return []
+
+
+def _strip_html(fragment: str) -> str:
+    without_tags = re.sub(r"<[^>]+>", " ", fragment or "")
+    return re.sub(r"\s+", " ", html.unescape(without_tags)).strip()
+
+
+def _market_signal_keywords(topics: list[str]) -> set[str]:
+    keywords = {
+        "ai",
+        "agent",
+        "agents",
+        "llm",
+        "llms",
+        "model",
+        "models",
+        "open source",
+        "open-source",
+        "oss",
+        "inference",
+        "local",
+        "rag",
+    }
+    for topic in topics:
+        lowered = str(topic).lower()
+        if "open source" in lowered:
+            keywords.update({"github", "repo", "framework"})
+        if "agent" in lowered:
+            keywords.update({"automation", "tooling"})
+    return keywords
+
+
+def _matches_market_signal(text: str, keywords: set[str]) -> bool:
+    lowered = str(text or "").lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+def _collect_market_fallback_items(topics: list[str]) -> tuple[list[dict], list[str]]:
+    keywords = _market_signal_keywords(topics)
+    items: list[dict] = []
+    seen: set[str] = set()
+    sources: list[str] = []
+
+    def add_item(source: str, item: dict, *, query: str) -> None:
+        key = str(item.get("url") or item.get("title", "")).strip().lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        payload = dict(item)
+        payload["query"] = query
+        payload["source"] = source
+        payload["content"] = str(item.get("content") or item.get("description") or "").strip()
+        items.append(payload)
+        if source not in sources:
+            sources.append(source)
+
+    for item in _fetch_reddit_items(["MachineLearning", "LocalLLaMA", "programming"], limit=3):
+        add_item("reddit", item, query="community signals")
+
+    hn_items = _fetch_hackernews_items(limit=4)
+    filtered_hn = [item for item in hn_items if _matches_market_signal(item.get("title", ""), keywords)]
+    for item in (filtered_hn or hn_items[:2])[:2]:
+        add_item("hackernews", item, query="hacker news")
+
+    gh_items = _fetch_github_trending_items(language="python", since="daily", limit=3)
+    filtered_gh = [
+        item
+        for item in gh_items
+        if _matches_market_signal(
+            f"{item.get('title', '')} {item.get('description', '')}",
+            keywords,
+        )
+    ]
+    for item in (filtered_gh or gh_items[:2])[:2]:
+        add_item("github_trending", item, query="trending repos")
+
+    return _truncate_items(items, limit=5), sources
+
+
 def run_agent(agent_type: str, input_data: dict) -> dict:
     """
     Run a specialist agent and return structured results.
@@ -214,6 +585,14 @@ def run_agent(agent_type: str, input_data: dict) -> dict:
             return _code_agent(input_data, model)
         if agent_type == "search":
             return _search_agent(input_data, model)
+        if agent_type == "market":
+            return _market_agent(input_data, model)
+        if agent_type == "hackernews":
+            return _hackernews_agent(input_data, model)
+        if agent_type == "reddit":
+            return _reddit_agent(input_data, model)
+        if agent_type == "github_trending":
+            return _github_trending_agent(input_data, model)
         if agent_type == "github":
             return _github_agent(input_data, model)
         if agent_type == "bugfinder":
@@ -285,21 +664,183 @@ Answer in under 60 words:"""
     return {"status": "ok", "result": answer, "data": search_data}
 
 
+def _market_agent(data: dict, model: str) -> dict:
+    topics = data.get("topics") or ["AI agents", "LLMs", "open source"]
+    topics = [str(topic).strip() for topic in topics if str(topic).strip()]
+    aggregated: list[dict] = []
+    seen: set[str] = set()
+    backends: set[str] = set()
+
+    for topic in topics[:4]:
+        items, sources = _collect_search_items(topic, count=3)
+        backends.update(sources)
+        for item in items:
+            key = str(item.get("url") or item.get("title", "")).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            aggregated.append(item)
+
+    if not aggregated:
+        fallback_items, fallback_sources = _collect_market_fallback_items(topics)
+        aggregated.extend(fallback_items)
+        backends.update(fallback_sources)
+
+    top_items = _truncate_items(aggregated, limit=5)
+    if not top_items:
+        return {
+            "status": "ok",
+            "result": "I couldn't pull a live AI market pulse right now.",
+            "data": {"items": [], "topics": topics, "sources": sorted(backends)},
+        }
+
+    material = "\n".join(
+        f"- [{item.get('query', 'topic')}] {item.get('title', '')}: {item.get('content', '')[:180]} ({item.get('url', '')})"
+        for item in top_items
+    )
+    prompt = f"""You are Butler's market pulse agent.
+Summarize the most important current signals across these topics: {", ".join(topics)}.
+Return exactly 3 bullet points.
+Keep the whole answer under 150 words.
+Be concrete and avoid hype.
+
+Signals:
+{material}
+"""
+    summary = _safe_model_summary(
+        prompt,
+        model,
+        top_items,
+        empty_message="I couldn't pull a live AI market pulse right now.",
+        max_tokens=120,
+        timeout=4,
+    )
+    return {
+        "status": "ok",
+        "result": summary,
+        "data": {"items": top_items, "topics": topics, "sources": sorted(backends)},
+    }
+
+
+def _hackernews_agent(data: dict, model: str) -> dict:
+    limit = int(data.get("limit", 10) or 10)
+    items = _fetch_hackernews_items(limit=limit)
+    if not items:
+        return {
+            "status": "ok",
+            "result": "I couldn't fetch Hacker News right now.",
+            "data": {"items": []},
+        }
+
+    material = "\n".join(
+        f"- {item.get('title', '')} | score {item.get('score', 0)} | {item.get('url', '')}"
+        for item in items[: min(limit, 10)]
+    )
+    prompt = f"""Summarize what is trending on Hacker News right now.
+Use 3 short bullet points.
+Mention the strongest story names directly.
+Stay under 120 words.
+
+Stories:
+{material}
+"""
+    summary = _safe_model_summary(
+        prompt,
+        model,
+        items,
+        empty_message="I couldn't fetch Hacker News right now.",
+        max_tokens=160,
+    )
+    return {"status": "ok", "result": summary, "data": {"items": items}}
+
+
+def _reddit_agent(data: dict, model: str) -> dict:
+    subreddits = data.get("subreddits") or ["MachineLearning", "LocalLLaMA", "programming"]
+    subreddits = [str(sub).strip() for sub in subreddits if str(sub).strip()]
+    limit = int(data.get("limit", 5) or 5)
+    items = _fetch_reddit_items(subreddits, limit=limit)
+    if not items:
+        return {
+            "status": "ok",
+            "result": "I couldn't pull strong Reddit signals right now.",
+            "data": {"items": [], "subreddits": subreddits},
+        }
+
+    material = "\n".join(
+        f"- r/{item.get('subreddit', '')}: {item.get('title', '')} | score {item.get('score', 0)} | comments {item.get('comments', 0)}"
+        for item in items[:limit]
+    )
+    prompt = f"""Summarize what Reddit communities are saying right now.
+Use 3 concise bullet points.
+Focus on the strongest themes from: {", ".join(subreddits)}.
+Keep it under 120 words.
+
+Posts:
+{material}
+"""
+    summary = _safe_model_summary(
+        prompt,
+        model,
+        items,
+        empty_message="I couldn't pull strong Reddit signals right now.",
+        max_tokens=160,
+    )
+    return {
+        "status": "ok",
+        "result": summary,
+        "data": {"items": items, "subreddits": subreddits},
+    }
+
+
+def _github_trending_agent(data: dict, model: str) -> dict:
+    language = str(data.get("language", "python") or "python").strip().lower()
+    since = str(data.get("since", "daily") or "daily").strip().lower()
+    items = _fetch_github_trending_items(language=language, since=since, limit=5)
+    if not items:
+        return {
+            "status": "ok",
+            "result": "I couldn't fetch GitHub trending repos right now.",
+            "data": {"items": [], "language": language, "since": since},
+        }
+
+    material = "\n".join(
+        f"- {item.get('title', '')}: {item.get('description', '')} | stars {item.get('score', 'n/a')}"
+        for item in items[:5]
+    )
+    prompt = f"""Summarize what is hot on GitHub trending for {language}.
+Use 3 concise bullet points.
+Mention the repo names directly.
+Keep it under 120 words.
+
+Trending repos:
+{material}
+"""
+    summary = _safe_model_summary(
+        prompt,
+        model,
+        items,
+        empty_message="I couldn't fetch GitHub trending repos right now.",
+        max_tokens=160,
+    )
+    return {
+        "status": "ok",
+        "result": summary,
+        "data": {"items": items, "language": language, "since": since},
+    }
+
+
 def _fetch_search_text(query: str, count: int = 5) -> str:
     """
-    Mini-Exa pipeline:
-      1. Exa if key set
-      2. SearXNG if local search is running
-      3. Semantic rerank via local embeddings
-      4. Jina Reader for top result content
-      5. Return ranked snippets plus top content
+    Free search pipeline:
+      1. SearXNG from the local search backend
+      2. Semantic rerank via local embeddings
+      3. Jina Reader for top result content
+      4. Return ranked snippets plus top content
     """
     global _LAST_FETCH_DATA
 
-    raw = _exa_search(query, num=max(5, count)) if _get_exa_api_key() else []
-    backend = "exa" if raw else "searxng"
-    if not raw:
-        raw = _searxng_search(query, num=max(8, count))
+    raw = _searxng_search(query, num=max(8, count))
+    backend = "searxng"
     if not raw:
         _LAST_FETCH_DATA = {"backend": backend, "tool": "semantic", "text": ""}
         return ""

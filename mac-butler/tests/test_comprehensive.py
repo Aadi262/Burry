@@ -767,7 +767,7 @@ class TestSpecialistAgents(unittest.TestCase):
 
     def test_pick_model_returns_string(self):
         from agents.runner import _pick_model
-        for agent_type in ["news","vps","memory","code","search"]:
+        for agent_type in ["news","market","hackernews","reddit","github_trending","vps","memory","code","search"]:
             model = _pick_model(agent_type)
             self.assertIsInstance(model, str)
             self.assertGreater(len(model), 0,
@@ -872,7 +872,7 @@ class TestSpecialistAgents(unittest.TestCase):
         from agents.runner import _pick_model, _get_installed_models
         installed = _get_installed_models()
         print(f"\n  Installed models: {installed}")
-        for agent_type in ["news","vps","memory","code","search"]:
+        for agent_type in ["news","market","hackernews","reddit","github_trending","vps","memory","code","search"]:
             model = _pick_model(agent_type)
             print(f"  {agent_type:8} → {model}")
 
@@ -1169,7 +1169,7 @@ class TestButlerConfig(unittest.TestCase):
         try:
             from butler_config import AGENT_MODELS
             self.assertIsInstance(AGENT_MODELS, dict)
-            for key in ["news","vps","memory","code","search"]:
+            for key in ["news","market","hackernews","reddit","github_trending","vps","memory","code","search"]:
                 self.assertIn(key, AGENT_MODELS,
                     f"AGENT_MODELS missing key: {key}")
         except ImportError:

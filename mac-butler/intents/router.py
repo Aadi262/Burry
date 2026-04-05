@@ -173,6 +173,39 @@ class Intent:
             return {"type": "run_command", "cmd": "git push", "cwd": params.get("cwd", ".")}
         if name == "vps_status":
             return {"type": "run_agent", "agent": "vps", "host": params.get("host", "")}
+        if name == "news":
+            return {
+                "type": "run_agent",
+                "agent": "news",
+                "topic": params.get("topic", "AI"),
+                "hours": params.get("hours", 24),
+            }
+        if name == "market":
+            return {
+                "type": "run_agent",
+                "agent": "market",
+                "topics": params.get("topics", ["AI agents", "LLMs", "open source"]),
+            }
+        if name == "hackernews":
+            return {
+                "type": "run_agent",
+                "agent": "hackernews",
+                "limit": params.get("limit", 10),
+            }
+        if name == "reddit":
+            return {
+                "type": "run_agent",
+                "agent": "reddit",
+                "subreddits": params.get("subreddits", ["MachineLearning", "LocalLLaMA", "programming"]),
+                "limit": params.get("limit", 5),
+            }
+        if name == "github_trending":
+            return {
+                "type": "run_agent",
+                "agent": "github_trending",
+                "language": params.get("language", "python"),
+                "since": params.get("since", "daily"),
+            }
         if name == "docker_status":
             return {
                 "type": "run_command",
@@ -233,6 +266,11 @@ class Intent:
             "git_status": "Checking git status.",
             "git_push": "Pushing...",
             "vps_status": "Checking VPS...",
+            "news": "Checking the latest news.",
+            "market": "Checking the market pulse.",
+            "hackernews": "Checking Hacker News.",
+            "reddit": "Checking Reddit.",
+            "github_trending": "Checking trending repos.",
             "docker_status": "Checking containers...",
             "obsidian_note": "Saved to Obsidian.",
             "set_reminder": f"Reminder in {self.params.get('minutes', 30)} minutes.",
@@ -435,6 +473,46 @@ def route(text: str) -> Intent:
         return Intent("vps_status", raw=text)
     if any(value in lowered for value in ("docker", "containers")):
         return Intent("docker_status", raw=text)
+    if any(
+        value in lowered
+        for value in (
+            "what's happening in ai",
+            "whats happening in ai",
+            "market pulse",
+        )
+    ):
+        return Intent("market", {"topics": ["AI agents", "LLMs", "open source"]}, raw=text)
+    if any(value in lowered for value in ("ai news", "tech news")):
+        topic = "tech" if "tech news" in lowered else "AI"
+        return Intent("news", {"topic": topic, "hours": 24}, raw=text)
+    if any(
+        value in lowered
+        for value in (
+            "what's on hackernews",
+            "whats on hackernews",
+            "what's on hacker news",
+            "whats on hacker news",
+            "hackernews",
+            "hacker news",
+        )
+    ):
+        return Intent("hackernews", {"limit": 10}, raw=text)
+    if any(value in lowered for value in ("trending repos", "trending repositories", "github trending")):
+        return Intent("github_trending", {"language": "python", "since": "daily"}, raw=text)
+    if any(
+        value in lowered
+        for value in (
+            "what's reddit saying",
+            "whats reddit saying",
+            "reddit saying",
+            "reddit buzz",
+        )
+    ):
+        return Intent(
+            "reddit",
+            {"subreddits": ["MachineLearning", "LocalLLaMA", "programming"], "limit": 5},
+            raw=text,
+        )
 
     if any(value in lowered for value in ("last workspace", "where i was", "reopen", "continue where")):
         return Intent("open_last_workspace", raw=text)

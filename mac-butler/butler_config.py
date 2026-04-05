@@ -63,6 +63,10 @@ BUTLER_MODEL_CHAINS = {
 # Each falls back to OLLAMA_MODEL if not installed
 AGENT_MODELS = {
     "news": "deepseek-r1:14b",
+    "market": "deepseek-r1:14b",
+    "hackernews": "phi4-mini:latest",
+    "reddit": "phi4-mini:latest",
+    "github_trending": "phi4-mini:latest",
     "vps": "qwen2.5-coder:14b",
     "memory": "phi4-mini:latest",
     "code": "qwen2.5-coder:14b",
@@ -73,6 +77,10 @@ AGENT_MODELS = {
 
 AGENT_MODEL_CHAINS = {
     "news": _chain(AGENT_MODELS["news"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
+    "market": _chain(AGENT_MODELS["market"], BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
+    "hackernews": _chain(AGENT_MODELS["hackernews"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
+    "reddit": _chain(AGENT_MODELS["reddit"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
+    "github_trending": _chain(AGENT_MODELS["github_trending"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
     "vps": _chain(AGENT_MODELS["vps"], "deepseek-coder:6.7b", BUTLER_MODELS["planning"], OLLAMA_MODEL),
     "memory": _chain(AGENT_MODELS["memory"], BUTLER_MODELS["voice"], "llama3.2:3b", OLLAMA_MODEL),
     "code": _chain(AGENT_MODELS["code"], BUTLER_MODELS["coding"], "deepseek-coder:6.7b", "deepseek-r1:14b"),
@@ -132,6 +140,7 @@ VOICE_INPUT_MODEL = "mlx-community/whisper-tiny"
 # --- Heartbeat (KAIROS) ---
 HEARTBEAT_ENABLED = False
 HEARTBEAT_INTERVAL_MINUTES = 5
+DAILY_INTEL_ENABLED = False
 
 # --- Bug Hunter ---
 BUG_HUNTER_ENABLED = False

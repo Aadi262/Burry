@@ -73,6 +73,26 @@ class IntentRouterTests(unittest.TestCase):
         self.assertFalse(result.needs_llm())
         self.assertEqual(result.to_action()["type"], "open_terminal")
 
+    def test_whats_on_hackernews_routes_to_agent(self):
+        result = route("what's on hackernews")
+        self.assertEqual(result.name, "hackernews")
+        self.assertEqual(result.to_action()["agent"], "hackernews")
+
+    def test_market_pulse_routes_to_agent(self):
+        result = route("what's happening in AI today")
+        self.assertEqual(result.name, "market")
+        self.assertEqual(result.to_action()["agent"], "market")
+
+    def test_whats_reddit_saying_routes_to_agent(self):
+        result = route("what's reddit saying")
+        self.assertEqual(result.name, "reddit")
+        self.assertEqual(result.to_action()["agent"], "reddit")
+
+    def test_trending_repos_routes_to_agent(self):
+        result = route("trending repos")
+        self.assertEqual(result.name, "github_trending")
+        self.assertEqual(result.to_action()["agent"], "github_trending")
+
     def test_work_question_falls_back_to_llm(self):
         result = route("what should i do next")
         self.assertTrue(result.needs_llm())

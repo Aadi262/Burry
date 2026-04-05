@@ -227,6 +227,7 @@ class ButlerPipelineTests(unittest.TestCase):
 
     def test_question_needs_brain_agents_for_external_lookup(self):
         self.assertTrue(_question_needs_brain_agents("what is the latest ai news"))
+        self.assertTrue(_question_needs_brain_agents("what's on hackernews"))
         self.assertFalse(_question_needs_brain_agents("why did spotify not understand me"))
 
     def test_direct_agent_plan_for_news_question(self):
@@ -238,6 +239,21 @@ class ButlerPipelineTests(unittest.TestCase):
         plan = _direct_agent_plan_for_text("what is qwen2.5?")
         self.assertIsNotNone(plan)
         self.assertEqual(plan["actions"][0]["agent"], "search")
+
+    def test_direct_agent_plan_for_hackernews_question(self):
+        plan = _direct_agent_plan_for_text("what's on hackernews?")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["actions"][0]["agent"], "hackernews")
+
+    def test_direct_agent_plan_for_reddit_question(self):
+        plan = _direct_agent_plan_for_text("what's reddit saying about llms?")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["actions"][0]["agent"], "reddit")
+
+    def test_direct_agent_plan_for_trending_repos(self):
+        plan = _direct_agent_plan_for_text("trending repos")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["actions"][0]["agent"], "github_trending")
 
 
 if __name__ == "__main__":
