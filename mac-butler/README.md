@@ -1,28 +1,161 @@
 # Mac Butler
 
-Mac Butler is a local operator agent for macOS. It gathers context from your work machine, asks a local Ollama model for a JSON action plan, safely executes what makes sense, speaks the response aloud, then waits a few seconds for a follow-up.
+Mac Butler is a local operator runtime for macOS.
 
-Everything runs locally. No API keys. No cloud round-trips.
+It reads machine context, knows active projects, routes work across local models, runs safe actions,
+speaks through a local voice, and writes execution results back into memory.
 
-## Features
+No cloud dependency is required for the core system. The main runtime is built to stay local-first.
 
-- Context gathering from git activity, Cursor or VS Code history, TODOs, Obsidian notes, and optional VPS checks
-- Two-stage local operator planning with Ollama: planner JSON first, spoken reply second
-- Safe execution engine for app launches, folder opens, command runs, notes, notifications, reminders, URLs, and SSH actions
-- Specialist agents for news, search, VPS inspection, memory compression, code generation, GitHub MCP calls, and bug finding
-- Optional Brave Search MCP and GitHub MCP integration
-- Background heartbeat and bug-hunter daemons for quiet monitoring
-- Local neural TTS with Kokoro on Apple Silicon, plus safe macOS `say` fallback
-- Keyboard trigger and clap trigger support
-- Short post-briefing follow-up window using text input for now
+## What Butler Is
 
-## Prerequisites
+Butler is not meant to be a generic assistant shell.
 
-- macOS
-- Python 3.11+
-- Ollama installed and running
-- Optional: Spotify desktop app for music actions
-- Optional: passwordless SSH keys for VPS commands
+The goal is to make a local operator that can answer practical questions while you work:
+
+- What should I do next?
+- Which project am I actually in?
+- What is blocked?
+- What should open when I say "open adpilot"?
+- Which model should handle this request?
+- What happened after the action ran?
+
+That means the product is built around:
+
+- project intelligence
+- deterministic routing
+- specialist agents
+- execution safety
+- memory write-back
+- live dashboard truth
+
+## What Works Now
+
+### Project OS
+
+- registry of tracked projects in `projects/projects.json`
+- derived completion, blockers, next tasks, health, and verification
+- fuzzy `open_project` flow with real editor fallback behavior
+- GitHub sync for public repos
+- dark dashboard with project cards and next actions
+
+### Operator Runtime
+
+- deterministic intent router for common commands
+- local planner + response flow
+- safe executor for apps, folders, commands, notes, reminders, URLs, SSH, and music
+- project-aware `what should i do next`
+- startup briefing with optional daily intelligence block
+- structured execution results written back into memory
+
+### Live Intelligence
+
+- Hacker News agent using the public Firebase API
+- Reddit agent using public subreddit JSON feeds
+- GitHub trending agent using free public trending data
+- market pulse agent aggregating free signals across multiple sources
+- graceful fallback when local SearXNG is down
+
+### Voice
+
+- Kokoro local neural TTS on Apple Silicon
+- safe macOS `say` fallback
+- clap trigger and keyboard trigger paths
+
+## Current Model Shape
+
+These are the main active roles in the current Butler system:
+
+| Role | Model |
+| --- | --- |
+| Voice | `phi4-mini:latest` |
+| Planning | `qwen2.5-coder:14b` |
+| Review / Search / Market | `deepseek-r1:14b` |
+| Hacker News / Reddit / Trending | `phi4-mini:latest` |
+| Coding / GitHub / VPS | `qwen2.5-coder:14b` |
+
+Other configured fallbacks exist in [`butler_config.py`](butler_config.py).
+
+## Example Commands
+
+### Project + Operator Commands
+
+- `open adpilot`
+- `open mac-butler`
+- `what should i do next`
+- `open dashboard`
+- `git status`
+- `check vps`
+
+### Intelligence Commands
+
+- `what's happening in AI today`
+- `what's on hackernews`
+- `what's reddit saying`
+- `trending repos`
+- `latest ai news`
+
+### Utility Commands
+
+- `open spotify`
+- `play mockingbird`
+- `pause music`
+- `save note ...`
+
+## System Flow
+
+```text
+Trigger / Command
+    -> Intent Router
+    -> Direct Action or Specialist Agent
+    -> Safe Executor
+    -> Memory Write-Back
+    -> Spoken / Printed Response
+```
+
+For project-aware flows, Butler also pulls from:
+
+- editor/workspace context
+- git context
+- task context
+- project registry + derived status
+- previous session memory
+
+## Main Components
+
+| Path | Responsibility |
+| --- | --- |
+| `butler.py` | Main runtime orchestration |
+| `butler_config.py` | Model, voice, and feature flags |
+| `intents/router.py` | Deterministic command routing |
+| `executor/engine.py` | Safe action execution |
+| `agents/runner.py` | Specialist agents |
+| `projects/` | Project OS, dashboard, GitHub sync, open flow |
+| `memory/` | Session memory and project write-back |
+| `voice/` | TTS and STT |
+| `context/` | Machine, editor, git, task, and time context |
+| `tests/` | Regression coverage |
+
+## Project OS Surface
+
+The core project intelligence layer lives in `projects/`:
+
+- `projects.json`
+  Source of truth for tracked projects
+
+- `project_store.py`
+  Loads and derives project state from local files, git signals, memory, and verification data
+
+- `open_project.py`
+  Fuzzy project open flow with editor fallback chain
+
+- `github_sync.py`
+  Public GitHub metadata sync
+
+- `dashboard.py`
+  Dashboard HTML generator and local server
+
+This is the layer that makes Butler understand work instead of just reacting to commands.
 
 ## Quick Start
 
@@ -31,170 +164,110 @@ cd mac-butler
 chmod +x setup.sh
 ./setup.sh
 source venv/bin/activate
-bash scripts/start_searxng.sh
-python trigger.py
 ```
 
-Press `Cmd+Shift+B` to trigger Butler, or run `python trigger.py --clap` for clap mode.
+If you want the full local search path:
 
-Start the local search backend with `bash scripts/start_searxng.sh`.
+```bash
+bash scripts/start_searxng.sh
+```
+
+Run Butler:
+
+```bash
+venv/bin/python butler.py
+```
+
+Test mode:
+
+```bash
+venv/bin/python butler.py --test
+```
+
+Useful direct entrypoints:
+
+```bash
+venv/bin/python projects/dashboard.py
+venv/bin/python projects/github_sync.py
+venv/bin/python projects/open_project.py adpilot
+venv/bin/python trigger.py --clap
+```
 
 ## Configuration
 
-Edit `butler_config.py` before using operator features:
+Important runtime knobs live in [`butler_config.py`](butler_config.py).
+
+Relevant examples:
 
 ```python
-OBSIDIAN_VAULT_NAME = "YourVaultName"
-DEVELOPER_PATH = "~/Developer"
-VPS_HOSTS = []
 OLLAMA_MODEL = "qwen2.5:14b"
-OLLAMA_FALLBACK = None
-SPOTIFY_ENABLED = True
 TTS_ENGINE = "kokoro"
 TTS_VOICE = "af_bella"
-TTS_SPEED = 1.0
-PIPER_MODEL_PATH = ""
+VOICE_INPUT_MODEL = "mlx-community/whisper-tiny"
+DAILY_INTEL_ENABLED = False
 ```
 
-### Obsidian Vault
+### Obsidian
 
-Set `OBSIDIAN_VAULT_NAME` to the folder name inside:
+If you want Butler to read and write to Obsidian, set `OBSIDIAN_VAULT_NAME` correctly.
 
-```text
-~/Library/Mobile Documents/iCloud~md~obsidian/Documents/
-```
+### VPS
 
-If the vault name is left as `YourVaultName`, Butler skips Obsidian context and rejects Obsidian write actions.
+If you want infrastructure checks and SSH helpers, configure `VPS_HOSTS` and local secrets.
 
-### VPS Hosts
+### MCP
 
-Add entries like this to `VPS_HOSTS`:
+Brave Search MCP and GitHub MCP are optional. Butler can run without them, but they expand the search and GitHub surface.
 
-```python
-VPS_HOSTS = [
-    {"label": "Main VPS", "host": "root@1.2.3.4"},
-    {"label": "Worker", "host": "ubuntu@5.6.7.8"},
-]
-```
+## Verification
 
-The VPS context only does a quick reachability check. SSH actions assume key-based auth is already configured.
+Current regression baseline:
 
-### MCP Servers
+- `venv/bin/python -m unittest discover -s tests -v`
+- expected result: green suite
 
-Brave Search MCP and GitHub MCP are optional. Configure them in `butler_config.py` and `secrets/local_secrets.json`.
-
-Example local secrets:
-
-```json
-{
-  "mcp": {
-    "brave": {
-      "enabled": true,
-      "env": {
-        "BRAVE_API_KEY": "..."
-      }
-    },
-    "github": {
-      "enabled": true,
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "..."
-      }
-    }
-  }
-}
-```
-
-## What Butler Can Do
-
-Example interactions:
-
-- "Open the repo I was in and start the dev server."
-- "Write this idea into Obsidian and remind me in 30 minutes."
-- "Check whether the VPS is up."
-- "Just brief me, don't open anything."
-
-If Butler only needs to brief you, the model returns `actions: []` and nothing is executed.
-
-## Action Types
-
-Full action reference:
-
-```json
-{"type": "open_app", "app": "Cursor"}
-{"type": "open_app", "app": "Spotify"}
-{"type": "open_app", "app": "Claude"}
-{"type": "open_app", "app": "Terminal"}
-{"type": "open_folder", "path": "~/Developer/project-name"}
-{"type": "run_command", "cmd": "npm run dev", "cwd": "~/Developer/project-name"}
-{"type": "run_command", "cmd": "git status", "cwd": "~/Developer/project-name"}
-{"type": "play_music", "mode": "focus|chill|hype|off"}
-{"type": "write_file", "path": "~/Developer/notes.md", "content": "...", "mode": "append|overwrite"}
-{"type": "create_folder", "path": "~/Developer/new-project"}
-{"type": "obsidian_note", "title": "Note title", "content": "...", "folder": "Daily|Projects|Ideas"}
-{"type": "ssh_open", "host": "user@ip", "label": "VPS name"}
-{"type": "ssh_command", "host": "user@ip", "cmd": "systemctl status nginx"}
-{"type": "open_url", "url": "https://..."}
-{"type": "notify", "title": "Butler", "message": "..."}
-{"type": "remind_in", "minutes": 30, "message": "Check campaign stats"}
-{"type": "run_agent", "agent": "news", "topic": "AI news last 24h"}
-{"type": "run_agent", "agent": "search", "query": "what is X"}
-{"type": "run_agent", "agent": "vps", "host": "root@1.2.3.4"}
-{"type": "run_agent", "agent": "github", "tool": "list_pull_requests", "arguments": {"owner": "...", "repo": "..."}}
-{"type": "run_agent", "agent": "bugfinder", "target": "~/Burry/mac-butler", "scope": "quick"}
-```
-
-## Test Sequence
-
-Run the operator upgrade checks in this order:
+Useful smoke checks:
 
 ```bash
-source venv/bin/activate
-python scripts/system_check.py
-python scripts/system_check.py --live
-python daemon/bug_hunter.py
+venv/bin/python butler.py --test --command "what's happening in AI today"
+venv/bin/python butler.py --test --command "what's on hackernews"
+venv/bin/python butler.py --test --command "trending repos"
+venv/bin/python butler.py --test --command "what should i do next"
 ```
 
-`python scripts/system_check.py` covers unit tests, specialist agents, executor agent dispatch, confirmation gate, heartbeat, and `butler.py --test`.
-
-`python scripts/system_check.py --live` adds a full voice run.
-
-`python daemon/bug_hunter.py` runs the background bug-finder once.
-
-## Project Structure
+## Project Layout
 
 ```text
 mac-butler/
+├── agents/
+├── brain/
+├── context/
+├── daemon/
+├── executor/
+├── identity/
+├── intents/
+├── mcp/
+├── memory/
+├── projects/
+├── scripts/
+├── tasks/
+├── tests/
+├── voice/
 ├── butler.py
 ├── butler_config.py
-├── trigger.py
-├── brain/
-│   └── ollama_client.py
-├── context/
-│   ├── __init__.py
-│   ├── git_context.py
-│   ├── obsidian_context.py
-│   ├── tasks_context.py
-│   ├── vscode_context.py
-│   └── vps_context.py
-├── executor/
-│   ├── __init__.py
-│   └── engine.py
-├── voice/
-│   └── tts.py
-└── daemon/
-    ├── clap_detector.py
-    └── com.mac.butler.plist
+├── setup.sh
+└── trigger.py
 ```
 
 ## Permissions
 
-For keyboard mode, grant Accessibility permissions to your terminal app.
+For keyboard mode, grant Accessibility permissions to the app that runs Butler.
 
-For clap mode, grant Microphone permissions to the terminal app running Butler.
+For clap mode, grant Microphone access to the terminal app that runs Butler.
 
 ## Notes
 
-- Spotify URI playback only works if Spotify desktop is installed.
-- Obsidian actions need a real vault name in `butler_config.py`.
-- `run_command` is intentionally allowlisted and runs without shell operators.
-- File writes are restricted to safe project roots instead of writing arbitrary paths from model output.
+- Spotify actions need the Spotify desktop app installed
+- `run_command` is intentionally constrained
+- project state is partly derived from local docs, so stale project docs still affect downstream truth
+- local runtime JSON files change often during development and are not always meant for commit
