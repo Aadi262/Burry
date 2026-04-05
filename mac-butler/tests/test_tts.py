@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+from contextlib import contextmanager
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 from voice import tts
 
@@ -26,9 +29,40 @@ class TTSVoiceTests(unittest.TestCase):
         mock_try_kokoro.assert_called_once()
         mock_say_fallback.assert_called_once()
 
+    @patch("voice.tts._say_fallback")
+    @patch("voice.tts._try_kokoro")
+    def test_speak_skips_when_speech_lock_is_busy(self, mock_try_kokoro, mock_say_fallback):
+        @contextmanager
+        def fake_lock(*_args, **_kwargs):
+            yield False
+
+        with patch("voice.tts._speech_lock", fake_lock):
+            tts.speak("Good morning. mac-butler is ready.")
+
+        mock_try_kokoro.assert_not_called()
+        mock_say_fallback.assert_not_called()
+
     @patch("voice.tts.TTS_ENGINE", "say")
     def test_try_kokoro_skips_when_engine_forces_say(self):
         self.assertFalse(tts._try_kokoro("hello"))
+
+    def test_prepare_kokoro_audio_normalizes_and_downmixes(self):
+        shaped = tts._prepare_kokoro_audio(
+            np.array(
+                [
+                    [2.0, -2.0],
+                    [np.nan, 0.5],
+                    [0.2, 0.4],
+                    [0.0, np.inf],
+                ],
+                dtype=np.float32,
+            )
+        )
+
+        self.assertEqual(shaped.ndim, 1)
+        self.assertEqual(shaped.dtype, np.float32)
+        self.assertTrue(np.all(np.isfinite(shaped)))
+        self.assertLessEqual(float(np.max(np.abs(shaped))), 0.95)
 
     @patch("voice.tts._get_kokoro")
     def test_try_kokoro_plays_audio_when_runtime_is_available(

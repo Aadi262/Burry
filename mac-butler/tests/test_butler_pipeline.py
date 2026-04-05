@@ -12,7 +12,9 @@ from butler import (
     _plan_with_brain,
     _project_snapshot_for_planning,
     _question_needs_brain_agents,
+    _rewrite_speech_with_agent_results,
     _resolve_pending_dialogue,
+    _run_actions_with_response,
     _unknown_response_for_text,
     observe_and_followup,
     get_quick_response,
@@ -98,6 +100,48 @@ class ButlerPipelineTests(unittest.TestCase):
             test_mode=False,
         )
         self.assertEqual(observation, "")
+
+    @patch("butler._raw_llm", return_value="Something went wrong.")
+    def test_rewrite_speech_with_agent_results_falls_back_to_agent_output(self, _mock_llm):
+        rewritten = _rewrite_speech_with_agent_results(
+            "Checking trending repos.",
+            [{"action": "run_agent", "status": "ok", "result": "- Blaizzy/mlx-vlm is trending.\n- onyx is climbing."}],
+        )
+        self.assertIn("Blaizzy/mlx-vlm", rewritten)
+        self.assertNotEqual(rewritten, "Something went wrong.")
+
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    @patch("butler._rewrite_speech_with_agent_results")
+    @patch("butler.executor.run")
+    def test_run_actions_with_response_uses_agent_summary_directly_for_run_agent_only(
+        self,
+        mock_run,
+        mock_rewrite,
+        mock_speak_or_print,
+        _mock_record,
+    ):
+        mock_run.return_value = [
+            {
+                "action": "run_agent",
+                "status": "ok",
+                "result": "MLX VLM is trending and Onyx just shipped a new release.",
+            }
+        ]
+
+        final_response, _results = _run_actions_with_response(
+            text="trending repos",
+            response="Checking trending repos.",
+            actions=[{"type": "run_agent", "agent": "github_trending", "language": "python"}],
+            test_mode=False,
+        )
+
+        self.assertEqual(final_response, "MLX VLM is trending and Onyx just shipped a new release.")
+        mock_rewrite.assert_not_called()
+        mock_speak_or_print.assert_called_once_with(
+            "MLX VLM is trending and Onyx just shipped a new release.",
+            test_mode=False,
+        )
 
     def test_brain_context_text_includes_request_and_hint(self):
         ctx = {"formatted": "[FOCUS]\n  project: mac-butler"}

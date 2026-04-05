@@ -688,13 +688,7 @@ def _rewrite_speech_with_agent_results(
     execution_results: list,
     model: str | None = None,
 ) -> str:
-    agent_results = [
-        str(result.get("result", "")).strip()
-        for result in execution_results
-        if result.get("action") == "run_agent"
-        and result.get("status") == "ok"
-        and str(result.get("result", "")).strip()
-    ]
+    agent_results = _successful_agent_results(execution_results)
     if not agent_results:
         return ""
 
@@ -708,7 +702,20 @@ Keep it under 45 words.
 Output ONLY the new speech text."""
 
     raw = _raw_llm(prompt, model=model or OLLAMA_MODEL, max_tokens=120, temperature=0.4)
-    return _normalize_response(raw, max_words=45)
+    rewritten = _normalize_response(raw, max_words=45)
+    if not rewritten or rewritten == "Something went wrong.":
+        return _normalize_response(agent_results[0], max_words=45)
+    return rewritten
+
+
+def _successful_agent_results(execution_results: list) -> list[str]:
+    return [
+        str(result.get("result", "")).strip()
+        for result in execution_results
+        if result.get("action") == "run_agent"
+        and result.get("status") == "ok"
+        and str(result.get("result", "")).strip()
+    ]
 
 
 def _run_actions_with_response(
@@ -732,11 +739,11 @@ def _run_actions_with_response(
                 current["host"] = host
         prepared_actions.append(current)
     actions = prepared_actions
+    run_agent_only = bool(actions) and all(action.get("type") == "run_agent" for action in actions)
 
     for action in actions:
         print(f"[Executor] before run: {action}")
     if test_mode:
-        run_agent_only = bool(actions) and all(action.get("type") == "run_agent" for action in actions)
         if run_agent_only:
             results = executor.run(actions)
             print(f"[Executor] after run: {results}")
@@ -773,8 +780,6 @@ def _run_actions_with_response(
         )
         speaker_thread.start()
 
-    for action in actions:
-        print(f"[Executor] before run: {action}")
     results = executor.run(actions) if actions else []
     print(f"[Executor] after run: {results}")
 
@@ -789,10 +794,18 @@ def _run_actions_with_response(
     )
     if first_error:
         final_response = _normalize_response(first_error, max_words=18, single_sentence=True) or "That failed."
-
-    rewritten = _rewrite_speech_with_agent_results(response, results, model=model)
-    if rewritten and not first_error:
-        final_response = rewritten
+    else:
+        successful_agent_results = _successful_agent_results(results)
+        direct_agent_response = _normalize_response(
+            successful_agent_results[0] if successful_agent_results else "",
+            max_words=45,
+        )
+        if run_agent_only and direct_agent_response:
+            final_response = direct_agent_response
+        else:
+            rewritten = _rewrite_speech_with_agent_results(response, results, model=model)
+            if rewritten:
+                final_response = rewritten
 
     if should_delay_speech:
         if final_response:
