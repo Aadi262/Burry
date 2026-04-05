@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""
+context/mac_activity.py
+Passive Mac activity watcher.
+Runs in background, polls every 30s.
+Writes to memory/mac_state.json so Butler knows what you're doing.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import unquote
+
+STATE_FILE = Path(__file__).resolve().parent.parent / "memory" / "mac_state.json"
+_WATCHER_THREAD: threading.Thread | None = None
+_WATCHER_LOCK = threading.Lock()
+
+
+def _run_script(script: str) -> str:
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return (result.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def get_frontmost_app() -> str:
+    return _run_script(
+        'tell application "System Events" to '
+        'set frontApp to name of first application process '
+        'whose frontmost is true'
+    )
+
+
+def get_open_apps() -> list[str]:
+    raw = _run_script(
+        'tell application "System Events" to '
+        'get name of every application process '
+        'whose background only is false'
+    )
+    return [app.strip() for app in raw.split(",") if app.strip()]
+
+
+def get_open_windows() -> list[str]:
+    raw = _run_script(
+        'tell application "System Events" to tell '
+        '(first application process whose frontmost is true) '
+        'to get name of every window'
+    )
+    return [window.strip() for window in raw.split(",") if window.strip()]
+
+
+def get_cursor_workspace() -> str:
+    """Read the most recent Cursor or VS Code workspace from workspaceStorage."""
+    paths = [
+        "~/Library/Application Support/Cursor/User/workspaceStorage",
+        "~/Library/Application Support/Code/User/workspaceStorage",
+    ]
+    for path_text in paths:
+        expanded = Path(path_text).expanduser()
+        if not expanded.exists():
+            continue
+
+        workspaces = sorted(
+            expanded.glob("*/workspace.json"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        for workspace in workspaces[:3]:
+            try:
+                data = json.loads(workspace.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            folder = str(data.get("folder", "")).strip()
+            if folder and ("mac-butler" in folder or "Developer" in folder):
+                return unquote(folder.replace("file://", ""))
+
+    try:
+        from .vscode_context import get_vscode_context
+    except Exception:
+        try:
+            from context.vscode_context import get_vscode_context
+        except Exception:
+            return ""
+
+    editor_data = get_vscode_context()
+    for workspace_path in editor_data.get("workspace_paths", []):
+        if workspace_path:
+            return workspace_path
+    return ""
+
+
+def get_spotify_track() -> str:
+    track = _run_script(
+        'tell application "Spotify" to '
+        'if player state is playing then '
+        'return name of current track & " by " & '
+        'artist of current track end if'
+    )
+    return track or ""
+
+
+def get_active_browser_url() -> str:
+    for script in (
+        'tell application "Google Chrome" to get URL of active tab of front window',
+        'tell application "Safari" to get URL of front document',
+    ):
+        result = _run_script(script)
+        if result.startswith("http"):
+            return result
+    return ""
+
+
+def snapshot() -> dict:
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "frontmost_app": get_frontmost_app(),
+        "open_windows": get_open_windows()[:10],
+        "open_apps": get_open_apps()[:10],
+        "cursor_workspace": get_cursor_workspace(),
+        "spotify_track": get_spotify_track(),
+        "browser_url": get_active_browser_url(),
+    }
+
+
+def save_state(state: dict) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def load_state() -> dict:
+    if not STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def get_state_for_context() -> str:
+    state = load_state()
+    if not state:
+        return ""
+
+    lines = ["[MAC ACTIVITY]"]
+    if state.get("frontmost_app"):
+        lines.append(f"  Last active app: {state['frontmost_app']}")
+    if state.get("open_windows"):
+        lines.append(f"  Windows: {', '.join(state['open_windows'][:3])}")
+    if state.get("cursor_workspace"):
+        lines.append(f"  Last workspace: {state['cursor_workspace']}")
+    if state.get("spotify_track"):
+        lines.append(f"  Playing: {state['spotify_track']}")
+    if state.get("browser_url"):
+        url = state["browser_url"]
+        lowered = url.lower()
+        if "netflix" in lowered:
+            lines.append("  Browser: Netflix")
+        elif "github" in lowered:
+            lines.append(f"  Browser: GitHub — {url}")
+        else:
+            lines.append(f"  Browser: {url[:60]}")
+
+    apps = state.get("open_apps", [])
+    relevant = [
+        app
+        for app in apps
+        if app
+        in {
+            "Cursor",
+            "Code",
+            "Terminal",
+            "Obsidian",
+            "Spotify",
+            "Claude",
+            "Slack",
+            "Discord",
+        }
+    ]
+    if relevant:
+        lines.append(f"  Open: {', '.join(relevant)}")
+
+    return "\n".join(lines)
+
+
+def start_watcher(interval: int = 30) -> threading.Thread:
+    """Start the background watcher once and return the watcher thread."""
+    global _WATCHER_THREAD
+    with _WATCHER_LOCK:
+        if _WATCHER_THREAD and _WATCHER_THREAD.is_alive():
+            return _WATCHER_THREAD
+
+        def _loop() -> None:
+            while True:
+                try:
+                    save_state(snapshot())
+                except Exception:
+                    pass
+                time.sleep(interval)
+
+        _WATCHER_THREAD = threading.Thread(
+            target=_loop,
+            daemon=True,
+            name="mac-watcher",
+        )
+        _WATCHER_THREAD.start()
+        print(f"[Watcher] Mac activity watcher started (every {interval}s)")
+        return _WATCHER_THREAD
+
+
+if __name__ == "__main__":
+    print("Current Mac state:")
+    current_state = snapshot()
+    print(json.dumps(current_state, indent=2))
+    print("\nContext block:")
+    save_state(current_state)
+    print(get_state_for_context())

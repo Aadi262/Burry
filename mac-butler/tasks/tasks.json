@@ -1,0 +1,318 @@
+[
+  {
+    "id": "t1",
+    "title": "Wire two-stage LLM into butler",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.647315"
+  },
+  {
+    "id": "t2",
+    "title": "Add task system (this file)",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.648020"
+  },
+  {
+    "id": "t3",
+    "title": "Add observe loop (feed results back)",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.648317"
+  },
+  {
+    "id": "t4",
+    "title": "Implement layered memory (MEMORY.md pattern)",
+    "project": "mac-butler",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.648575"
+  },
+  {
+    "id": "t5",
+    "title": "Design trust score formula",
+    "project": "email-infra",
+    "priority": "high",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.648825"
+  },
+  {
+    "id": "t6",
+    "title": "Build reputation graph schema",
+    "project": "email-infra",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.649074"
+  },
+  {
+    "id": "t7",
+    "title": "Research warmup simulation engine",
+    "project": "email-infra",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T12:40:09.649323"
+  },
+  {
+    "id": "t8",
+    "title": "Review pull requests",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.191468"
+  },
+  {
+    "id": "t9",
+    "title": "Deploy staging environment",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.192231"
+  },
+  {
+    "id": "t10",
+    "title": "Write unit tests for auth module",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.192502"
+  },
+  {
+    "id": "t11",
+    "title": "Finish API documentation",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.192689"
+  },
+  {
+    "id": "t12",
+    "title": "Fix login page bug",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.192918"
+  },
+  {
+    "id": "t13",
+    "title": "Set up CI/CD pipeline",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.193084"
+  },
+  {
+    "id": "t14",
+    "title": "Code review for team",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.193241"
+  },
+  {
+    "id": "t15",
+    "title": "Refactor database queries",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.193401"
+  },
+  {
+    "id": "t16",
+    "title": "Add dark mode support",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.193615"
+  },
+  {
+    "id": "t17",
+    "title": "Performance optimization",
+    "project": "",
+    "priority": "normal",
+    "status": "todo",
+    "created": "2026-04-04T20:55:06.193789"
+  },
+  {
+    "id": "t18",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-04T21:06:03.526779",
+    "updated": "2026-04-04T21:06:03.527121"
+  },
+  {
+    "id": "t19",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-04T21:08:15.796927",
+    "updated": "2026-04-04T21:08:15.797485"
+  },
+  {
+    "id": "t20",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-04T21:10:34.647411",
+    "updated": "2026-04-04T21:10:34.647981"
+  },
+  {
+    "id": "t21",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-04T23:57:22.299916",
+    "updated": "2026-04-04T23:57:22.300785"
+  },
+  {
+    "id": "t22",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T00:49:39.492190",
+    "updated": "2026-04-05T00:49:39.493110"
+  },
+  {
+    "id": "t23",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T00:55:53.755948",
+    "updated": "2026-04-05T00:55:53.756613"
+  },
+  {
+    "id": "t24",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T01:38:07.224123",
+    "updated": "2026-04-05T01:38:07.224829"
+  },
+  {
+    "id": "t25",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T01:42:34.082597",
+    "updated": "2026-04-05T01:42:34.083163"
+  },
+  {
+    "id": "t26",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T02:43:59.636983",
+    "updated": "2026-04-05T02:43:59.637800"
+  },
+  {
+    "id": "t27",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T03:15:08.759673",
+    "updated": "2026-04-05T03:15:08.760237"
+  },
+  {
+    "id": "t28",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:24:15.907625",
+    "updated": "2026-04-05T14:24:15.908216"
+  },
+  {
+    "id": "t29",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:25:21.308829",
+    "updated": "2026-04-05T14:25:21.309572"
+  },
+  {
+    "id": "t30",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:40:38.015432",
+    "updated": "2026-04-05T14:40:38.016307"
+  },
+  {
+    "id": "t31",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:46:28.131506",
+    "updated": "2026-04-05T14:46:28.132405"
+  },
+  {
+    "id": "t32",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:56:56.213679",
+    "updated": "2026-04-05T14:56:56.214667"
+  },
+  {
+    "id": "t33",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T14:58:28.058936",
+    "updated": "2026-04-05T14:58:28.059518"
+  },
+  {
+    "id": "t34",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T15:12:21.761610",
+    "updated": "2026-04-05T15:12:21.762547"
+  },
+  {
+    "id": "t35",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T15:23:35.214854",
+    "updated": "2026-04-05T15:23:35.215674"
+  },
+  {
+    "id": "t36",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T15:31:19.574628",
+    "updated": "2026-04-05T15:31:19.575216"
+  },
+  {
+    "id": "t37",
+    "title": "Test task for audit",
+    "project": "mac-butler",
+    "priority": "high",
+    "status": "in_progress",
+    "created": "2026-04-05T15:50:30.592062",
+    "updated": "2026-04-05T15:50:30.592673"
+  }
+]

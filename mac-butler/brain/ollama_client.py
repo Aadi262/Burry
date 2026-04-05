@@ -1,0 +1,843 @@
+#!/usr/bin/env python3
+"""
+brain/ollama_client.py
+Two-stage Ollama client:
+1. Planner decides focus and actions as JSON.
+2. Voice layer writes the final spoken line.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import random
+import re
+from datetime import datetime
+from typing import Any
+
+import requests
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+from butler_secrets.loader import get_ollama_secret
+from butler_config import (
+    AGENT_MODEL_CHAINS,
+    AGENT_MODELS,
+    BUTLER_MODEL_CHAINS,
+    BUTLER_MODELS,
+    OLLAMA_FALLBACK,
+    OLLAMA_LOCAL_URL,
+    OLLAMA_MODEL,
+    USE_VPS_OLLAMA,
+    VPS_OLLAMA_FALLBACK,
+    VPS_OLLAMA_MODEL,
+    VPS_OLLAMA_PASS,
+    VPS_OLLAMA_URL,
+    VPS_OLLAMA_USER,
+)
+
+TIMEOUT = 45
+MEMORY_WARN_GB = 1.5
+VPS_REQUEST_TIMEOUT = 120
+KNOWN_OLLAMA_MODELS = {
+    model
+    for model in {
+        OLLAMA_MODEL,
+        OLLAMA_FALLBACK,
+        VPS_OLLAMA_MODEL,
+        VPS_OLLAMA_FALLBACK,
+        *BUTLER_MODELS.values(),
+        *(model for chain in BUTLER_MODEL_CHAINS.values() for model in chain),
+        *AGENT_MODELS.values(),
+        *(model for chain in AGENT_MODEL_CHAINS.values() for model in chain),
+    }
+    if model
+}
+_BACKEND_MODEL_MAP_CACHE: dict[str, dict[str, str]] = {"local": {}, "vps": {}}
+
+GREETINGS = {
+    "morning": [
+        "Morning",
+        "Hey, good morning",
+        "Rise and grind",
+        "Alright, let's get it",
+        "Top of the morning",
+    ],
+    "afternoon": [
+        "Hey",
+        "Alright",
+        "Back at it",
+        "What needs shipping",
+        "What's next",
+    ],
+    "evening": [
+        "Evening",
+        "Still at it",
+        "Wrapping up?",
+        "One more push",
+        "Hey, good evening",
+    ],
+    "late_night": [
+        "Still grinding",
+        "Burning the midnight oil",
+        "Late one tonight",
+        "Night owl mode",
+        "Still here",
+    ],
+}
+
+def build_system_prompt() -> str:
+    return """You are Butler's planner running on Aditya's Mac.
+
+Rules:
+1. Output ONLY a JSON object.
+2. Choose the single best next step from the provided context.
+3. Be specific about project, file, or system when possible.
+4. Keep actions to max 2 and only use them if genuinely useful.
+5. Do not write speech here.
+6. Prefer mac-butler or email-infra by name when the context supports it.
+7. Do not invent vague work if the context already points to a concrete task.
+
+Return exactly this schema:
+{
+  "focus": "specific project or task",
+  "why_now": "short reason under 18 words",
+  "question": "short follow-up question ending with ?",
+  "actions": []
+}
+
+Available action types - pick ONLY what is genuinely useful:
+Terminal actions:
+{"type": "open_terminal", "mode": "tab"}
+-> new tab in existing Terminal window
+{"type": "open_terminal", "mode": "window"}
+-> brand new Terminal window
+{"type": "open_terminal", "mode": "tab", "cmd": "npm run dev", "cwd": "~/Burry/mac-butler"}
+-> new tab and immediately run a command
+Editor actions:
+{"type": "open_editor", "path": "~/Burry/mac-butler", "editor": "cursor", "mode": "smart"}
+-> open path in Cursor, reuse existing window
+{"type": "open_editor", "path": "~/Developer/new-project", "editor": "cursor", "mode": "new_window"}
+-> force a brand new Cursor window
+{"type": "open_editor", "mode": "focus", "editor": "cursor"}
+-> just bring Cursor to front, don't open anything
+App actions:
+{"type": "open_app", "app": "Spotify", "mode": "smart"}
+-> focus if running, launch if not
+{"type": "open_app", "app": "Claude", "mode": "smart"}
+{"type": "open_app", "app": "Obsidian", "mode": "smart"}
+Music actions:
+{"type": "search_and_play", "query": "chikni chameli"}
+-> actually searches Spotify and plays
+{"type": "play_music", "mode": "focus"}
+-> plays focus playlist
+{"type": "play_music", "mode": "late_night"}
+{"type": "play_music", "mode": "off"}
+File actions:
+{"type": "create_and_open", "path": "~/Developer/my-project", "editor": "cursor"}
+{"type": "write_file", "path": "~/notes.md", "content": "...", "mode": "append"}
+{"type": "obsidian_note", "title": "...", "content": "...", "folder": "Daily"}
+Project actions:
+{"type": "open_project", "name": "Adpilot"}
+-> use this when the user says "open X" or "work on X"
+VPS actions:
+{"type": "ssh_open", "host": "user@ip", "label": "My VPS"}
+-> SSH in a new Terminal tab
+{"type": "ssh_command", "host": "user@ip", "cmd": "docker ps"}
+Command actions:
+{"type": "run_command", "cmd": "git status", "cwd": "~/Burry/mac-butler"}
+{"type": "run_command", "cmd": "npm run dev", "cwd": "~/Burry/mac-butler", "in_terminal": true}
+-> runs visibly in a Terminal tab (use for long-running commands)
+Agent actions:
+{"type": "run_agent", "agent": "news", "topic": "AI news"}
+{"type": "run_agent", "agent": "vps", "host": "user@ip"}
+Other:
+{"type": "notify", "title": "Butler", "message": "..."}
+{"type": "remind_in", "minutes": 30, "message": "check deploy"}
+KEY RULES for choosing actions:
+
+"open terminal" with no mode specified -> default to "tab"
+"new terminal" or "another terminal" -> mode: "window"
+"open VS Code / Cursor" when it's already running -> mode: "new_window"
+"open [app]" when you don't know if it's running -> mode: "smart"
+"open X" or "work on X" for a known project -> prefer {"type":"open_project","name":"X"}
+long-running commands (servers, builds) -> always use in_terminal: true
+quick commands (git status, ls) -> in_terminal: false
+"""
+
+
+PLANNER_SYSTEM_PROMPT = build_system_prompt()
+
+SPEECH_SYSTEM_PROMPT = """You are Butler's voice.
+
+Rules:
+1. Output ONLY a JSON object with "speech", "greeting", and "actions".
+2. Use the provided greeting exactly once.
+3. Under 35 words unless execution results are explicitly provided later.
+4. Short, decisive sentences.
+5. End with exactly one binary question answerable with yes or no.
+6. Never start with "Welcome back".
+7. Avoid filler like "keep moving", "stay focused", or "continue where you left off".
+8. Name mac-butler or email-infra when relevant; if context is thin, say that plainly instead of pretending.
+9. If you do not have enough context, ask a short clarifying question instead of filling space.
+10. If the project name already appears in the first clause, do not repeat it in the task clause; name the task directly.
+"""
+
+FEW_SHOT_SPEECH_EXAMPLES = """Example A:
+{"speech": "Morning. mac-butler still needs the router and executor speaking the same language. Want to wire that now?", "greeting": "Morning", "actions": [{"type": "open_editor", "path": "~/Burry/mac-butler", "editor": "cursor", "mode": "smart"}]}
+{"speech": "Still grinding. email-infra is bottlenecked on the trust score formula. Want to sketch that first?", "greeting": "Still grinding", "actions": []}
+{"speech": "Evening. mac-butler audit is done, but the specialist agents still need a full pass. Want to test them now?", "greeting": "Evening", "actions": []}
+{"speech": "Hey. Context is thin on my side. Want me to stay on mac-butler?", "greeting": "Hey", "actions": []}"""
+
+COMPACT_VPS_PLANNER_SYSTEM_PROMPT = """Output only JSON:
+{"focus":"...", "next":"...", "actions":[]}
+Use the real project name from context when present.
+Keep focus and next concise. At most one action."""
+
+
+def _check_memory() -> bool:
+    """Returns False if the system is low on memory."""
+    if USE_VPS_OLLAMA and VPS_OLLAMA_URL:
+        return True
+    if psutil is None:
+        return True
+    try:
+        free_gb = psutil.virtual_memory().available / (1024**3)
+        if free_gb < MEMORY_WARN_GB:
+            print(f"[Brain] WARNING: only {free_gb:.1f}GB RAM free")
+            return False
+        return True
+    except Exception:
+        return True
+
+
+def _get_vps_auth() -> tuple[str, str]:
+    secret = get_ollama_secret()
+    username = str(
+        secret.get("user")
+        or secret.get("username")
+        or VPS_OLLAMA_USER
+    ).strip()
+    password = str(secret.get("password") or VPS_OLLAMA_PASS).strip()
+    return username or VPS_OLLAMA_USER, password
+
+
+def _resolve_backend_model(model: str, use_vps_backend: bool) -> str:
+    if not use_vps_backend:
+        return model
+    if model == OLLAMA_MODEL and VPS_OLLAMA_MODEL:
+        return VPS_OLLAMA_MODEL
+    if model == OLLAMA_FALLBACK and VPS_OLLAMA_FALLBACK:
+        return VPS_OLLAMA_FALLBACK
+    return model
+
+
+def _get_backend_ollama_url(
+    backend: str,
+    *,
+    require_healthy: bool = True,
+) -> tuple[str, dict[str, str]]:
+    if backend == "local":
+        return f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate", {}
+
+    if backend != "vps" or not USE_VPS_OLLAMA or not VPS_OLLAMA_URL:
+        raise RuntimeError(f"unsupported Ollama backend: {backend}")
+
+    username, password = _get_vps_auth()
+    headers: dict[str, str] = {}
+    if username and password:
+        creds = base64.b64encode(f"{username}:{password}".encode()).decode()
+        headers = {"Authorization": f"Basic {creds}"}
+
+    if require_healthy:
+        health_url = VPS_OLLAMA_URL.rstrip("/").rsplit("/ollama", 1)[0]
+        response = requests.get(f"{health_url}/health", timeout=3)
+        response.raise_for_status()
+
+    return f"{VPS_OLLAMA_URL.rstrip('/')}/api/generate", headers
+
+
+def _get_ollama_url() -> tuple[str, dict[str, str]]:
+    """
+    Return (generate_url, headers) for the best available Ollama backend.
+    Prefer VPS when configured and healthy, otherwise fall back to local.
+    """
+    if USE_VPS_OLLAMA and VPS_OLLAMA_URL:
+        try:
+            url, headers = _get_backend_ollama_url("vps", require_healthy=True)
+            print(f"[Brain] Using VPS Ollama: {VPS_OLLAMA_URL.rstrip('/')}")
+            return url, headers
+        except Exception:
+            print("[Brain] VPS unreachable, falling back to local Ollama")
+
+    return _get_backend_ollama_url("local", require_healthy=False)
+
+
+def _unload_model(model: str) -> None:
+    """Best-effort request to unload an Ollama model from memory."""
+    if not model:
+        return
+    try:
+        url, headers = _get_ollama_url()
+        requests.post(
+            url,
+            json={"model": model, "keep_alive": 0},
+            headers=headers,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def _prepare_model_request(model: str) -> None:
+    _check_memory()
+    for candidate in KNOWN_OLLAMA_MODELS:
+        if candidate != model:
+            _unload_model(candidate)
+
+
+def _get_backend_model_map(backend: str, force_refresh: bool = False) -> dict[str, str]:
+    global _BACKEND_MODEL_MAP_CACHE
+    cached = _BACKEND_MODEL_MAP_CACHE.get(backend, {})
+    if cached and not force_refresh:
+        return cached
+    try:
+        url, headers = _get_backend_ollama_url(
+            backend,
+            require_healthy=(backend == "vps"),
+        )
+        response = requests.get(
+            url.replace("/api/generate", "/api/tags"),
+            headers=headers,
+            timeout=5,
+        )
+        response.raise_for_status()
+        model_map: dict[str, str] = {}
+        for item in response.json().get("models", []):
+            name = str(item.get("name", "")).strip()
+            if not name:
+                continue
+            model_map.setdefault(name, name)
+            model_map.setdefault(name.split(":")[0], name)
+        _BACKEND_MODEL_MAP_CACHE[backend] = model_map
+        return model_map
+    except Exception:
+        return {}
+
+
+def _get_available_models(force_refresh: bool = False) -> set[str]:
+    return set(_get_available_model_map(force_refresh=force_refresh))
+
+
+def _get_available_model_map(force_refresh: bool = False) -> dict[str, str]:
+    combined = dict(_get_backend_model_map("vps", force_refresh=force_refresh))
+    combined.update(_get_backend_model_map("local", force_refresh=force_refresh))
+    return combined
+
+
+def _dedupe_models(models: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for model in models:
+        name = str(model or "").strip()
+        if not name or name in seen:
+            continue
+        ordered.append(name)
+        seen.add(name)
+    return ordered
+
+
+def _pick_model_from_chain(candidates: list[str], label: str) -> str:
+    chain = _dedupe_models(candidates)
+    if not chain:
+        return OLLAMA_MODEL
+
+    local_map = _get_backend_model_map("local")
+    vps_map = _get_backend_model_map("vps")
+    if not local_map and not vps_map:
+        return chain[0]
+
+    for candidate in chain:
+        exact_local = local_map.get(candidate) or local_map.get(candidate.split(":")[0])
+        if exact_local:
+            if candidate != chain[0]:
+                print(f"[Brain] {label} routed to fallback model {exact_local}")
+            return exact_local
+
+        exact_vps = vps_map.get(candidate) or vps_map.get(candidate.split(":")[0])
+        if exact_vps:
+            if candidate != chain[0]:
+                print(f"[Brain] {label} routed to fallback model {exact_vps}")
+            return exact_vps
+
+    print(f"[Brain] No installed model found for {label}, using {chain[0]}")
+    return chain[0]
+
+
+def pick_butler_model(role: str, override: str | None = None) -> str:
+    chain = []
+    if override:
+        chain.append(override)
+    chain.extend(BUTLER_MODEL_CHAINS.get(role, []))
+    chain.append(BUTLER_MODELS.get(role, ""))
+    chain.append(OLLAMA_MODEL)
+    return _pick_model_from_chain(chain, f"butler:{role}")
+
+
+def pick_agent_model(agent_type: str, override: str | None = None) -> str:
+    chain = []
+    if override:
+        chain.append(override)
+    chain.extend(AGENT_MODEL_CHAINS.get(agent_type, []))
+    chain.append(AGENT_MODELS.get(agent_type, ""))
+    chain.append(OLLAMA_MODEL)
+    return _pick_model_from_chain(chain, f"agent:{agent_type}")
+
+
+def _backend_for_model(model: str) -> str:
+    local_map = _get_backend_model_map("local")
+    if local_map.get(model) or local_map.get(model.split(":")[0]):
+        return "local"
+    vps_map = _get_backend_model_map("vps")
+    if vps_map.get(model) or vps_map.get(model.split(":")[0]):
+        return "vps"
+    return "auto"
+
+
+def _get_request_target_for_model(model: str) -> tuple[str, dict[str, str], str]:
+    backend = _backend_for_model(model)
+    if backend in {"local", "vps"}:
+        try:
+            url, headers = _get_backend_ollama_url(
+                backend,
+                require_healthy=(backend == "vps"),
+            )
+            return url, headers, backend
+        except Exception:
+            if backend == "vps":
+                local_url, local_headers = _get_backend_ollama_url(
+                    "local",
+                    require_healthy=False,
+                )
+                return local_url, local_headers, "local"
+
+    url, headers = _get_ollama_url()
+    backend = "vps" if USE_VPS_OLLAMA and VPS_OLLAMA_URL and VPS_OLLAMA_URL.rstrip("/") in url else "local"
+    return url, headers, backend
+
+
+def check_vps_connection() -> dict:
+    """
+    Return status details for the currently active Ollama connection.
+    """
+    url, headers = _get_ollama_url()
+    try:
+        tags_url = url.replace("/api/generate", "/api/tags")
+        response = requests.get(tags_url, headers=headers, timeout=5)
+        response.raise_for_status()
+        models = [model.get("name", "") for model in response.json().get("models", [])]
+        is_vps = bool(
+            USE_VPS_OLLAMA
+            and VPS_OLLAMA_URL
+            and VPS_OLLAMA_URL.rstrip("/") in url
+        )
+        return {
+            "status": "ok",
+            "backend": "vps" if is_vps else "local",
+            "models": [name for name in models if name],
+            "url": url,
+        }
+    except Exception as exc:
+        backend = "vps" if USE_VPS_OLLAMA and VPS_OLLAMA_URL else "local"
+        return {
+            "status": "error",
+            "backend": backend,
+            "models": [],
+            "url": url,
+            "error": str(exc),
+        }
+
+
+def _time_period() -> str:
+    hour = datetime.now().hour
+    if hour >= 23 or hour <= 4:
+        return "late_night"
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
+def _random_greeting() -> str:
+    period = _time_period()
+    return random.choice(GREETINGS.get(period, GREETINGS["afternoon"]))
+
+
+def _time_greeting() -> str:
+    period = _time_period()
+    if period == "morning":
+        return "Morning"
+    if period == "afternoon":
+        return "Welcome back"
+    if period == "evening":
+        return "Good evening"
+    return "Still grinding"
+
+
+def _get_identity() -> str:
+    try:
+        from identity.loader import get_identity_context
+
+        return get_identity_context()
+    except Exception:
+        return ""
+
+
+def _get_memory() -> str:
+    try:
+        from memory.store import get_last_session_summary
+
+        summary = get_last_session_summary()
+        return f"[LAST SESSION]\n{summary}" if summary else ""
+    except Exception:
+        return ""
+
+
+def _default_plan() -> dict:
+    return {
+        "focus": "current work",
+        "why_now": "The next useful step is visible.",
+        "question": "Want to tackle it now?",
+        "actions": [],
+    }
+
+
+def _parse_plan(raw: str) -> dict:
+    default = _default_plan()
+    try:
+        data = json.loads(_strip(raw))
+    except Exception:
+        return default
+
+    focus = str(data.get("focus", "")).strip() or default["focus"]
+    why_now = str(data.get("why_now", "")).strip() or default["why_now"]
+    question = str(data.get("question", "")).strip() or default["question"]
+    if not question.endswith("?"):
+        question = question.rstrip(".") + "?"
+
+    actions = data.get("actions", [])
+    if not isinstance(actions, list):
+        actions = []
+    actions = [item for item in actions[:2] if isinstance(item, dict)]
+
+    return {
+        "focus": focus,
+        "next": str(data.get("next", "")).strip(),
+        "why_now": why_now,
+        "question": question,
+        "actions": actions,
+    }
+
+
+def _fallback_speech(greeting: str, plan: dict) -> str:
+    focus = plan.get("focus", "current work")
+    why_now = plan.get("why_now", "The next useful step is visible.")
+    question = plan.get("question", "Want to tackle it now?")
+    return f"{greeting}. {focus} is up next. {why_now} {question}"
+
+
+def _strip_repeated_project_from_task(focus: str, next_action: str) -> str:
+    focus_name = (focus or "").strip().lower()
+    task = (next_action or "").strip()
+    if not focus_name or not task:
+        return task
+
+    candidate = task
+    candidate = re.sub(
+        rf"\b(?:into|for|on|in)\s+{re.escape(focus_name)}\b",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(r"\s+", " ", candidate).strip(" .,;:-")
+
+    if candidate.lower() == focus_name:
+        return task
+    if len(candidate.split()) < 3:
+        return task
+    return candidate
+
+
+def send_to_ollama(context_text: str, model: str | None = None) -> str:
+    planner_model = pick_butler_model("planning", override=model)
+    speech_model = pick_butler_model("voice", override=model)
+    greeting = _random_greeting()
+    compact_vps_mode = USE_VPS_OLLAMA and bool(VPS_OLLAMA_URL)
+    context_limit = 220 if compact_vps_mode else 600
+    plan_max_tokens = 90 if compact_vps_mode else 260
+    speech_max_tokens = 180
+    identity_block = _get_identity()
+    memory_block = _get_memory()
+
+    if compact_vps_mode:
+        plan_prompt = f"""Context:
+{context_text[:context_limit]}
+
+Return ONLY JSON:
+{{"focus":"...", "next":"...", "actions":[]}}
+
+Rules:
+- Use mac-butler or email-infra exactly if present
+- focus = project or immediate task
+- next = single concrete next step
+- Keep each value under 12 words
+- actions can be empty"""
+        planner_system = COMPACT_VPS_PLANNER_SYSTEM_PROMPT
+    else:
+        plan_prompt = f"""You are a planning engine for Aditya.
+Rules you MUST follow:
+- If context contains project names, use them directly
+- NEVER write "current work" — use the actual project name
+- NEVER write "next useful step" — name the actual task
+- mac-butler = his local voice operator agent project
+- email-infra = his cold email system project
+- If the user asks to open or work on a project, prefer an open_project action
+
+Context:
+{context_text[:context_limit]}
+
+Output ONLY this JSON object, nothing else:
+{{
+  "focus": "<exact project or task name from context above>",
+  "next": "<specific task, not generic>",
+  "actions": []
+}}
+
+If context mentions mac-butler -> focus must say mac-butler
+If context mentions email-infra -> focus must say email-infra
+Output ONLY JSON:"""
+        planner_system = PLANNER_SYSTEM_PROMPT
+
+    try:
+            planner_raw = _call(
+                plan_prompt,
+                planner_model,
+                temperature=0.3,
+                max_tokens=plan_max_tokens,
+                system=planner_system,
+        )
+    except Exception as exc:
+        print(f"[Brain] Planner error: {exc}")
+        return json.dumps(
+            {
+                "speech": f"{greeting}. Couldn't reach the brain right now. Want to retry?",
+                "greeting": greeting,
+                "actions": [],
+            }
+        )
+
+    plan = _parse_plan(planner_raw)
+    focus = plan.get("focus", "").strip() or "mac-butler"
+    next_action = plan.get("next") or plan.get("why_now", "").strip() or "finish the next concrete task"
+    actions = plan.get("actions", [])
+
+    if focus == "current work":
+        lowered = context_text.lower()
+        if "mac-butler" in lowered:
+            focus = "mac-butler"
+        elif "email-infra" in lowered:
+            focus = "email-infra"
+
+    if next_action in {"", "The next useful step is visible."} or "next useful step" in next_action.lower():
+        lowered = context_text.lower()
+        if "two-stage" in lowered and "mac-butler" in lowered:
+            next_action = "wire the two-stage LLM into mac-butler"
+        elif "trust score" in lowered and "email-infra" in lowered:
+            next_action = "design the trust score formula for email-infra"
+        elif "reputation" in lowered and "email-infra" in lowered:
+            next_action = "build the reputation graph schema for email-infra"
+        else:
+            next_action = "finish the next concrete task"
+
+    spoken_next_action = _strip_repeated_project_from_task(focus, next_action)
+
+    speech_raw = ""
+    if not compact_vps_mode:
+        speech_prompt = f"""{identity_block}
+{memory_block}
+
+You are Butler. Sharp, direct, specific to Aditya's work.
+
+EXAMPLES OF GOOD OUTPUT (match this quality):
+{FEW_SHOT_SPEECH_EXAMPLES}
+
+CURRENT SITUATION:
+Focus: {focus}
+Next: {spoken_next_action}
+Time greeting: {greeting}
+
+Rules:
+- Under 50 words
+- End with ONE binary question
+- Use mac-butler or email-infra by name when relevant
+- If context is thin, say that plainly in one short clause and then ask
+- If the project name already appeared, name only the task in the next clause
+- No generic filler phrases
+- Include these actions: {json.dumps(actions)}
+
+Output ONLY JSON:"""
+
+        try:
+            speech_raw = _call(
+                speech_prompt,
+                speech_model,
+                temperature=0.5,
+                max_tokens=speech_max_tokens,
+                system=SPEECH_SYSTEM_PROMPT,
+            ).strip()
+        except Exception as exc:
+            print(f"[Brain] Speech error: {exc}")
+            speech_raw = ""
+
+    speech = ""
+    final_greeting = greeting
+    final_actions = actions
+    if speech_raw:
+        try:
+            speech_data = json.loads(_strip(speech_raw))
+            speech = str(speech_data.get("speech", "")).strip()
+            final_greeting = str(speech_data.get("greeting", "")).strip() or greeting
+            parsed_actions = speech_data.get("actions")
+            if isinstance(parsed_actions, list) and parsed_actions:
+                final_actions = [item for item in parsed_actions[:2] if isinstance(item, dict)]
+        except Exception:
+            speech = speech_raw.strip()
+
+    if not speech:
+        speech = f"{greeting}. {focus} needs attention. {spoken_next_action.capitalize()}. Want to tackle that now?"
+    elif not speech.lower().startswith(final_greeting.lower()):
+        speech = f"{final_greeting}. {speech}"
+
+    if next_action != spoken_next_action and next_action in speech:
+        speech = speech.replace(next_action, spoken_next_action)
+    speech = speech.replace("current work", focus)
+    speech = speech.replace("next useful step", spoken_next_action)
+
+    return json.dumps(
+        {
+            "speech": speech.strip(),
+            "greeting": final_greeting,
+            "actions": final_actions,
+            "focus": focus,
+            "why_now": next_action,
+        }
+    )
+
+
+def _call_ollama(
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    system: str | None = None,
+) -> str:
+    url, headers, backend = _get_request_target_for_model(model)
+    local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
+    use_vps_backend = backend == "vps"
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 60
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
+    resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
+    _prepare_model_request(resolved_model)
+    payload: dict[str, Any] = {
+        "model": resolved_model,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": "5m",
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            "num_ctx": 2048,
+            "stop": ["```", "\n\n\n"],
+        },
+    }
+    if system:
+        payload["system"] = system
+
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=request_timeout,
+        )
+        response.raise_for_status()
+        return response.json().get("response", "").strip()
+    except requests.exceptions.ConnectionError:
+        if url != local_url:
+            print("[Brain] VPS failed mid-request, retrying local")
+            local_response = requests.post(local_url, json=payload, timeout=60)
+            local_response.raise_for_status()
+            return local_response.json().get("response", "").strip()
+        raise ConnectionError("Ollama not running. Start with: ollama serve")
+    except Exception as exc:
+        if resolved_fallback and payload["model"] != resolved_fallback:
+            print(f"[Brain] {payload['model']} failed, trying {resolved_fallback}")
+            payload["model"] = resolved_fallback
+            _prepare_model_request(resolved_fallback)
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=request_timeout,
+            )
+            response.raise_for_status()
+            return response.json().get("response", "").strip()
+        raise RuntimeError(f"Ollama error: {exc}")
+
+
+def _call(
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    system: str | None = None,
+) -> str:
+    return _call_ollama(
+        prompt,
+        model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        system=system,
+    )
+
+
+def _strip(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    if "{" in cleaned and "}" in cleaned:
+        start = cleaned.index("{")
+        end = cleaned.rindex("}") + 1
+        cleaned = cleaned[start:end]
+    return cleaned
+
+
+if __name__ == "__main__":
+    test_ctx = """[TASK LIST]
+  ○ Wire two-stage LLM into butler (mac-butler) [HIGH]
+[FOCUS]
+  project: mac-butler
+[TIME]
+  afternoon (01:30 PM)"""
+    print("=== Ollama Client Test ===\n")
+    print(f"Greeting: {_random_greeting()}")
+    print(f"Model: {OLLAMA_MODEL}\n")
+    print(send_to_ollama(test_ctx))

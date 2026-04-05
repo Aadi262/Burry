@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.mac.butler.plist — LaunchAgent to auto-start Mac Butler at login.
+
+  Installation:
+    1. Copy this file to ~/Library/LaunchAgents/
+    2. Update the ProgramArguments paths to match your Python and project location.
+    3. Load it:  launchctl load ~/Library/LaunchAgents/com.mac.butler.plist
+    4. Unload:   launchctl unload ~/Library/LaunchAgents/com.mac.butler.plist
+
+  This runs clap mode in the background. It starts at login and restarts
+  if it crashes. Logs go to /tmp/mac-butler-*.log for debugging.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mac.butler</string>
+
+    <!-- Path to the venv Python and the trigger script -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/adityatiwari/Burry/mac-butler/venv/bin/python</string>
+        <string>/Users/adityatiwari/Burry/mac-butler/trigger.py</string>
+        <string>--clap</string>
+    </array>
+
+    <!-- Start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if the process exits unexpectedly -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log stdout and stderr for debugging -->
+    <key>StandardOutPath</key>
+    <string>/tmp/mac-butler-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/mac-butler-stderr.log</string>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/adityatiwari/Burry/mac-butler</string>
+</dict>
+</plist>

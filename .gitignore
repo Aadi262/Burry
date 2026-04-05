@@ -1,0 +1,21 @@
+.DS_Store
+*.pyc
+
+.claude/
+Butler Vault/
+
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/venv/
+**/.venv/
+**/node_modules/
+
+mac-butler/memory/butler_memory.json
+mac-butler/memory/layers/
+mac-butler/memory/mac_state.json
+mac-butler/secrets/local_secrets.json
+mac-butler/projects/dashboard.html
+mac-butler/mac_butler.egg-info/
+mac-butler/comprehensive_run_*.log

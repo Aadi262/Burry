@@ -1,0 +1,95 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="180" y1="120" x2="1380" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09111A"/>
+      <stop offset="0.55" stop-color="#0D1623"/>
+      <stop offset="1" stop-color="#061018"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="296" y1="246" x2="1206" y2="662" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#102131" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#0B1725" stop-opacity="0.72"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="336" y1="254" x2="1102" y2="708" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#52B7FF"/>
+      <stop offset="1" stop-color="#6CFFD0"/>
+    </linearGradient>
+    <radialGradient id="orbA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1244 220) rotate(90) scale(220 280)">
+      <stop stop-color="#6CFFD0" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#6CFFD0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orbB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(330 660) rotate(90) scale(240 300)">
+      <stop stop-color="#52B7FF" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#52B7FF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="900" fill="url(#orbA)"/>
+  <rect width="1600" height="900" fill="url(#orbB)"/>
+
+  <g opacity="0.14">
+    <path d="M0 140H1600" stroke="#8FD6FF"/>
+    <path d="M0 300H1600" stroke="#8FD6FF"/>
+    <path d="M0 460H1600" stroke="#8FD6FF"/>
+    <path d="M0 620H1600" stroke="#8FD6FF"/>
+    <path d="M0 780H1600" stroke="#8FD6FF"/>
+    <path d="M220 0V900" stroke="#8FD6FF"/>
+    <path d="M480 0V900" stroke="#8FD6FF"/>
+    <path d="M740 0V900" stroke="#8FD6FF"/>
+    <path d="M1000 0V900" stroke="#8FD6FF"/>
+    <path d="M1260 0V900" stroke="#8FD6FF"/>
+  </g>
+
+  <rect x="214" y="170" width="1172" height="560" rx="34" fill="url(#panel)" stroke="rgba(143,214,255,0.18)"/>
+
+  <g filter="url(#glow)">
+    <path d="M286 262H540" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M286 632H1316" stroke="url(#accent)" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+  </g>
+
+  <g opacity="0.92">
+    <rect x="286" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+    <rect x="634" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+    <rect x="982" y="264" width="332" height="138" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+    <rect x="286" y="424" width="502" height="180" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+    <rect x="808" y="424" width="506" height="180" rx="24" fill="#0D1C2A" stroke="#18354A"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <circle cx="338" cy="310" r="7" fill="#6CFFD0"/>
+    <circle cx="686" cy="310" r="7" fill="#52B7FF"/>
+    <circle cx="1034" cy="310" r="7" fill="#6CFFD0"/>
+    <circle cx="338" cy="470" r="7" fill="#52B7FF"/>
+    <circle cx="860" cy="470" r="7" fill="#6CFFD0"/>
+  </g>
+
+  <text x="286" y="120" fill="#7DE8CA" font-family="SF Pro Display, Arial, sans-serif" font-size="24" letter-spacing="10">BURRY</text>
+  <text x="286" y="236" fill="#F5FBFF" font-family="SF Pro Display, Arial, sans-serif" font-size="92" font-weight="700">PROJECT OS</text>
+  <text x="292" y="688" fill="#9DB1C2" font-family="SF Pro Text, Arial, sans-serif" font-size="28">
+    local operator • project memory • model routing • dashboard truth
+  </text>
+
+  <text x="338" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Voice + Actions</text>
+  <text x="338" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">phi4 voice, safe executor, open-project chain</text>
+
+  <text x="686" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Model Routing</text>
+  <text x="686" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">qwen coder 14b + deepseek r1 14b on local</text>
+
+  <text x="1034" y="320" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="20" font-weight="600">Project Intelligence</text>
+  <text x="1034" y="352" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="18">registry, blockers, runtime health, verification</text>
+
+  <text x="338" y="480" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="22" font-weight="600">Execution Memory</text>
+  <text x="338" y="520" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">Every meaningful Butler action now writes back into project memory:</text>
+  <text x="338" y="556" fill="#DCEBFA" font-family="SF Mono, Menlo, monospace" font-size="18">last_action  last_status  last_test  last_verified  recent_failures</text>
+
+  <text x="860" y="480" fill="#F4F9FD" font-family="SF Pro Text, Arial, sans-serif" font-size="22" font-weight="600">Command Center</text>
+  <text x="860" y="520" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">The dashboard tracks completion, blockers, next tasks, git state,</text>
+  <text x="860" y="556" fill="#8CA2B5" font-family="SF Pro Text, Arial, sans-serif" font-size="19">last verification, and health signals across active products.</text>
+</svg>

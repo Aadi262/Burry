@@ -1,0 +1,232 @@
+[
+  {
+    "name": "mac-butler",
+    "aliases": [
+      "butler"
+    ],
+    "path": "~/Burry/mac-butler",
+    "repo": null,
+    "description": "Local AI operator agent for macOS with voice, context, actions, and memory.",
+    "status": "active",
+    "completion": 84,
+    "deploy_target": "Local Mac + Ollama",
+    "live": true,
+    "live_url": "http://localhost:3333",
+    "blockers": [
+      "Project OS layer is not fully wired yet."
+    ],
+    "next_tasks": [
+      "Ship the project registry, dashboard, and GitHub sync layer.",
+      "Tighten follow-up voice behavior so briefing lines do not repeat."
+    ],
+    "status_files": [
+      "BUTLER_STATUS.md",
+      "tasks/tasks.json",
+      "memory/layers/MEMORY.md"
+    ],
+    "last_commit": null,
+    "open_issues": 0,
+    "readme_excerpt": "",
+    "last_opened": "2026-04-05T14:39:47",
+    "last_error": null,
+    "updated_at": "2026-04-05T14:39:47"
+  },
+  {
+    "name": "Adpilot",
+    "aliases": [
+      "AdPilot",
+      "adpilot"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Adpilot",
+    "repo": "Aadi262/Adpilot",
+    "description": "AI-powered ad and SEO command center.",
+    "status": "active",
+    "completion": 76,
+    "deploy_target": "Docker + Railway/VPS",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "Feature status needs to be reconciled with the actual running stack."
+    ],
+    "next_tasks": [
+      "Verify the live route set against FEATURE_STATUS and PLAN.md.",
+      "Tighten deploy checks and production readiness."
+    ],
+    "status_files": [
+      "PLAN.md",
+      "FEATURE_STATUS.md",
+      "ecosystem.config.js",
+      "docker-compose.yml"
+    ],
+    "last_commit": "2026-03-17T15:27:03Z",
+    "open_issues": 0,
+    "readme_excerpt": "<div align=\"center\"> # \u26a1 AdPilot **AI-Powered Ad & SEO Command Center** Stop managing ads manually. Let AI agents research, create, optimize, and report \u2014 across Meta and Google \u2014 from one dashboard. ",
+    "last_opened": "2026-04-05T14:45:15",
+    "last_error": null,
+    "updated_at": "2026-04-05T14:45:15"
+  },
+  {
+    "name": "Reachout",
+    "aliases": [
+      "ReachOut",
+      "reachout"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Reachout",
+    "repo": null,
+    "description": "Cold outreach workspace that currently wraps the LinkedPilot build.",
+    "status": "paused",
+    "completion": 46,
+    "deploy_target": "Workspace / planning root",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "The canonical app sits under linkedpilot, not the top-level Reachout folder."
+    ],
+    "next_tasks": [
+      "Decide whether Reachout or LinkedPilot should be the canonical product root.",
+      "Consolidate plan docs and deployment ownership."
+    ],
+    "status_files": [
+      "plan.md"
+    ],
+    "last_commit": null,
+    "open_issues": 0,
+    "readme_excerpt": "",
+    "last_opened": null,
+    "last_error": null
+  },
+  {
+    "name": "LinkedPilot",
+    "aliases": [
+      "linkedpilot",
+      "linked pilot"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Reachout/linkedpilot",
+    "repo": "Aadi262/linkedpilot",
+    "description": "LinkedIn outreach automation SaaS.",
+    "status": "active",
+    "completion": 78,
+    "deploy_target": "Vercel + Railway",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "Unified inbox, safety, and production deploy still need a clean finish."
+    ],
+    "next_tasks": [
+      "Finish unibox and safety flows.",
+      "Run a real production deploy pass across Vercel and Railway."
+    ],
+    "status_files": [
+      "README.md",
+      "PROGRESS.md",
+      "../plan.md"
+    ],
+    "last_commit": "2026-03-08T09:48:11Z",
+    "open_issues": 0,
+    "readme_excerpt": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app). ## Getting Started First, run the development serv",
+    "last_opened": null,
+    "last_error": null,
+    "updated_at": "2026-04-05T14:38:24"
+  },
+  {
+    "name": "MaxLeads",
+    "aliases": [
+      "maxleads",
+      "Maxleads"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Maxleads",
+    "repo": "aadi262/Maxleads",
+    "description": "Lead generation product brand and frontend surface.",
+    "status": "active",
+    "completion": 58,
+    "deploy_target": "Vercel",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "Frontend and AI SDR backend roadmap are split across different workspaces."
+    ],
+    "next_tasks": [
+      "Unify product docs with the AI SDR backend roadmap.",
+      "Verify what is landing-page-only versus production app logic."
+    ],
+    "status_files": [
+      "maxleads-frontend/README.md",
+      "../Ai sdr /docs/phases/roadmap-v2.md"
+    ],
+    "last_commit": "2026-03-06T11:49:48Z",
+    "open_issues": 0,
+    "readme_excerpt": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app). ## Getting Started First, run the development serv",
+    "last_opened": null,
+    "last_error": null,
+    "updated_at": "2026-04-05T14:38:25"
+  },
+  {
+    "name": "AI SDR",
+    "aliases": [
+      "ai sdr",
+      "AI SDR Agent",
+      "ai-sdr"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Ai sdr ",
+    "repo": "Aadi262/ai-sdr-agent",
+    "description": "Multi-agent B2B sales prospecting platform.",
+    "status": "active",
+    "completion": 82,
+    "deploy_target": "VPS + Vercel",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "Phase 5 polish and the later roadmap phases still need execution."
+    ],
+    "next_tasks": [
+      "Start the phase 7 sidecar and discovery delta work.",
+      "Tighten deploy and polish around the current finished phases."
+    ],
+    "status_files": [
+      "README.md",
+      "docs/phases/roadmap.md",
+      "docs/phases/roadmap-v2.md",
+      "deploy/ecosystem.config.js"
+    ],
+    "last_commit": null,
+    "open_issues": 0,
+    "readme_excerpt": "",
+    "last_opened": "2026-04-05T14:39:20",
+    "last_error": null,
+    "updated_at": "2026-04-05T14:39:20"
+  },
+  {
+    "name": "Ai Trade Bot",
+    "aliases": [
+      "ai trade bot",
+      "trade bot",
+      "trading bot"
+    ],
+    "path": "/Users/adityatiwari/Desktop/Development/Ai Trade Bot",
+    "repo": "Aadi262/Ai-Trade-Bot",
+    "description": "Algorithmic trading system with API, frontend, and automation scaffolding.",
+    "status": "active",
+    "completion": 63,
+    "deploy_target": "Local app + API",
+    "live": false,
+    "live_url": "",
+    "blockers": [
+      "Auth hardening and production monitoring still need a clean pass."
+    ],
+    "next_tasks": [
+      "Finish JWT auth and API route hardening.",
+      "Wire monitoring plus live-trade safeguards before broader rollout."
+    ],
+    "status_files": [
+      "PRIORITY-WORK.md",
+      "docs/phases/2026-03-18-mvp-build.md",
+      "memory/project-brain.md"
+    ],
+    "last_commit": "2026-03-18T19:22:50Z",
+    "open_issues": 0,
+    "readme_excerpt": "",
+    "last_opened": null,
+    "last_error": null,
+    "updated_at": "2026-04-05T14:38:31"
+  }
+]
