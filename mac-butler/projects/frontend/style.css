@@ -111,7 +111,7 @@ body[data-state="speaking"] {
   background: rgba(255, 34, 68, 0.92);
   color: #fff4f7;
   font-family: "SF Mono", "JetBrains Mono", monospace;
-  font-size: 11px;
+  font-size: calc(var(--font-meta) + 1px);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   box-shadow: 0 14px 30px rgba(255, 34, 68, 0.18);
@@ -140,7 +140,7 @@ body[data-state="speaking"] {
   font-family: "SF Mono", "JetBrains Mono", monospace;
   color: var(--text-dim);
   letter-spacing: 0.32em;
-  font-size: 12px;
+  font-size: var(--font-body);
   text-transform: uppercase;
 }
 
@@ -179,7 +179,7 @@ body[data-state="speaking"] {
   border: 1px solid rgba(255, 170, 0, 0.28);
   background: rgba(255, 170, 0, 0.08);
   color: #ffd37a;
-  font-size: 11px;
+  font-size: calc(var(--font-meta) + 1px);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -235,7 +235,7 @@ body[data-state="speaking"] {
   color: var(--text-dim);
   padding: 0 16px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
@@ -546,7 +546,7 @@ body[data-state="executing"] .panel {
 
 .ambient-panel .panel-label {
   margin-bottom: 10px;
-  font-size: 9px;
+  font-size: var(--font-label);
   color: var(--text-dim);
 }
 
@@ -934,7 +934,7 @@ body[data-state="executing"] .panel {
   margin: 0;
   color: var(--text-dim);
   font-family: "SF Mono", "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.4;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -981,7 +981,7 @@ body[data-state="executing"] .panel {
   padding: 0 16px;
   height: 48px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-strong);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1031,7 +1031,7 @@ body[data-state="executing"] .panel {
   color: var(--text);
   padding: 0 16px;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-headline);
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
@@ -1086,7 +1086,7 @@ body[data-state="executing"] .panel {
   margin-top: 6px;
   max-width: 34ch;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
