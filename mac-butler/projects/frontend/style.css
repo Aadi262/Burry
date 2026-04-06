@@ -362,6 +362,7 @@ body[data-state="speaking"] {
 }
 
 .workspace-panel,
+.ambient-panel,
 .recall-panel,
 .project-panel,
 .pending-panel {
@@ -374,9 +375,44 @@ body[data-state="speaking"] {
   color: var(--accent);
 }
 
+.ambient-panel .panel-label {
+  margin-bottom: 10px;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
 .workspace-grid {
   display: grid;
   gap: 10px;
+}
+
+.ambient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ambient-list.is-empty {
+  gap: 0;
+}
+
+.ambient-item,
+.ambient-empty {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ambient-item {
+  color: rgba(232, 244, 255, 0.7);
+}
+
+.ambient-item::before {
+  content: "- ";
+  color: var(--text-dim);
+}
+
+.ambient-empty {
+  color: var(--text-faint);
 }
 
 .memory-recall-list,

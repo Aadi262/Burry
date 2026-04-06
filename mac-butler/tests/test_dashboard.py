@@ -83,6 +83,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("/app.js", html)
         self.assertIn("BURRY OS", html)
         self.assertIn("Workspace", html)
+        self.assertIn("Ambient", html)
         self.assertIn("Recalled", html)
         self.assertIn("Transcript", html)
         self.assertIn("Project Truth", html)

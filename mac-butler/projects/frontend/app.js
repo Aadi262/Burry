@@ -40,6 +40,7 @@ const refs = {
   workspaceProject: document.getElementById("workspace-project"),
   workspaceApp: document.getElementById("workspace-app"),
   workspaceName: document.getElementById("workspace-name"),
+  ambientList: document.getElementById("ambient-list"),
   memoryRecallList: document.getElementById("memory-recall-list"),
   pendingPanel: document.getElementById("pending-panel"),
   taskList: document.getElementById("task-list"),
@@ -928,6 +929,17 @@ function renderMemoryRecall(data) {
   `;
 }
 
+function renderAmbient(data) {
+  const items = (Array.isArray(data.ambient_context) ? data.ambient_context : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  refs.ambientList.classList.toggle("is-empty", items.length === 0);
+  refs.ambientList.innerHTML = items.length
+    ? items.map((item) => `<div class="ambient-item">${item}</div>`).join("")
+    : `<div class="ambient-empty">Ambient context will appear here after the daemon writes its next summary.</div>`;
+}
+
 function renderTasks(data, projectItems) {
   const items = [];
   for (const task of Array.isArray(data.tasks) ? data.tasks : []) {
@@ -1108,6 +1120,7 @@ function renderOperator(data) {
   refs.orbSummary.textContent = orbStatusLine(operator);
   renderToolPills(operator);
   renderRuntime(operator);
+  renderAmbient(operator);
   renderMemoryRecall(operator);
   renderTasks(operator, projects);
   renderTranscript(operator);
