@@ -926,6 +926,24 @@ def _call_ollama(
     max_tokens: int,
     system: str | None = None,
 ) -> str:
+    from brain.rate_limiter import get_limiter
+    _limiter = get_limiter()
+    if not _limiter.acquire(timeout=30.0):
+        # Rate limit exceeded — skip rather than crash
+        return ""
+    try:
+        return _call_ollama_inner(prompt, model, temperature, max_tokens, system)
+    finally:
+        _limiter.release()
+
+
+def _call_ollama_inner(
+    prompt: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    system: str | None = None,
+) -> str:
     url, headers, backend = _get_request_target_for_model(model)
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
     use_vps_backend = backend == "vps"
