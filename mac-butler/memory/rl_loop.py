@@ -64,6 +64,28 @@ def record_episode(text: str, intent: str, model: str, response: str, outcome: s
     _save(data)
 
 
+def record_episode_with_agentscope_feedback(
+    text: str,
+    intent: str,
+    model: str,
+    response: str,
+    outcome: str,
+) -> None:
+    """Record an episode and forward optional feedback into AgentScope tuning."""
+    record_episode(text, intent, model, response, outcome)
+    try:
+        from agentscope.tuner import record_feedback
+
+        record_feedback(
+            prompt=text,
+            response=response,
+            score=1.0 if outcome == "success" else 0.0,
+            metadata={"intent": intent, "model": model},
+        )
+    except Exception:
+        pass
+
+
 def get_best_model_for_intent(intent: str, candidates: list[str]) -> str:
     """Return the model with best success rate for this intent type.
     Requires at least 5 episodes to trust the score.

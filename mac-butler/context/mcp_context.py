@@ -5,7 +5,7 @@ Lightweight MCP availability context for Butler prompts.
 """
 
 from butler_config import MCP_CONTEXT_ENABLED
-from mcp import describe_servers
+from burry_mcp import describe_servers
 
 
 def get_mcp_context() -> str:

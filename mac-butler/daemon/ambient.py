@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import threading
 import time
 
-from brain.ollama_client import _call
+from brain.ollama_client import _call, async_call
 from memory.store import load_recent_sessions
 from projects.project_store import load_projects
 from runtime import note_ambient_context
@@ -18,6 +19,16 @@ AMBIENT_INTERVAL_SECONDS = 10 * 60
 AMBIENT_FALLBACK_MODEL = "gemma4:e4b"
 _AMBIENT_LOCK = threading.Lock()
 _AMBIENT_THREAD: threading.Thread | None = None
+
+
+def _background_model_call(prompt: str, model: str, *, max_tokens: int = 120, temperature: float = 0.2) -> str:
+    try:
+        result = asyncio.run(async_call(prompt, model, max_tokens=max_tokens))
+        if result:
+            return result
+    except Exception:
+        pass
+    return _call(prompt, model, temperature=temperature, max_tokens=max_tokens)
 
 
 def _bitnet_available() -> bool:
@@ -124,7 +135,7 @@ def generate_ambient_context() -> list[str]:
     prompt = _ambient_prompt(sessions, projects)
     model = _ambient_model()
     try:
-        raw = _call(prompt, model, temperature=0.2, max_tokens=120)
+        raw = _background_model_call(prompt, model, temperature=0.2, max_tokens=120)
         bullets = _parse_bullets(raw)
         if len(bullets) == 3:
             return bullets
@@ -133,7 +144,7 @@ def generate_ambient_context() -> list[str]:
 
     if model != AMBIENT_FALLBACK_MODEL:
         try:
-            raw = _call(prompt, AMBIENT_FALLBACK_MODEL, temperature=0.2, max_tokens=120)
+            raw = _background_model_call(prompt, AMBIENT_FALLBACK_MODEL, temperature=0.2, max_tokens=120)
             bullets = _parse_bullets(raw)
             if len(bullets) == 3:
                 return bullets

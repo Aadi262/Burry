@@ -289,7 +289,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         load_mac_state = lambda: {}
 
     try:
-        from mcp.client import get_server_status
+        from burry_mcp.client import get_server_status
     except Exception:
         get_server_status = None
 
@@ -965,7 +965,7 @@ def serve_dashboard():
 def show_dashboard_window(force: bool = False) -> None:
     global _LAST_WINDOW_OPENED_AT
 
-    if os.environ.get("PYTEST_CURRENT_TEST"):
+    if os.environ.get("PYTEST_CURRENT_TEST") and not force:
         return
 
     url = dashboard_url()

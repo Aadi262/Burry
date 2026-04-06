@@ -1,0 +1,72 @@
+2026-04-06 23:49:24,604 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-06 23:49:24,605 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-06 23:49:24,605 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-06 23:56:04,895 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-06 23:56:04,895 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-06 23:56:04,895 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:10:28,977 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:10:28,977 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:10:28,977 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:10:59,220 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:10:59,220 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:10:59,221 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:10:59,330 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:10:59,330 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:10:59,330 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:11:13,898 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 00:11:21,801 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 00:12:19,356 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:12:19,356 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:12:19,357 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:12:19,357 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:12:19,357 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:12:19,357 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:12:19,443 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:12:19,443 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:12:19,444 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:15:20,678 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:15:20,678 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:15:20,679 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:15:20,679 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:15:20,680 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:15:20,680 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:15:20,778 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:15:20,779 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:15:20,779 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:22:28,003 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:22:28,004 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:22:28,004 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:22:28,101 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:22:28,101 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:22:28,101 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:22:28,626 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:22:28,627 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:22:28,627 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:26:29,025 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:26:29,026 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:26:29,026 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:26:29,117 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:26:29,117 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:26:29,117 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:27:27,988 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 00:31:15,536 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:31:15,536 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:31:15,537 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:31:15,628 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:31:15,628 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:31:15,628 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:32:09,385 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 00:33:13,289 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:33:13,289 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:33:13,290 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:33:13,375 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:33:13,375 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:33:13,375 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:34:05,835 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 00:36:19,837 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:36:19,838 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:36:19,838 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:36:19,925 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'calendar_lookup' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/calendar'.
+2026-04-07 00:36:19,925 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
+2026-04-07 00:36:19,925 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
+2026-04-07 00:38:38,332 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.

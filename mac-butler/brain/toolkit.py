@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Burry Toolkit — single source of truth for all Burry tools.
-AgentScope-compatible Toolkit pattern without the import conflict.
 Adding a new tool = one decorated function. Zero other file changes.
 """
 from __future__ import annotations
@@ -10,7 +9,11 @@ from typing import Any, Callable
 
 
 class Toolkit:
-    """Registry of callable tools with OpenAI-style schema generation."""
+    """Burry tool registry for direct execution via toolkit.call().
+
+    The AgentScope backbone builds its own AgentScope Toolkit from ``self._tools``.
+    Do not add a second AgentScope toolkit here, or tools get double-registered.
+    """
 
     def __init__(self):
         self._tools: dict[str, Callable] = {}

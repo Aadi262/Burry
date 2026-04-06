@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 from urllib.parse import urlparse
 
 import requests
@@ -265,13 +266,30 @@ Give one spoken answer in under 90 words. No raw URLs. Synthesize across sources
 
     def _run_async(self, coroutine) -> str:
         try:
-            return asyncio.run(coroutine)
+            asyncio.get_running_loop()
         except RuntimeError:
+            return asyncio.run(coroutine)
+
+        result: dict[str, str] = {"value": ""}
+        error: dict[str, Exception] = {}
+
+        def _runner() -> None:
             loop = asyncio.new_event_loop()
             try:
-                return loop.run_until_complete(coroutine)
+                asyncio.set_event_loop(loop)
+                result["value"] = loop.run_until_complete(coroutine)
+            except Exception as exc:
+                error["exc"] = exc
             finally:
+                asyncio.set_event_loop(None)
                 loop.close()
+
+        thread = threading.Thread(target=_runner, daemon=True, name="burry-browser-async")
+        thread.start()
+        thread.join()
+        if "exc" in error:
+            raise error["exc"]
+        return result["value"]
 
     def _fetch(self, url: str, query: str = "") -> str:
         text = self._fetch_via_scrapling(url)

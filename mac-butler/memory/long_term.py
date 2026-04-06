@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 MEMORY_PATH = Path(__file__).parent / "long_term_memory.json"
+SESSION_FILE = Path(__file__).parent / "burry_session.json"
 
 
 def _load() -> dict:
@@ -114,3 +115,31 @@ def get_full_context() -> str:
         parts.append(f"CURRENT SESSION:\n{working_text}")
 
     return "\n\n".join(parts)
+
+
+def save_session_state(agent) -> None:
+    """Save AgentScope agent memory state to disk for the next session."""
+    try:
+        memory = getattr(agent, "memory", None)
+        memory_state = memory.state_dict() if memory is not None and hasattr(memory, "state_dict") else {}
+        state = {
+            "memory_state": memory_state,
+            "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        SESSION_FILE.write_text(json.dumps(state, indent=2))
+    except Exception:
+        pass
+
+
+def restore_session_state(agent) -> None:
+    """Restore previously saved AgentScope memory into an agent instance."""
+    try:
+        if not SESSION_FILE.exists():
+            return
+        state = json.loads(SESSION_FILE.read_text())
+        memory_state = state.get("memory_state")
+        memory = getattr(agent, "memory", None)
+        if memory is not None and isinstance(memory_state, dict) and hasattr(memory, "load_state_dict"):
+            memory.load_state_dict(memory_state)
+    except Exception:
+        pass

@@ -9,6 +9,50 @@ import asyncio
 import re
 
 
+def _extract_task_url(task: str) -> str:
+    raw = str(task or "").strip()
+    if not raw:
+        return ""
+    explicit = re.search(r"https?://\S+", raw, flags=re.IGNORECASE)
+    if explicit:
+        return explicit.group(0).rstrip(".,)")
+    bare = re.search(
+        r"\b(?:www\.)?[a-z0-9.-]+\.(?:com|org|net|io|ai|dev|app|co|in)(?:/[^\s]*)?",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if not bare:
+        return ""
+    return f"https://{bare.group(0).rstrip('.,)')}"
+
+
+def _github_latest_commit_summary(task: str, page_text: str) -> str:
+    lowered = str(task or "").lower()
+    if "latest commit" not in lowered or "github" not in lowered:
+        return ""
+    lines = [line.strip() for line in str(page_text or "").splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if line.lower() != "latest commit":
+            continue
+        window = lines[index + 1:index + 8]
+        for offset, candidate in enumerate(window):
+            if re.fullmatch(r"[0-9a-f]{7,40}", candidate.lower()):
+                continue
+            if candidate.lower() in {"history", "code", "issues", "pull requests"}:
+                continue
+            if offset == 0 and re.fullmatch(r"[a-z0-9_.-]+", candidate.lower()):
+                continue
+            return f"The latest commit message is: {candidate}"
+    match = re.search(
+        r"Latest commit\s+.+?\s+([^\n]+?)\s+[0-9a-f]{7,40}\b",
+        str(page_text or ""),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        return f"The latest commit message is: {match.group(1).strip()}"
+    return ""
+
+
 async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
     """Give Burry a browser task in plain English. It figures out how to do it.
 
@@ -26,9 +70,9 @@ async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
             page = await browser.new_page()
 
             # Navigate if URL is in the task
-            url_match = re.search(r'https?://\S+', task)
-            if url_match:
-                await page.goto(url_match.group(0), wait_until="networkidle", timeout=10000)
+            target_url = _extract_task_url(task)
+            if target_url:
+                await page.goto(target_url, wait_until="networkidle", timeout=10000)
             elif any(kw in task.lower() for kw in ["github", "hackernews", "hn ", "reddit", "mail.google"]):
                 # Derive simple URL from task
                 for site, url in [
@@ -44,6 +88,10 @@ async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
 
             text = await page.evaluate("document.body.innerText")
             await browser.close()
+
+            github_commit = _github_latest_commit_summary(task, text)
+            if github_commit:
+                return github_commit
 
             result = _call(
                 f"Task: {task}\n\nPage content:\n{text[:2000]}\n\nAnswer the task concisely:",

@@ -12,6 +12,8 @@ try:
     from opentelemetry.sdk.resources import Resource
 
     _provider = TracerProvider(resource=Resource.create({"service.name": "burry-os"}))
+    # Keep the console exporter active so spans are visible in local logs
+    # even when no remote collector is configured.
     _provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(_provider)
     tracer = trace.get_tracer("burry.voice_pipeline")

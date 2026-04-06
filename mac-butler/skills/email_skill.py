@@ -4,7 +4,7 @@ import urllib.parse
 
 DESCRIPTION = "Send emails via Gmail with subject and body"
 TRIGGER_PATTERNS = [
-    r"email (?P<recipient>\S+@\S+) (?:with subject|subject) (?P<subject>.+?)(?:\s+(?:body|message|saying|boyd)\s+(?P<body>.+))?$",
+    r"email (?P<recipient>\S+@\S+) (?:with subject|subject) (?P<subject>.+?)(?:\s+(?:and\s+)?(?:body|message|saying|boyd)\s+(?P<body>.+))?$",
     r"send (?:an? )?email to (?P<recipient>\S+@\S+)",
     r"compose (?:an? )?(?:email|mail) to (?P<recipient>\S+)",
 ]

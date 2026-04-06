@@ -36,9 +36,11 @@ _BACKBONE: "AgentScopeBackbone | None" = None
 _PERSISTENT_LOOP: asyncio.AbstractEventLoop | None = None
 _PERSISTENT_LOOP_THREAD: threading.Thread | None = None
 _TURN_TOOL_LOG: ContextVar[list[dict[str, Any]] | None] = ContextVar("agentscope_turn_tool_log", default=None)
+_TURN_MEMORY_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("agentscope_turn_memory_context", default=None)
 _AGENT_SCOPE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent_skills"
 _INTENT_TOOLKIT_CACHE: dict[str, AgentScopeToolkit] = {}
 _AGENT_CACHE: dict[str, ReActAgent] = {}
+_MCP_TOOLS_CACHE: dict[str, list[Callable[..., Any]]] = {}
 INTENT_TOOLS: dict[str, list[str]] = {
     "question": ["deep_research", "web_search_summarize", "recall_memory"],
     "open_project": ["open_project", "focus_app", "run_shell"],
@@ -74,6 +76,21 @@ INTENT_CTX: dict[str, int] = {
     "open_project": 2048,
     "compose_email": 2048,
 }
+PARALLEL_TOOL_INTENTS = {"question", "what_next", "deep_research"}
+SPECIALIST_PROMPTS = {
+    "search": "You search the web and return a concise factual summary under 30 words.",
+    "reddit": "You fetch top Reddit discussions and summarize the key points briefly.",
+    "hn": "You fetch Hacker News top stories and summarize the most relevant one.",
+    "news": "You fetch latest tech news and summarize the top story in under 25 words.",
+    "vps": "You check VPS server status and report CPU, memory, and disk usage concisely.",
+}
+_SPECIALIST_TOOLS: dict[str, set[str]] = {
+    "search": {"browse_web", "web_search_summarize", "browse_and_act"},
+    "reddit": {"browse_web", "web_search_summarize"},
+    "hn": {"browse_web", "web_search_summarize"},
+    "news": {"browse_web", "web_search_summarize"},
+    "vps": {"ssh_vps"},
+}
 
 
 def _ollama_agent_host() -> str:
@@ -94,8 +111,10 @@ def ensure_agentscope_initialized() -> None:
             project="burry-os",
             name="main-react-agent",
             logging_path=str(log_dir / "agentscope.log"),
+            # If AGENTSCOPE_TRACING_URL is set, AgentScope exports spans there.
             tracing_url=os.environ.get("AGENTSCOPE_TRACING_URL") or None,
         )
+        _register_mcp_tools(force_refresh=False)
         _AGENTSCOPE_READY = True
 
 
@@ -198,22 +217,72 @@ def _build_mcp_tool(server_name: str, tool_name: str):
     return _mcp_tool
 
 
-def _register_mcp_tools(toolkit: AgentScopeToolkit) -> None:
+def _scan_mcp_server(server_name: str, _server_config: dict | None = None) -> list[Callable[..., Any]]:
     from burry_mcp import list_server_tools
 
-    for server_name in sorted(MCP_SERVERS):
-        try:
-            tools = list_server_tools(server_name)
-        except Exception:
+    tools = list_server_tools(server_name)
+    loaded: list[Callable[..., Any]] = []
+    for tool_info in tools:
+        tool_name = str(tool_info.get("name", "")).strip()
+        if not tool_name:
             continue
-        for tool_info in tools:
-            tool_name = str(tool_info.get("name", "")).strip()
-            if not tool_name:
+        loaded.append(_build_mcp_tool(server_name, tool_name))
+    return loaded
+
+
+def _register_mcp_tools(
+    toolkit: AgentScopeToolkit | None = None,
+    force_refresh: bool = False,
+) -> None:
+    global _MCP_TOOLS_CACHE
+
+    if _MCP_TOOLS_CACHE and not force_refresh:
+        if toolkit is None:
+            return
+        for funcs in _MCP_TOOLS_CACHE.values():
+            for func in funcs:
+                try:
+                    toolkit.register_tool_function(func, namesake_strategy="override")
+                except Exception:
+                    continue
+        return
+
+    _MCP_TOOLS_CACHE = {}
+    for server_name, server_config in MCP_SERVERS.items():
+        try:
+            funcs = _scan_mcp_server(server_name, server_config)
+            _MCP_TOOLS_CACHE[server_name] = funcs
+            if toolkit is None:
                 continue
-            try:
-                toolkit.register_tool_function(_build_mcp_tool(server_name, tool_name))
-            except Exception:
-                continue
+            for func in funcs:
+                toolkit.register_tool_function(func, namesake_strategy="override")
+        except Exception as exc:
+            print(f"[MCP] Failed to load {server_name}: {exc}")
+
+
+def _make_post_reply_hook(ctx: dict | None = None):
+    def on_post_reply(output_msg, _agent):
+        """Write the final assistant reply into long-term working memory."""
+        try:
+            from memory.long_term import add_to_working_memory
+
+            active_ctx = ctx or _TURN_MEMORY_CONTEXT.get() or {}
+            heard = " ".join(
+                str(active_ctx.get("last_heard") or active_ctx.get("heard") or "").split()
+            ).strip()
+            spoken = (
+                output_msg.get_text_content()
+                if hasattr(output_msg, "get_text_content")
+                else str(output_msg or "")
+            )
+            spoken = " ".join(str(spoken).split()).strip()
+            if heard and spoken:
+                add_to_working_memory(heard, spoken)
+        except Exception:
+            pass
+        return output_msg
+
+    return on_post_reply
 
 
 async def _tool_logging_middleware(kwargs: dict, next_handler):
@@ -399,7 +468,38 @@ def create_react_agent(
         compression_config=_compression_config(model_name, intent_name),
     )
     agent.set_console_output_enabled(False)
+    if not getattr(agent, "_burry_post_reply_hook_registered", False):
+        agent.register_instance_hook(
+            "post_reply",
+            "burry-memory-writeback",
+            _make_post_reply_hook(),
+        )
+        agent._burry_post_reply_hook_registered = True  # type: ignore[attr-defined]
     return agent
+
+
+def _make_specialist_agent(name: str):
+    ensure_agentscope_initialized()
+    specialist_tools = _SPECIALIST_TOOLS.get(name, {"browse_web", "web_search_summarize"})
+    return ReActAgent(
+        name=name,
+        sys_prompt=SPECIALIST_PROMPTS.get(name, "You are a helpful specialist agent."),
+        model=BurryOllamaChatModel(
+            model_name=OLLAMA_MODEL,
+            host=_ollama_agent_host(),
+            stream=False,
+            options={"temperature": 0.2, "num_ctx": 1024},
+        ),
+        formatter=OllamaChatFormatter(max_tokens=512),
+        toolkit=build_agentscope_toolkit(
+            include_tools=specialist_tools,
+            include_mcp=False,
+            include_skills=False,
+            include_middleware=False,
+        ),
+        memory=InMemoryMemory(),
+        max_iters=3,
+    )
 
 
 class AgentScopeBackbone:
@@ -414,6 +514,8 @@ class AgentScopeBackbone:
         self.agent = self._build_agent(model_name, stream=False, intent_name="default")
 
     def _build_agent(self, model_name: str, *, stream: bool, intent_name: str) -> ReActAgent:
+        from memory.long_term import restore_session_state
+
         agent = create_react_agent(
             name="Burry",
             system_prompt="You are Burry, a macOS operator agent.",
@@ -422,10 +524,11 @@ class AgentScopeBackbone:
             toolkit=get_tools_for_intent(intent_name),
             memory=self.memory,
             plan_notebook=PlanNotebook(max_subtasks=8) if _use_plan_notebook(intent_name) else None,
-            parallel_tool_calls=False,
+            parallel_tool_calls=_intent_tool_key(intent_name) in PARALLEL_TOOL_INTENTS,
             max_iters=6,
             stream=stream,
         )
+        restore_session_state(agent)
         agent.set_msg_queue_enabled(stream)
         return agent
 
@@ -584,6 +687,10 @@ class AgentScopeBackbone:
 
         tool_log: list[dict[str, Any]] = []
         token = _TURN_TOOL_LOG.set(tool_log)
+        memory_ctx = dict(ctx or {})
+        if text and not memory_ctx.get("last_heard"):
+            memory_ctx["last_heard"] = text
+        memory_token = _TURN_MEMORY_CONTEXT.set(memory_ctx)
         self.agent.set_msg_queue_enabled(stream_speech and callable(on_sentence))
         reply_task: asyncio.Task | None = None
         stream_task: asyncio.Task | None = None
@@ -613,6 +720,7 @@ class AgentScopeBackbone:
                 stream_task.cancel()
             self.agent.set_msg_queue_enabled(False)
             self._active_loop = None
+            _TURN_MEMORY_CONTEXT.reset(memory_token)
             _TURN_TOOL_LOG.reset(token)
 
         interrupted = bool(getattr(reply, "metadata", {}) and reply.metadata.get("_is_interrupted"))

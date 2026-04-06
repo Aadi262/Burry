@@ -301,7 +301,7 @@ class IntentResult:
         return None
 
     def needs_llm(self) -> bool:
-        return self.name in {"unknown", "what_next", "briefing", "question"}
+        return self.name in {"unknown", "what_next", "briefing", "question", "greeting"}
 
     def quick_response(self) -> str:
         target_name = (
@@ -996,11 +996,18 @@ def route(text: str) -> IntentResult:
     if extracted:
         return extracted
 
+    if re.match(
+        r"^(?:hi|hello|hey|yo)(?:\s+there)?(?:\s+how are you)?[.!? ]*$",
+        lowered,
+    ) or re.match(r"^how are you[.!? ]*$", lowered):
+        return Intent("greeting", confidence=0.95, raw=text)
+
     if lowered.endswith("?") or re.match(
         r"^(?:what|why|how|when|where|who|which|can|could|would|should|is|are|am|do|does|did|will)\b",
         lowered,
     ):
-        return Intent("question", confidence=0.6, raw=text)
+        confidence = 0.9 if len(lowered.split()) <= 8 else 0.6
+        return Intent("question", confidence=confidence, raw=text)
 
     # Multi-step complex task pattern → Meta Planner (Phase 5)
     if re.search(r"\b(set up|prepare|do all|everything for|my morning|my routine|and then|step by step)\b", lowered):

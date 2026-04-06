@@ -1019,37 +1019,53 @@ async def _run_specialist_request_async(request: dict) -> dict:
         return {"agent": agent_name, "status": "error", "result": ""}
 
 
-async def run_agents_parallel(query: str, agent_names: list) -> list:
-    """Run multiple specialist agents in parallel via AgentScope fanout."""
+async def _fanout_agents(query: str, agent_names: list[str]) -> list[dict]:
+    """Run specialist agents in parallel via AgentScope MsgHub fanout."""
+    from brain.agentscope_backbone import _make_specialist_agent
+
     _ensure_agentscope_runner_init()
-    workers = [
-        SpecialistWorkerAgent(name, {"query": query, "topic": query})
-        for name in agent_names
-    ]
-    announcement = Msg("user", query, "user")
-    async with MsgHub(
-        participants=workers,
-        announcement=announcement,
-        enable_auto_broadcast=False,
-        name="burry-specialist-fanout",
-    ):
-        responses = await fanout_pipeline(agents=workers, msg=None, enable_gather=True)
+    agents = [_make_specialist_agent(name) for name in agent_names]
+    msg = Msg("user", query, "user")
+
     results: list[dict] = []
-    for name, response in zip(agent_names, responses, strict=False):
-        text = str(response.get_text_content() or "").strip()
-        status = "ok"
-        if isinstance(response.metadata, dict):
-            status = str(response.metadata.get("status", "ok") or "ok")
-        results.append({"agent": name, "status": status, "result": text})
+    async with MsgHub(participants=agents):
+        responses = await fanout_pipeline(agents, msg)
+        for agent, response in zip(
+            agents,
+            responses if isinstance(responses, list) else [responses],
+            strict=False,
+        ):
+            text = (
+                response.get_text_content()
+                if hasattr(response, "get_text_content")
+                else str(response)
+            )
+            results.append(
+                {
+                    "agent": agent.name,
+                    "status": "ok",
+                    "result": " ".join(str(text or "").split()).strip(),
+                }
+            )
+
     return results
 
 
-def run_background_agents(query: str, agent_names: list) -> None:
-    """Fire-and-forget AgentScope fanout for true multi-agent background work."""
-    def _bg():
-        _ensure_agentscope_runner_init()
-        _asyncio.run(run_agents_parallel(query, agent_names))
-    threading.Thread(target=_bg, daemon=True, name=f"burry-agents-{query[:20]}").start()
+def run_background_agents(query: str, agent_names: list[str]) -> None:
+    """Fire-and-forget MsgHub fanout on the shared AgentScope loop."""
+    from brain.agentscope_backbone import _get_persistent_loop
+
+    loop = _get_persistent_loop()
+    _asyncio.run_coroutine_threadsafe(_fanout_agents(query, agent_names), loop)
+
+
+def run_agents_parallel(query: str, agent_names: list[str]) -> list[dict]:
+    """Blocking specialist fanout using the shared AgentScope loop."""
+    from brain.agentscope_backbone import _get_persistent_loop
+
+    loop = _get_persistent_loop()
+    future = _asyncio.run_coroutine_threadsafe(_fanout_agents(query, agent_names), loop)
+    return future.result(timeout=60)
 
 
 def _news_agent(data: dict, model: str) -> dict:

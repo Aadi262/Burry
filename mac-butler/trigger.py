@@ -300,6 +300,14 @@ def _run_continuous_session() -> None:
 
     try:
         while not _shutdown_event.is_set():
+            if _handle_thread is not None and not _handle_thread.is_alive():
+                _handle_thread = None
+                last_session_timestamp = _accumulate_session_outcome(
+                    last_timestamp=last_session_timestamp,
+                    session_speeches=session_speeches,
+                    session_actions=session_actions,
+                )
+
             # Sleep / go-quiet command transitions state to IDLE — that ends the session
             if state.current == State.IDLE:
                 print("[Trigger] Session ended (sleep command). Clap to start a new session.")
@@ -335,23 +343,18 @@ def _run_continuous_session() -> None:
                         print(f"[Trigger] Interrupt sent: {text[:50]}")
                     except Exception:
                         pass
-                    last_session_timestamp = _accumulate_session_outcome(
-                        last_timestamp=last_session_timestamp,
-                        session_speeches=session_speeches,
-                        session_actions=session_actions,
-                    )
                     continue
                 # Non-blocking: run handle_input in background thread so mic stays open
                 _handle_thread = threading.Thread(target=_run_handle, args=(text,), daemon=True)
                 _handle_thread.start()
-                _handle_thread.join()  # still wait, but thread is interruptible
-                _handle_thread = None
-                last_session_timestamp = _accumulate_session_outcome(
-                    last_timestamp=last_session_timestamp,
-                    session_speeches=session_speeches,
-                    session_actions=session_actions,
-                )
     finally:
+        if _handle_thread is not None and _handle_thread.is_alive():
+            _handle_thread.join(timeout=0.25)
+        last_session_timestamp = _accumulate_session_outcome(
+            last_timestamp=last_session_timestamp,
+            session_speeches=session_speeches,
+            session_actions=session_actions,
+        )
         _observe_session_project_relationships(session_texts, session_speeches, session_actions)
         reset_conversation_context()
         _write_session_end_summary()

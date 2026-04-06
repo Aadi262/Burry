@@ -1,0 +1,158 @@
+{
+  "episodes": [
+    {
+      "text": "startup briefing",
+      "intent": "briefing",
+      "model": "gemma4:e4b",
+      "response": "Something went wrong.",
+      "outcome": "success",
+      "at": "2026-04-06T20:19:53"
+    },
+    {
+      "text": "hello how are u?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:20:21"
+    },
+    {
+      "text": "i just asked u how are u thtas it nothing else",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-06T20:20:39"
+    },
+    {
+      "text": "what ??? can we have a conversation ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:21:21"
+    },
+    {
+      "text": "research what is agentscope",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-06T20:22:06"
+    },
+    {
+      "text": "what can u do ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:23:13"
+    },
+    {
+      "text": "what do you mean",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:24:21"
+    },
+    {
+      "text": "what do you mean",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:24:42"
+    },
+    {
+      "text": "what do you mean",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:25:13"
+    },
+    {
+      "text": "can you hear me when i talk got it finishing current task first",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-06T20:26:09"
+    },
+    {
+      "text": "what should I work on",
+      "intent": "what_next",
+      "model": "gemma4:e4b",
+      "response": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first s",
+      "outcome": "success",
+      "at": "2026-04-06T21:03:11"
+    },
+    {
+      "text": "browse github.com/agentscope-ai/agentscope and tell me the latest commit message",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "Browser unavailable: Page.goto: Timeout 10000ms exceeded. Call log: - navigating to \"https://github.",
+      "outcome": "success",
+      "at": "2026-04-06T23:27:11"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-07T00:52:36"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm here and ready to help with your tasks. What can I assist you with right now?",
+      "outcome": "success",
+      "at": "2026-04-07T00:56:51"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-07T00:59:59"
+    }
+  ],
+  "intent_scores": {
+    "briefing": {
+      "success": 1,
+      "failure": 0,
+      "total": 1
+    },
+    "question": {
+      "success": 7,
+      "failure": 0,
+      "total": 7
+    },
+    "unknown": {
+      "success": 3,
+      "failure": 0,
+      "total": 3
+    },
+    "what_next": {
+      "success": 1,
+      "failure": 0,
+      "total": 1
+    },
+    "greeting": {
+      "success": 3,
+      "failure": 0,
+      "total": 3
+    }
+  },
+  "model_scores": {
+    "gemma4:e4b": {
+      "success": 15,
+      "failure": 0,
+      "total": 15
+    }
+  }
+}

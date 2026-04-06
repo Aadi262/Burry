@@ -1,0 +1,84 @@
+{
+  "working": [
+    {
+      "heard": "can you hear me when i talk got it finishing current task first",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:26:09"
+    },
+    {
+      "heard": "what should I work on",
+      "spoken": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first step?",
+      "at": "2026-04-06T21:03:11"
+    },
+    {
+      "heard": "browse github.com/agentscope-ai/agentscope and tell me the latest commit message",
+      "spoken": "Browser unavailable: Page.goto: Timeout 10000ms exceeded. Call log: - navigating to \"https://github.com/agentscope-ai/agentscope\", waiting until \"networkidle",
+      "at": "2026-04-06T23:27:11"
+    },
+    {
+      "heard": "hi how are you",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-07T00:52:36"
+    },
+    {
+      "heard": "hi how are you",
+      "spoken": "I'm here and ready to help with your tasks. What can I assist you with right now?",
+      "at": "2026-04-07T00:56:51"
+    },
+    {
+      "heard": "hi how are you",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-07T00:59:59"
+    }
+  ],
+  "recent": [
+    {
+      "heard": "startup briefing",
+      "spoken": "Something went wrong.",
+      "at": "2026-04-06T20:19:53"
+    },
+    {
+      "heard": "hello how are u?",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:20:21"
+    },
+    {
+      "heard": "i just asked u how are u thtas it nothing else",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-06T20:20:39"
+    },
+    {
+      "heard": "what ??? can we have a conversation ?",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:21:21"
+    },
+    {
+      "heard": "research what is agentscope",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-06T20:22:06"
+    },
+    {
+      "heard": "what can u do ?",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:23:13"
+    },
+    {
+      "heard": "what do you mean",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:24:21"
+    },
+    {
+      "heard": "what do you mean",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:24:42"
+    },
+    {
+      "heard": "what do you mean",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-06T20:25:13"
+    }
+  ],
+  "archive": [],
+  "facts": {},
+  "updated_at": "2026-04-07T00:59:59"
+}

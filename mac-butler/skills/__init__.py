@@ -16,7 +16,8 @@ _LOADED = False
 
 def load_skills() -> None:
     """Scan skills/ directory and register all skills automatically."""
-    global _LOADED
+    global _LOADED, _REGISTRY
+    _REGISTRY = []
     skills_dir = Path(__file__).parent
     for skill_file in sorted(skills_dir.glob("*.py")):
         if skill_file.stem.startswith("_"):

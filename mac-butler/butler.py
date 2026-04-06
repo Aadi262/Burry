@@ -8,11 +8,13 @@ Pipeline: Trigger -> STT -> Intent Router -> Executor -> LLM only if needed -> T
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import queue
 import random
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -91,6 +93,12 @@ def interrupt_burry(new_command: str) -> None:
     with _INTERRUPT_LOCK:
         _INTERRUPT_MESSAGE = new_command
     _INTERRUPT_EVENT.set()
+    try:
+        from brain.agentscope_backbone import interrupt_agentscope_turn
+
+        interrupt_agentscope_turn(new_command)
+    except Exception:
+        pass
     print(f"[Butler] Interrupted — switching to: {new_command[:50]}")
 
 
@@ -118,6 +126,7 @@ _CTX_CACHE: dict | None = None
 _CTX_CACHE_AT: float = 0.0
 _CTX_CACHE_TTL_SECONDS: float = 30.0
 _CTX_CACHE_LOCK = threading.Lock()
+_SHUTDOWN_HANDLERS_INSTALLED = False
 _FOLLOWUP_PREFIXES = (
     "and ",
     "then ",
@@ -129,6 +138,8 @@ _FOLLOWUP_PREFIXES = (
     "and why ",
     "and how ",
 )
+FAST_PATH_INTENTS = {"greeting", "question", "unknown", "chitchat"}
+FAST_PATH_CONFIDENCE = 0.8
 
 
 class ConversationContext:
@@ -238,8 +249,8 @@ QUICK_RESPONSES = {
 }
 
 HELP_TEXT = (
-    "Try: play mockingbird, open cursor, note: remember this, "
-    "check VPS, git status, or ask what's next."
+    "Try: research AgentScope, play mockingbird, open cursor, note: remember this, "
+    "say sleep to go quiet, or clap or press Cmd Shift B to wake me."
 )
 
 _briefing_done = False
@@ -502,8 +513,78 @@ def _recent_dialogue_context() -> str:
     return "\n".join(lines)
 
 
+def _looks_like_greeting(text: str) -> bool:
+    lowered = " ".join(str(text or "").lower().split())
+    if not lowered:
+        return False
+    patterns = (
+        r"^(?:hi|hello|hey|yo)\b",
+        r"\bhow are you\b",
+        r"^good (?:morning|afternoon|evening)\b",
+    )
+    return any(re.search(pattern, lowered) is not None for pattern in patterns)
+
+
+def _should_use_fast_path_intent(intent_name: str, intent_confidence: float, text: str) -> bool:
+    if intent_name == "greeting":
+        return True
+    if intent_name in FAST_PATH_INTENTS and intent_confidence >= FAST_PATH_CONFIDENCE:
+        return True
+    return intent_name == "unknown" and _looks_like_greeting(text)
+
+
+def _fast_path_prompt(intent_name: str, text: str, ctx: dict) -> str:
+    formatted = str(ctx.get("formatted", "") or "").strip()[:220]
+    dialogue = _recent_turns_prompt_text() or _recent_dialogue_context()
+    if intent_name == "greeting":
+        return f"""You are Burry, a concise local voice assistant for Aditya.
+
+Current work context:
+{formatted}
+
+{dialogue}
+
+User said: "{text}"
+
+Reply warmly in under 16 words.
+Output ONLY the reply text."""
+
+    return f"""You are Burry, a concise local voice assistant for Aditya.
+
+Current work context:
+{formatted}
+
+{dialogue}
+
+User said: "{text}"
+
+Reply directly in under 28 words.
+Do not mention tools, plans, or internal reasoning.
+Output ONLY the reply text."""
+
+
+def _fast_path_llm_response(
+    intent_name: str,
+    text: str,
+    ctx: dict,
+    *,
+    model: str | None = None,
+) -> str:
+    from brain.ollama_client import _call, pick_butler_model
+
+    prompt = _fast_path_prompt(intent_name, text, ctx)
+    voice_model = pick_butler_model("voice", override=model)
+    response = _call(
+        prompt,
+        voice_model,
+        temperature=0.25,
+        max_tokens=150,
+    )
+    return _normalize_response(response, max_words=28)
+
+
 def _unknown_brain_response(text: str, model: str | None = None) -> str:
-    ctx = build_structured_context()
+    ctx = _get_cached_context()
     dialogue = _recent_turns_prompt_text() or _recent_dialogue_context()
     prompt = f"""You are Butler in an active voice session.
 
@@ -590,7 +671,7 @@ def _reply_without_action(
 def _build_voice_prompt(intent: IntentResult, text: str) -> str:
     conversation = _recent_turns_prompt_text()
     if intent.name == "what_next":
-        ctx = build_structured_context()
+        ctx = _get_cached_context()
         mac_state = get_state_for_context()
         return f"""You are Butler, Aditya's local operator.
 
@@ -609,7 +690,7 @@ Be specific to current work.
 Recommend the single next step.
 Output ONLY the response text:"""
 
-    ctx = build_structured_context()
+    ctx = _get_cached_context()
     return f"""You are Butler, a concise local voice operator for Aditya.
 His main projects are mac-butler and email-infra.
 
@@ -1259,6 +1340,7 @@ Tool policy:
 - use send_email for Mail.app sends and send_whatsapp for desktop WhatsApp messages
 - use run_shell for tests, git, server checks, and safe shell commands
 - use browse_web for latest information, search, or reading a page
+- use browse_and_act for site navigation or page-specific browser tasks like "latest commit on GitHub"
 - use recall_memory for questions about past decisions, prior work, or session history
 - use take_screenshot_and_describe for screen questions
 
@@ -1375,6 +1457,9 @@ def _fallback_tool_outcome(text: str, ctx: dict) -> dict | None:
     if any(phrase in lowered for phrase in ("what am i looking at", "what's on my screen", "describe this screen", "describe my screen")):
         return _execute_tool_call("take_screenshot_and_describe", {"question": text}, ctx, user_text=text)
 
+    if "github" in lowered and "latest commit" in lowered:
+        return _execute_tool_call("browse_and_act", {"task": text}, ctx, user_text=text)
+
     decision = analyze_query(text, conversation=_conversation_context_text())
     action = str(decision.get("action", "") or "").strip().lower()
     url = str(decision.get("url", "") or "").strip()
@@ -1440,27 +1525,6 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
     name = str(tool_name or "").strip()
     args = dict(arguments or {})
     toolkit = get_toolkit()
-
-    # Fast path: toolkit handles known tools
-    if name in toolkit._tools:
-        note_tool_started(name, str(args)[:120])
-        try:
-            result = toolkit.call(name, **args)
-            note_tool_finished(name, "ok", str(result)[:200])
-            return {
-                "tool": name,
-                "actions": [{"type": name}],
-                "results": [{"action": name, "status": "ok", "result": str(result)}],
-                "speech": str(result),
-            }
-        except Exception as exc:
-            note_tool_finished(name, "error", str(exc))
-            return {
-                "tool": name,
-                "actions": [],
-                "results": [{"action": name, "status": "error", "error": str(exc)}],
-                "speech": f"I had trouble with {name}.",
-            }
 
     # Legacy path: keep old dispatch for any tools not yet in registry
     _name = name
@@ -1902,6 +1966,34 @@ Diff:
             "payload": {"question": question, "result": _clip_tool_payload(answer, limit=220)},
         }
 
+    # Generic toolkit fallback for tools that do not need bespoke payload shaping.
+    if name in toolkit._tools:
+        note_tool_started(name, str(args)[:120])
+        try:
+            result = toolkit.call(name, **args)
+            result_text = str(result)
+            note_tool_finished(name, "ok", result_text[:200])
+            return {
+                "tool": name,
+                "actions": [{"type": name, **args}],
+                "results": [{"action": name, "status": "ok", "result": result_text}],
+                "payload": {
+                    **{key: _clip_tool_payload(value, limit=220) for key, value in args.items()},
+                    "status": "ok",
+                    "result": _clip_tool_payload(result_text),
+                },
+                "speech": result_text,
+            }
+        except Exception as exc:
+            note_tool_finished(name, "error", str(exc))
+            return {
+                "tool": name,
+                "actions": [],
+                "results": [{"action": name, "status": "error", "error": str(exc)}],
+                "payload": {"status": "error", "error": _clip_tool_payload(str(exc), limit=220)},
+                "speech": f"I had trouble with {name}.",
+            }
+
     note_tool_finished(name or "unknown", "error", "Unknown tool")
     return {
         "tool": name or "unknown",
@@ -1911,13 +2003,65 @@ Diff:
     }
 
 
-def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
+def _tool_chat_response(
+    text: str,
+    ctx: dict,
+    model: str | None = None,
+    *,
+    intent_name: str = "",
+    intent_confidence: float = 0.0,
+    stream_speech: bool = False,
+) -> dict:
     from brain.ollama_client import chat_with_ollama, pick_butler_model
     from brain.tools import TOOLS
 
     planning_model = pick_butler_model("planning", override=model)
     voice_model = pick_butler_model("voice", override=model)
     messages = _tool_chat_messages(ctx, text)
+
+    if _should_use_fast_path_intent(intent_name, intent_confidence, text):
+        try:
+            speech = _fast_path_llm_response(intent_name or "unknown", text, ctx, model=voice_model)
+        except Exception:
+            speech = ""
+        if speech:
+            return {
+                "speech": speech,
+                "actions": [],
+                "results": [],
+                "metadata": {"fast_path": True},
+                "spoken": False,
+            }
+
+    try:
+        from brain.agentscope_backbone import run_agentscope_turn
+
+        backbone_reply = run_agentscope_turn(
+            text,
+            ctx,
+            system_prompt=TOOL_SYSTEM_PROMPT,
+            model_name=voice_model,
+            intent_name=intent_name or "default",
+            stream_speech=stream_speech,
+            on_sentence=_speak_stream_chunk if stream_speech else None,
+        )
+        backbone_meta = backbone_reply.get("metadata", {}) if isinstance(backbone_reply.get("metadata"), dict) else {}
+        speech = _normalize_response(str(backbone_reply.get("speech", "")).strip(), max_words=45)
+        actions = backbone_reply.get("actions", []) if isinstance(backbone_reply.get("actions"), list) else []
+        results = backbone_reply.get("results", []) if isinstance(backbone_reply.get("results"), list) else []
+        if backbone_meta.get("interrupted") and not speech:
+            speech = "Switching to your new request."
+        if speech or actions or results or backbone_meta.get("interrupted"):
+            return {
+                "speech": speech,
+                "actions": actions,
+                "results": results,
+                "metadata": backbone_meta,
+                "spoken": bool(backbone_meta.get("spoken")),
+            }
+    except Exception as exc:
+        print(f"[AgentScope] Backbone fallback: {exc}")
+
     try:
         first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
     except RuntimeError as exc:
@@ -1944,6 +2088,22 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
         fallback = _fallback_tool_response(text, ctx)
         if fallback is not None:
             return fallback
+        if stream_speech:
+            try:
+                streamed = asyncio.run(
+                    _stream_chat_response_with_tts(
+                        messages,
+                        voice_model,
+                        max_tokens=140,
+                        temperature=0.3,
+                    )
+                )
+            except Exception:
+                streamed = ""
+            streamed = _normalize_response(streamed, max_words=45)
+            if streamed:
+                notify("Burry", streamed[:180], subtitle="Response")
+                return {"speech": streamed, "actions": [], "results": [], "spoken": True}
         speech = _normalize_response(assistant_content, max_words=45)
         return {"speech": speech, "actions": [], "results": []}
 
@@ -1959,9 +2119,16 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
         # Check for user interrupt before each tool call (Phase 7)
         interrupt = check_interrupt()
         if interrupt:
-            speak("Switching to your new request.")
+            try:
+                _COMMAND_QUEUE.put_nowait(interrupt)
+            except queue.Full:
+                return {"speech": "Still busy, please wait.", "actions": [], "results": []}
             _record(text, "Interrupted by user", [], intent_name="interrupted")
-            return handle_input(interrupt, test_mode=False)
+            return {
+                "speech": "Switching to your new request.",
+                "actions": [],
+                "results": [{"status": "interrupted", "result": interrupt}],
+            }
         function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
         tool_name = str(function.get("name", "")).strip()
         arguments = _parse_tool_arguments(function.get("arguments", {}))
@@ -1977,15 +2144,34 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
             }
         )
 
-    final = chat_with_ollama(messages, voice_model, max_tokens=140, temperature=0.3)
-    final_message = final.get("message", {}) if isinstance(final, dict) else {}
-    final_speech = _normalize_response(str(final_message.get("content", "")).strip(), max_words=45)
+    final_speech = ""
+    already_spoken = False
+    if stream_speech:
+        try:
+            streamed = asyncio.run(
+                _stream_chat_response_with_tts(
+                    messages,
+                    voice_model,
+                    max_tokens=140,
+                    temperature=0.3,
+                )
+            )
+        except Exception:
+            streamed = ""
+        final_speech = _normalize_response(streamed, max_words=45)
+        already_spoken = bool(final_speech)
+        if final_speech:
+            notify("Burry", final_speech[:180], subtitle="Response")
+    if not final_speech:
+        final = chat_with_ollama(messages, voice_model, max_tokens=140, temperature=0.3)
+        final_message = final.get("message", {}) if isinstance(final, dict) else {}
+        final_speech = _normalize_response(str(final_message.get("content", "")).strip(), max_words=45)
     if not final_speech:
         if last_outcome is not None:
             final_speech = _fallback_tool_speech(text, last_outcome)
     if not final_speech:
         final_speech = assistant_content or "Done."
-    return {"speech": final_speech, "actions": executed_actions, "results": executed_results}
+    return {"speech": final_speech, "actions": executed_actions, "results": executed_results, "spoken": already_spoken}
 
 
 def observe_and_followup(
@@ -2111,10 +2297,10 @@ def _run_actions_with_response(
 
     def _queue_background_agent(action: dict) -> dict:
         try:
-            from agents.runner import run_agent_async, run_background_agents
+            from agents.runner import run_agent_async
 
             agent_name = str(action.get("agent", "")).strip()
-            run_background_agents(str(action.get("query", action.get("topic", ""))), [agent_name]) if agent_name else run_agent_async(
+            run_agent_async(
                 agent_name,
                 {k: v for k, v in action.items() if k not in ("type", "agent")},
             )
@@ -2675,22 +2861,74 @@ def _speak_or_print(text: str, test_mode: bool = False) -> None:
         notify("Burry", text[:180], subtitle="Response")
 
 
+def _speak_stream_chunk(text: str) -> None:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return
+    state.transition(State.SPEAKING)
+    speak(cleaned)
+
+
 async def _stream_response_with_tts(prompt: str, model: str) -> str:
     """Stream LLM response and speak each sentence as it arrives.
     STEAL 3: user hears first words within 1-2 seconds instead of waiting 45s.
     Falls back silently if streaming fails.
     """
     from brain.ollama_client import stream_llm_tokens
-    import asyncio
+    return await _stream_sentences_with_tts(stream_llm_tokens(prompt, model))
 
-    full_response = ""
+
+async def _stream_sentences_with_tts(sentence_stream) -> str:
+    """Consume streamed sentence chunks and serialize speech so chunks are not dropped."""
+    spoken_sentences: list[str] = []
+    speech_queue: queue.Queue[str | None] = queue.Queue()
+
+    def _speaker() -> None:
+        while True:
+            sentence = speech_queue.get()
+            try:
+                if sentence is None:
+                    return
+                speak(sentence)
+            finally:
+                speech_queue.task_done()
+
+    state.transition(State.SPEAKING)
+    speaker_thread = threading.Thread(target=_speaker, daemon=True, name="burry-stream-tts")
+    speaker_thread.start()
     try:
-        async for sentence in stream_llm_tokens(prompt, model):
-            full_response += " " + sentence
-            threading.Thread(target=speak, args=(sentence,), daemon=True).start()
-        return full_response.strip()
+        async for sentence in sentence_stream:
+            cleaned = " ".join(str(sentence or "").split()).strip()
+            if not cleaned:
+                continue
+            spoken_sentences.append(cleaned)
+            speech_queue.put(cleaned)
+        return " ".join(spoken_sentences).strip()
     except Exception:
         return ""
+    finally:
+        speech_queue.put(None)
+        speech_queue.join()
+        speaker_thread.join(timeout=10)
+
+
+async def _stream_chat_response_with_tts(
+    messages: list[dict],
+    model: str,
+    *,
+    max_tokens: int = 140,
+    temperature: float = 0.3,
+) -> str:
+    from brain.ollama_client import stream_chat_with_ollama
+
+    return await _stream_sentences_with_tts(
+        stream_chat_with_ollama(
+            messages,
+            model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    )
 
 
 def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30) -> bool:
@@ -2715,7 +2953,7 @@ def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30
     return False
 
 
-def _get_structured_context() -> dict:
+def _get_cached_context() -> dict:
     """Return cached build_structured_context(). Rebuilds every 30 seconds."""
     global _CTX_CACHE, _CTX_CACHE_AT
     now = time.monotonic()
@@ -2727,6 +2965,10 @@ def _get_structured_context() -> dict:
         _CTX_CACHE = ctx
         _CTX_CACHE_AT = now
     return ctx
+
+
+def _get_structured_context() -> dict:
+    return _get_cached_context()
 
 
 def _invalidate_context_cache() -> None:
@@ -2756,7 +2998,7 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
     _briefing_done = True
 
     state.transition(State.THINKING)
-    ctx = build_structured_context()
+    ctx = _get_cached_context()
     speech = _generate_startup_briefing(ctx)
     _speak_or_print(speech, test_mode=test_mode)
     _record(
@@ -2820,7 +3062,7 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
 
     if intent_name == "mcp_status":
         try:
-            from mcp import describe_servers
+            from burry_mcp import describe_servers
 
             lines = describe_servers()
         except Exception:
@@ -2938,12 +3180,20 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 _record(text, response, tool_reply.get("actions", []), results=tool_reply.get("results", []), intent_name="deep_research", learning_meta=brain_learning_meta)
                 state.transition(State.WAITING if not test_mode else State.IDLE)
                 return
-            ctx = build_structured_context()
+            ctx = _get_cached_context()
             _speak_or_print("Let me think about that.", test_mode=test_mode)
-            tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+            tool_reply = _tool_chat_response(
+                effective_text,
+                ctx,
+                model=model,
+                intent_name=intent.name,
+                intent_confidence=intent.confidence,
+                stream_speech=not test_mode,
+            )
             response = tool_reply.get("speech", "") or _unknown_brain_response(effective_text, model=model)
             if response:
-                _speak_or_print(response, test_mode=test_mode)
+                if not tool_reply.get("spoken"):
+                    _speak_or_print(response, test_mode=test_mode)
                 _record(
                     text,
                     response,
@@ -2966,7 +3216,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     _clear_pending_dialogue()
-    ctx = _get_structured_context()
+    ctx = _get_cached_context()
     _warn_if_search_offline()
     action = _contextualize_action(intent.to_action(), intent, ctx)
 
@@ -2986,9 +3236,17 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "what_next":
         plan = _deterministic_project_plan(ctx)
         if not plan:
-            tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+            tool_reply = _tool_chat_response(
+                effective_text,
+                ctx,
+                model=model,
+                intent_name=intent.name,
+                intent_confidence=intent.confidence,
+                stream_speech=not test_mode,
+            )
             speech = tool_reply.get("speech", "") or "Back on mac-butler. Want to jump in?"
-            _speak_or_print(speech, test_mode=test_mode)
+            if not tool_reply.get("spoken"):
+                _speak_or_print(speech, test_mode=test_mode)
             _record(
                 text,
                 speech,
@@ -3040,9 +3298,17 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             state.transition(State.WAITING if not test_mode else State.IDLE)
             return
         _speak_or_print("One moment.", test_mode=test_mode)
-        tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+        tool_reply = _tool_chat_response(
+            effective_text,
+            ctx,
+            model=model,
+            intent_name=intent.name,
+            intent_confidence=intent.confidence,
+            stream_speech=not test_mode,
+        )
         speech = tool_reply.get("speech", "") or "I don't know yet. Ask again in a shorter way."
-        _speak_or_print(speech, test_mode=test_mode)
+        if not tool_reply.get("spoken"):
+            _speak_or_print(speech, test_mode=test_mode)
         _record(
             text,
             speech,
@@ -3054,7 +3320,14 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         state.transition(State.WAITING if not test_mode else State.IDLE)
         return
 
-    tool_reply = _tool_chat_response(effective_text, ctx, model=model)
+    tool_reply = _tool_chat_response(
+        effective_text,
+        ctx,
+        model=model,
+        intent_name=intent.name,
+        intent_confidence=intent.confidence,
+        stream_speech=not test_mode,
+    )
     response = tool_reply.get("speech", "")
     if not response:
         prompt = _build_voice_prompt(intent, effective_text)
@@ -3065,7 +3338,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         )
     if not response or response == "Something went wrong.":
         response = "I don't know yet. Ask again in a shorter way."
-    _speak_or_print(response, test_mode=test_mode)
+    if not tool_reply.get("spoken"):
+        _speak_or_print(response, test_mode=test_mode)
     _record(
         text,
         response,
@@ -3126,37 +3400,37 @@ def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: 
         print("\n[Butler] Goodbye.")
 
 
+def _save_backbone_session_state() -> None:
+    try:
+        from brain.agentscope_backbone import get_backbone
+        from memory.long_term import save_session_state
+
+        backbone = get_backbone()
+        if getattr(backbone, "agent", None) is not None:
+            save_session_state(backbone.agent)
+    except Exception:
+        pass
+
+
+def _handle_shutdown_signal(_signum, _frame) -> None:
+    _save_backbone_session_state()
+    raise SystemExit(0)
+
+
+def _install_shutdown_handlers() -> None:
+    global _SHUTDOWN_HANDLERS_INSTALLED
+    if _SHUTDOWN_HANDLERS_INSTALLED:
+        return
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, _handle_shutdown_signal)
+        except Exception:
+            continue
+    _SHUTDOWN_HANDLERS_INSTALLED = True
+
+
 def main() -> None:
-    _ensure_watcher_started()
-    start_ambient_daemon()
-    start_wake_word_daemon()
-    # Start iMessage channel so you can message Burry from iPhone (STEAL 8)
-    try:
-        from channels.imessage_channel import start_imessage_channel
-        start_imessage_channel()
-    except Exception:
-        pass
-    # Load skills at startup (STEAL 4)
-    try:
-        from skills import load_skills
-        load_skills()
-    except Exception:
-        pass
-    # Load configured MCP servers into toolkit (Phase 2)
-    try:
-        from brain.mcp_client import load_configured_mcp_servers
-        from brain.toolkit import get_toolkit
-        import brain.tools_registry  # noqa
-        load_configured_mcp_servers(get_toolkit())
-    except Exception:
-        pass
-    # Start A2A server — makes Burry discoverable by other AI agents (Phase 8)
-    try:
-        from channels.a2a_server import start_a2a_server
-        start_a2a_server()
-    except Exception:
-        pass
-    _report_brain_backend_status()
+    _install_shutdown_handlers()
     parser = argparse.ArgumentParser(description="Mac Butler")
     parser.add_argument("--test", action="store_true", help="Print-only, no voice or execution")
     parser.add_argument("--model", default=None, help="Override Ollama model")
@@ -3166,16 +3440,66 @@ def main() -> None:
     parser.add_argument("--command", "-c", default=None, help="Run a single command")
     args = parser.parse_args()
 
+    lightweight_command_mode = bool(args.command and not args.interactive and not args.stt and not args.briefing)
+
+    if lightweight_command_mode:
+        try:
+            from skills import load_skills
+
+            load_skills()
+        except Exception:
+            pass
+    else:
+        _ensure_watcher_started()
+        start_ambient_daemon()
+        start_wake_word_daemon()
+        # Start iMessage channel so you can message Burry from iPhone (STEAL 8)
+        try:
+            from channels.imessage_channel import start_imessage_channel
+
+            start_imessage_channel()
+        except Exception:
+            pass
+        # Load skills at startup (STEAL 4)
+        try:
+            from skills import load_skills
+
+            load_skills()
+        except Exception:
+            pass
+        # Load configured MCP servers into toolkit (Phase 2)
+        try:
+            from brain.mcp_client import load_configured_mcp_servers
+            from brain.toolkit import get_toolkit
+            import brain.tools_registry  # noqa
+
+            load_configured_mcp_servers(get_toolkit())
+        except Exception:
+            pass
+        # Start A2A server — prefer AgentScope native A2A when available.
+        try:
+            from brain.agentscope_backbone import get_backbone
+            from channels.a2a_server import start_agentscope_a2a
+
+            backbone = get_backbone(model_name=args.model)
+            start_agentscope_a2a(backbone.agent)
+        except Exception:
+            pass
+        _report_brain_backend_status()
+
     if args.command:
         handle_command(args.command, test_mode=args.test, model=args.model)
+        _save_backbone_session_state()
         return
 
     if args.interactive:
         run_interactive(use_stt=args.stt, model=args.model, test_mode=args.test)
+        _save_backbone_session_state()
         return
 
     if args.briefing or (not args.interactive and not args.command):
         run_startup_briefing(test_mode=args.test, model=args.model)
+        _save_backbone_session_state()
         return
 
 

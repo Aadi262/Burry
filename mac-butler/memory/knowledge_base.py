@@ -11,6 +11,7 @@ from pathlib import Path
 
 KB_PATH = Path(__file__).parent / "knowledge_base"
 KB_INDEX = KB_PATH / "index.json"
+_AGENTSCOPE_KB = None
 
 
 def _ensure_kb() -> None:
@@ -57,8 +58,8 @@ def index_file(file_path: str, title: str = "") -> int:
     return len(chunks)
 
 
-def search_knowledge_base(query: str, top_k: int = 3) -> list[dict]:
-    """Search indexed documents. Returns top matching chunks."""
+def _search_custom_kb(query: str, top_k: int = 3) -> list[dict]:
+    """Fallback keyword search over the local JSON knowledge base."""
     _ensure_kb()
     try:
         data = json.loads(KB_INDEX.read_text())
@@ -80,6 +81,62 @@ def search_knowledge_base(query: str, top_k: int = 3) -> list[dict]:
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [chunk for _, chunk in scored[:top_k]]
+
+
+def _search_agentscope_kb(query: str, top_k: int = 3) -> list[dict]:
+    """Best-effort adapter for an initialized AgentScope knowledge base."""
+    kb = _AGENTSCOPE_KB
+    if kb is None:
+        return []
+
+    for method_name, kwargs in (
+        ("search", {"query": query, "top_k": top_k}),
+        ("search", {"query": query, "k": top_k}),
+        ("retrieve", {"query": query, "top_k": top_k}),
+        ("retrieve", {"query": query, "k": top_k}),
+    ):
+        method = getattr(kb, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            results = method(**kwargs)
+        except TypeError:
+            continue
+        except Exception:
+            return []
+        break
+    else:
+        return []
+
+    normalized: list[dict] = []
+    for item in list(results or [])[:top_k]:
+        if isinstance(item, dict):
+            title = str(item.get("title") or item.get("name") or "Document").strip()
+            text = str(item.get("text") or item.get("content") or "").strip()
+        else:
+            title = str(getattr(item, "title", "") or getattr(item, "name", "") or "Document").strip()
+            text = str(getattr(item, "text", "") or getattr(item, "content", "") or item).strip()
+        if text:
+            normalized.append({"title": title or "Document", "text": text})
+    return normalized
+
+
+def search_knowledge_base(query: str, top_k: int = 3) -> list[dict]:
+    """Search indexed documents. Uses AgentScope RAG if available, else custom KB."""
+    try:
+        from agentscope.rag import KnowledgeBase as _KnowledgeBase  # noqa: F401
+    except ImportError:
+        try:
+            from agentscope.rag import KnowledgeBank as _KnowledgeBase  # type: ignore[attr-defined]  # noqa: F401
+        except ImportError:
+            _KnowledgeBase = None
+
+    if _AGENTSCOPE_KB is not None:
+        results = _search_agentscope_kb(query, top_k)
+        if results:
+            return results
+
+    return _search_custom_kb(query, top_k)
 
 
 def list_indexed_files() -> list[dict]:

@@ -1,82 +1,106 @@
 #!/usr/bin/env python3
-"""AgentScope-compatible MCP client — wire any MCP server as a local Burry tool.
-Burry can use ANY tool from the 200+ MCP ecosystem.
+"""AgentScope MCP client helpers for Burry.
 
-NOTE: agentscope.mcp unavailable due to local mcp/ module conflict.
-This provides the same interface using direct HTTP calls to MCP servers.
+This module now uses AgentScope's real MCP clients instead of the earlier
+HTTP-only compatibility shim.
 """
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Callable
+from typing import Any
 
-import httpx
+from agentscope.mcp import HttpStatelessClient, StdIOStatefulClient
 
-
-async def get_mcp_tool(server_url: str, tool_name: str, transport: str = "streamable_http") -> Callable:
-    """Get any MCP tool as a local Python callable.
-    Usage: func = await get_mcp_tool('http://localhost:8000/mcp', 'search')
-    """
-    async def call_tool(**kwargs) -> str:
-        async with httpx.AsyncClient(timeout=15) as client:
-            payload = {"tool": tool_name, "arguments": kwargs}
-            resp = await client.post(f"{server_url}/call", json=payload)
-            resp.raise_for_status()
-            return str(resp.json().get("result", ""))
-    call_tool.__name__ = tool_name
-    call_tool.__doc__ = f"MCP tool: {tool_name} from {server_url}"
-    return call_tool
+from butler_config import MCP_SERVERS
 
 
-async def list_mcp_tools(server_url: str) -> list[dict]:
-    """List all available tools from an MCP server."""
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{server_url}/tools")
-            resp.raise_for_status()
-            return resp.json().get("tools", [])
-    except Exception:
-        return []
+def _resolve_agentscope_toolkit(toolkit):
+    if hasattr(toolkit, "as_agentscope"):
+        return toolkit.as_agentscope()
+    return toolkit
+
+
+def _enabled_server_configs() -> list[tuple[str, dict[str, Any]]]:
+    enabled: list[tuple[str, dict[str, Any]]] = []
+    for server_name, config in sorted((MCP_SERVERS or {}).items()):
+        current = dict(config or {})
+        if not current.get("enabled"):
+            continue
+        enabled.append((server_name, current))
+    return enabled
+
+
+def _build_client(server_name: str, config: dict[str, Any]):
+    transport = str(config.get("transport", "stdio") or "stdio").strip().lower()
+    if transport == "stdio":
+        command = list(config.get("command") or [])
+        if not command:
+            raise ValueError(f"MCP server '{server_name}' is missing a command")
+        return StdIOStatefulClient(
+            name=server_name,
+            command=str(command[0]),
+            args=[str(item) for item in command[1:]],
+            env={str(k): str(v) for k, v in dict(config.get("env") or {}).items()},
+            cwd=str(config.get("cwd", "") or None) or None,
+        )
+
+    url = str(config.get("url") or config.get("server_url") or "").strip()
+    if not url:
+        raise ValueError(f"MCP server '{server_name}' is missing a URL")
+    if transport not in {"streamable_http", "sse"}:
+        raise ValueError(f"Unsupported MCP transport for '{server_name}': {transport}")
+    return HttpStatelessClient(
+        name=server_name,
+        transport=transport,
+        url=url,
+        headers={str(k): str(v) for k, v in dict(config.get("headers") or {}).items()} or None,
+        timeout=float(config.get("timeout", 30) or 30),
+    )
+
+
+async def get_mcp_tool(server_url: str, tool_name: str, transport: str = "streamable_http"):
+    """Return one MCP tool as a local callable AgentScope function."""
+    client = HttpStatelessClient(
+        name=f"mcp_{tool_name}",
+        transport=transport,
+        url=server_url,
+    )
+    return await client.get_callable_function(func_name=tool_name)
 
 
 async def register_mcp_server(server_url: str, toolkit, transport: str = "streamable_http") -> list[str]:
-    """Register ALL tools from an MCP server into Burry's toolkit.
-    One MCP server URL = all its tools instantly available to Burry.
-    """
-    tools = await list_mcp_tools(server_url)
-    registered = []
-    for tool_info in tools:
-        tool_name = tool_info.get("name", "")
-        if not tool_name:
-            continue
-        try:
-            func = await get_mcp_tool(server_url, tool_name, transport)
-            toolkit.add(func)
-            registered.append(tool_name)
-        except Exception:
-            pass
-    return registered
+    """Register all tools from one HTTP MCP server into a toolkit."""
+    resolved_toolkit = _resolve_agentscope_toolkit(toolkit)
+    client = HttpStatelessClient(
+        name=f"mcp_{transport}",
+        transport=transport,
+        url=server_url,
+    )
+    tools = await client.list_tools()
+    await resolved_toolkit.register_mcp_client(client)
+    return [str(tool.name) for tool in tools]
 
 
-# Pre-configured MCP servers Burry can use
-MCP_SERVERS: dict[str, str] = {
-    # Add your own MCP servers here:
-    # "filesystem": "http://localhost:3001/mcp",
-    # "github": "http://localhost:3002/mcp",
-    # "slack": "http://localhost:3003/mcp",
-}
+async def _load_server(server_name: str, config: dict[str, Any], toolkit) -> list[str]:
+    resolved_toolkit = _resolve_agentscope_toolkit(toolkit)
+    client = _build_client(server_name, config)
+    tools = await client.list_tools()
+    await resolved_toolkit.register_mcp_client(client, namesake_strategy="override")
+    return [str(tool.name) for tool in tools]
 
 
 def load_configured_mcp_servers(toolkit) -> None:
-    """Load all configured MCP servers into toolkit at startup."""
-    if not MCP_SERVERS:
+    """Load enabled MCP servers from butler_config into the shared toolkit."""
+    enabled = _enabled_server_configs()
+    if not enabled:
         return
-    for name, url in MCP_SERVERS.items():
-        try:
-            loop = asyncio.new_event_loop()
-            registered = loop.run_until_complete(register_mcp_server(url, toolkit))
-            loop.close()
-            print(f"[MCP] Loaded {name}: {len(registered)} tools")
-        except Exception as exc:
-            print(f"[MCP] Failed to load {name}: {exc}")
+
+    async def _runner() -> None:
+        for server_name, config in enabled:
+            try:
+                registered = await _load_server(server_name, config, toolkit)
+                print(f"[MCP] Loaded {server_name}: {len(registered)} tools")
+            except Exception as exc:
+                print(f"[MCP] Failed to load {server_name}: {exc}")
+
+    asyncio.run(_runner())

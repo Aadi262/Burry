@@ -81,9 +81,31 @@ class A2AHandler(BaseHTTPRequestHandler):
         pass  # Suppress access logs
 
 
-def start_a2a_server() -> None:
-    """Start A2A server in background thread."""
+def start_custom_a2a_server() -> None:
+    """Start the fallback custom A2A server in a background thread."""
     server = HTTPServer(("localhost", A2A_PORT), A2AHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="burry-a2a")
     thread.start()
     print(f"[A2A] Burry is discoverable at http://localhost:{A2A_PORT}/agent-card")
+
+
+def start_agentscope_a2a(agent) -> None:
+    """Start AgentScope native A2A when available, else fall back to custom A2A."""
+    try:
+        from agentscope.server import AgentService
+
+        service = AgentService(agent=agent, host="localhost", port=8080)
+        threading.Thread(
+            target=service.run,
+            daemon=True,
+            name="burry-a2a-agentscope",
+        ).start()
+        print("[A2A] AgentScope native A2A at http://localhost:8080")
+    except (ImportError, Exception) as exc:
+        print(f"[A2A] AgentScope A2A not available: {exc}")
+        start_custom_a2a_server()
+
+
+def start_a2a_server() -> None:
+    """Backward-compatible entrypoint for the custom A2A server."""
+    start_custom_a2a_server()

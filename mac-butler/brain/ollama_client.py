@@ -596,15 +596,16 @@ def _get_identity() -> str:
 
 def _get_memory() -> str:
     try:
-        from memory.store import get_compressed_context
+        from memory.store import get_last_session_summary
 
-        ctx = get_compressed_context(max_tokens=3000)
-        return f"[MEMORY]\n{ctx}" if ctx else ""
+        summary = get_last_session_summary()
+        return f"[LAST SESSION]\n{summary}" if summary else ""
     except Exception:
         try:
-            from memory.store import get_last_session_summary
-            summary = get_last_session_summary()
-            return f"[LAST SESSION]\n{summary}" if summary else ""
+            from memory.store import get_memory_context
+
+            context = get_memory_context()
+            return context or ""
         except Exception:
             return ""
 
@@ -767,8 +768,6 @@ def send_to_ollama(context_text: str, model: str | None = None) -> str:
     context_limit = 220 if compact_vps_mode else 600
     plan_max_tokens = 90 if compact_vps_mode else 260
     speech_max_tokens = 180
-    identity_block = _get_identity()
-    memory_block = _get_memory()
     mood_state = _get_mood_state()
     mood_name = str(mood_state.get("name", "focused")).strip() or "focused"
     mood_instruction = str(mood_state.get("instruction", "")).strip()
@@ -854,6 +853,8 @@ Output ONLY JSON:"""
 
     speech_raw = ""
     if not compact_vps_mode:
+        identity_block = _get_identity()
+        memory_block = _get_memory()
         speech_prompt = f"""{identity_block}
 {memory_block}
 
@@ -992,7 +993,7 @@ def _call_ollama_inner(
         if url != local_url:
             print("[Brain] VPS failed mid-request, retrying local")
             try:
-                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=12)
+                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=45)
                 return local_response.json().get("response", "").strip()
             except requests.exceptions.Timeout:
                 return "I'm still thinking, give me a moment."
@@ -1035,6 +1036,21 @@ def _call(
     )
 
 
+def _yield_complete_sentences(buffer: str) -> tuple[list[str], str]:
+    sentences: list[str] = []
+    working = str(buffer or "")
+    while True:
+        indexes = [working.find(mark) for mark in (".", "!", "?") if working.find(mark) >= 0]
+        if not indexes:
+            break
+        cutoff = min(indexes) + 1
+        sentence = working[:cutoff].strip()
+        working = working[cutoff:].strip()
+        if sentence:
+            sentences.append(sentence)
+    return sentences, working
+
+
 async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
     """Stream tokens from Ollama as they arrive. Yields sentence chunks for TTS.
     STEAL 3 — speak as tokens arrive instead of waiting for full response.
@@ -1059,15 +1075,9 @@ async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
                         chunk = json.loads(line)
                         token = chunk.get("response", "")
                         buffer += token
-                        while any(p in buffer for p in [".", "!", "?"]):
-                            for punct in [".", "!", "?"]:
-                                if punct in buffer:
-                                    idx = buffer.index(punct) + 1
-                                    sentence = buffer[:idx].strip()
-                                    buffer = buffer[idx:].strip()
-                                    if sentence:
-                                        yield sentence
-                                    break
+                        sentences, buffer = _yield_complete_sentences(buffer)
+                        for sentence in sentences:
+                            yield sentence
                         if chunk.get("done"):
                             if buffer.strip():
                                 yield buffer.strip()
@@ -1077,6 +1087,57 @@ async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
     except Exception:
         # Fallback: return nothing (caller will use standard _call)
         return
+
+
+async def stream_chat_with_ollama(
+    messages: list[dict],
+    model: str,
+    *,
+    max_tokens: int = 200,
+    temperature: float = 0.3,
+):
+    """Stream assistant chat content sentence-by-sentence for live TTS."""
+    import httpx
+
+    url, headers, backend = _get_request_target_for_model(model)
+    request_url = url.replace("/api/generate", "/api/chat")
+    use_vps_backend = backend == "vps"
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
+    _prepare_model_request(resolved_model)
+    payload: dict[str, Any] = {
+        "model": resolved_model,
+        "messages": messages,
+        "stream": True,
+        "keep_alive": "5m",
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            "num_ctx": 4096,
+        },
+    }
+    timeout = httpx.Timeout(connect=5.0, read=90.0, write=15.0, pool=None)
+    buffer = ""
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream("POST", request_url, json=payload, headers=headers) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except Exception:
+                    continue
+                token = str(chunk.get("message", {}).get("content", "") or "")
+                if token:
+                    buffer += token
+                    sentences, buffer = _yield_complete_sentences(buffer)
+                    for sentence in sentences:
+                        yield sentence
+                if chunk.get("done"):
+                    if buffer.strip():
+                        yield buffer.strip()
+                    break
 
 
 async def async_call(prompt: str, model: str, system: str = "", max_tokens: int = 300) -> str:
@@ -1146,7 +1207,7 @@ def chat_with_ollama(
     except requests.exceptions.ConnectionError:
         if request_url != local_url:
             try:
-                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=12)
+                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=45)
                 data = local_response.json()
                 return data if isinstance(data, dict) else {}
             except requests.exceptions.Timeout:

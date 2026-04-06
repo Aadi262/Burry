@@ -34,6 +34,13 @@ def minimize_app(app: str) -> str:
 
 
 @tool
+def hide_app(app: str) -> str:
+    """Hide a macOS application without quitting it."""
+    result = _executor.run([{"type": "hide_app", "app": app}])
+    return result[0].get("result", "hidden") if result else "hidden"
+
+
+@tool
 def run_shell(command: str, project: str = "") -> str:
     """Run a shell command in a project directory."""
     result = _executor.run([{"type": "run_shell", "command": command, "project": project}])
@@ -122,7 +129,7 @@ def take_screenshot_and_describe(question: str = "") -> str:
 def recall_memory(query: str, project: str = "") -> str:
     """Search past sessions and memory for relevant context."""
     from memory.store import semantic_search
-    results = semantic_search(query, top_k=3)
+    results = semantic_search(query, n=3)
     return "\n".join(r.get("speech", "") for r in results)
 
 

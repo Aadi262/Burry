@@ -7,6 +7,7 @@ KAIROS-style background heartbeat for quiet proactive nudges.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import subprocess
 import sys
@@ -22,11 +23,21 @@ from butler_config import (
     HEARTBEAT_MODEL,
     OLLAMA_MODEL,
 )
-from brain.ollama_client import _call, _strip
+from brain.ollama_client import _call, _strip, async_call
 from context import build_structured_context
 from executor.engine import Executor
 
 SAFE_ACTIONS = {"notify", "remind_in", "obsidian_note"}
+
+
+def _background_model_call(prompt: str, model: str, *, max_tokens: int = 120, temperature: float = 0.2) -> str:
+    try:
+        result = asyncio.run(async_call(prompt, model, max_tokens=max_tokens))
+        if result:
+            return result
+    except Exception:
+        pass
+    return _call(prompt, model, temperature=temperature, max_tokens=max_tokens)
 
 
 def _upcoming_calendar_lines(limit: int = 2) -> list[str]:
@@ -116,7 +127,7 @@ Examples:
 {{"action": {{"type": "remind_in", "minutes": 30, "message": "Check the deploy again"}}}}
 nothing"""
 
-        raw = _call(prompt, HEARTBEAT_MODEL or OLLAMA_MODEL, temperature=0.2, max_tokens=120)
+        raw = _background_model_call(prompt, HEARTBEAT_MODEL or OLLAMA_MODEL, temperature=0.2, max_tokens=120)
         if raw.lower().strip().startswith("nothing"):
             return
 
