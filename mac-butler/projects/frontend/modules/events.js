@@ -58,21 +58,7 @@ function eventMarkup(event, expandedKey) {
   `;
 }
 
-function renderTicker(refs, data) {
-  if (!refs.eventTrack) return;
-  const events = Array.isArray(data.events) ? data.events : [];
-  if (events.length) {
-    refs.eventTrack.textContent = events.map((event) => `${event.kind || "event"} · ${event.message || ""}`).join("   •   ");
-    return;
-  }
-  if (data.last_agent_result && data.last_agent_result.result) {
-    refs.eventTrack.textContent = `${formatClock(data.last_agent_result.at || data.updated_at)} · Agent ${data.last_agent_result.agent || "background"} · ${data.last_agent_result.result}`;
-    return;
-  }
-  refs.eventTrack.textContent = `${formatClock(new Date().toISOString())} · Waiting for the next operator event.`;
-}
-
-export function createEventsPanel({ container, refs }) {
+export function createEventsPanel({ container }) {
   let expandedKey = "";
   let lastSignature = "";
   let latestData = {};
@@ -97,7 +83,6 @@ export function createEventsPanel({ container, refs }) {
     if (!items.length) {
       container.innerHTML = "<div class=\"events-empty\">Runtime events will appear here as Burry listens, routes, remembers, and executes.</div>";
       lastSignature = "";
-      renderTicker(refs, data);
       return;
     }
 
@@ -106,7 +91,6 @@ export function createEventsPanel({ container, refs }) {
       container.scrollTop = container.scrollHeight;
     }
     lastSignature = signature;
-    renderTicker(refs, data);
   }
 
   return {

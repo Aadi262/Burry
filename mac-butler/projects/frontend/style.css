@@ -905,176 +905,6 @@ body[data-state="speaking"] {
   display: block;
 }
 
-.transcript-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 14px;
-}
-
-.transcript-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.transcript-status {
-  display: none;
-}
-
-.transcript-log {
-  background: rgba(0, 2, 15, 0.92);
-  border: 1px solid rgba(13, 39, 68, 0.86);
-  border-radius: 20px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow: auto;
-}
-
-.tool-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-radius: 18px;
-  border: 1px solid rgba(13, 39, 68, 0.76);
-  background: rgba(1, 5, 16, 0.78);
-  padding: 10px 12px;
-  overflow: auto;
-}
-
-.tool-stream-label {
-  color: var(--text-dim);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.tool-stream-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  color: var(--text-faint);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.tool-stream-item strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.tool-stream-item.is-running strong {
-  color: #ffd37a;
-}
-
-.tool-stream-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px currentColor;
-}
-
-.tool-stream-item.is-running .tool-stream-status {
-  background: #ffd37a;
-  animation: pulse-dot 1s ease-in-out infinite;
-}
-
-.tool-stream-item.is-done .tool-stream-status {
-  background: var(--success);
-}
-
-.tool-stream-item.is-error .tool-stream-status {
-  background: var(--danger);
-}
-
-.tool-stream-time {
-  color: var(--text-dim);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.transcript-entry {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: rgba(1, 13, 31, 0.62);
-  border: 1px solid rgba(13, 39, 68, 0.5);
-}
-
-.transcript-entry.user {
-  border-color: rgba(79, 143, 255, 0.28);
-}
-
-.transcript-entry.burry {
-  border-color: rgba(0, 212, 255, 0.28);
-  background: rgba(0, 212, 255, 0.04);
-}
-
-.transcript-entry.system {
-  border-color: rgba(13, 39, 68, 0.76);
-  background: rgba(1, 5, 16, 0.74);
-}
-
-.transcript-entry.system.compact {
-  display: block;
-  grid-template-columns: none;
-}
-
-.entry-meta {
-  color: var(--text-dim);
-  font-size: 10px;
-  line-height: 1.5;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.entry-role {
-  color: var(--text-faint);
-  font-size: 10px;
-  margin-top: 2px;
-}
-
-.system-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 8px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(13, 39, 68, 0.6);
-  color: #2a5a8a;
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  vertical-align: middle;
-}
-
-.transcript-entry.user .entry-text {
-  color: #ffffff;
-}
-
-.transcript-entry.burry .entry-text {
-  color: var(--accent);
-}
-
-.transcript-entry.system .entry-text {
-  color: var(--text-faint);
-}
-
-.entry-text {
-  font-size: 14px;
-  line-height: 1.55;
-  word-break: break-word;
-}
-
 .command-bar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1309,22 +1139,39 @@ body[data-state="speaking"] {
 .dock-meta {
   display: flex;
   align-items: center;
-  min-height: 14px;
-  overflow: hidden;
+  min-height: 30px;
 }
 
-.project-panel,
-.transcript-panel {
-  overflow: hidden;
+.dock-transcript {
+  display: grid;
+  gap: 4px;
+  width: 100%;
 }
 
-.ticker-track {
-  color: var(--text-dim);
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+.dock-line {
+  min-width: 0;
+  color: var(--text-faint);
   font-size: 11px;
+  line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.dock-line strong {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-right: 8px;
+}
+
+.dock-line span {
+  color: var(--text);
+}
+
+.project-panel {
+  overflow: hidden;
 }
 
 ::-webkit-scrollbar {

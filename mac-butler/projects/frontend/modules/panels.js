@@ -1,5 +1,4 @@
 import { basenamePath } from "./mac-activity.js";
-import { formatClock, telemetryEntries } from "./events.js";
 
 function toolPresentation(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -176,72 +175,15 @@ export function createPanels({ refs, state, orb, events, openProject }) {
   }
 
   function renderTranscript(data) {
-    const liveEntries = telemetryEntries(data);
-    const seenUserLines = new Set(liveEntries.filter((entry) => entry.role === "user").map((entry) => entry.text));
-    state.optimisticEntries = state.optimisticEntries.filter((entry) => !(entry.role === "user" && seenUserLines.has(entry.text)));
-    const entries = [...liveEntries, ...state.optimisticEntries].slice(-20);
-    if (!entries.length) {
-      refs.transcriptLog.innerHTML = "<div class=\"transcript-entry system compact\"><div class=\"entry-text\"><span class=\"system-pill\">SYSTEM</span>System ready. Type a command or press MIC.</div></div>";
-      return;
+    const latestHeard = " ".join(String(data.last_heard_text || "").split()).trim();
+    if (latestHeard) {
+      state.optimisticEntries = state.optimisticEntries.filter((entry) => entry.text !== latestHeard);
     }
-    const nearBottom = refs.transcriptLog.scrollHeight - refs.transcriptLog.scrollTop - refs.transcriptLog.clientHeight < 56;
-    refs.transcriptLog.innerHTML = entries.map((entry) => entry.role === "system"
-      ? `
-        <div class="transcript-entry system compact">
-          <div class="entry-text"><span class="system-pill">SYSTEM</span>${entry.text}</div>
-        </div>
-      `
-      : `
-        <div class="transcript-entry ${entry.role}">
-          <div class="entry-meta">
-            ${formatClock(entry.at)}
-            <div class="entry-role">${entry.role === "burry" ? "BURRY" : entry.role.toUpperCase()}</div>
-          </div>
-          <div class="entry-text">${entry.text}</div>
-        </div>
-      `).join("");
-    if (nearBottom) refs.transcriptLog.scrollTop = refs.transcriptLog.scrollHeight;
-  }
-
-  function renderToolStream(data) {
-    const stream = Array.isArray(data.tool_stream) ? data.tool_stream : [];
-    const rows = [...stream];
-    const agent = data.last_agent_result || {};
-    if (agent.agent && agent.result && !rows.some((row) => row.tool === `agent:${agent.agent}` || row.detail === agent.result)) {
-      rows.push({
-        tool: `agent:${agent.agent}`,
-        status: agent.status || "done",
-        detail: agent.result,
-        at: agent.at,
-      });
-    }
-    const recentRows = rows.slice(-4).reverse();
-    if (!recentRows.length) {
-      refs.toolStream.innerHTML = `
-        <div class="tool-stream-label">Live Tool Stream</div>
-        <div class="tool-stream-item">
-          <span class="tool-stream-status"></span>
-          <div><strong>Idle</strong> Tool activity will appear here when Burry starts reading, browsing, or executing.</div>
-          <span class="tool-stream-time">Now</span>
-        </div>
-      `;
-      return;
-    }
-    refs.toolStream.innerHTML = `
-      <div class="tool-stream-label">Live Tool Stream</div>
-      ${recentRows.map((row) => {
-        const status = String(row.status || "").toLowerCase();
-        const rowClass = status === "running" ? "is-running" : status === "error" ? "is-error" : "is-done";
-        const info = toolPresentation(String(row.tool || ""));
-        return `
-          <div class="tool-stream-item ${rowClass}">
-            <span class="tool-stream-status"></span>
-            <div><strong>${info.label}</strong> ${row.detail || status || "done"}</div>
-            <span class="tool-stream-time">${formatClock(row.at)}</span>
-          </div>
-        `;
-      }).join("")}
-    `;
+    const optimisticHeard = [...state.optimisticEntries]
+      .reverse()
+      .find((entry) => entry.role === "user" && entry.text);
+    refs.transcriptHeard.textContent = latestHeard || optimisticHeard?.text || "Listening for the next command.";
+    refs.transcriptSpoken.textContent = " ".join(String(data.last_spoken_text || "").split()).trim() || "Standing by.";
   }
 
   function renderOperator(data) {
@@ -250,7 +192,6 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     refs.modeMood.textContent = state.operator.mood_label || "Focused";
     refs.modeSession.textContent = state.operator.session_label || "Standby";
     refs.modeState.textContent = state.operator.state_label || mode;
-    refs.transcriptStatus.textContent = state.operator.session_active ? "Live" : "Standby";
     setButlerState(mode, pillNote(state.operator, mode));
     refs.orbSummary.textContent = orbStatusLine(state.operator);
     renderToolPills(state.operator);
@@ -259,7 +200,6 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     renderMemoryRecall(state.operator);
     renderTasks(state.operator, state.projects);
     renderTranscript(state.operator);
-    renderToolStream(state.operator);
     events.render(state.operator);
   }
 

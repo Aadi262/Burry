@@ -40,15 +40,13 @@ const refs = {
   pendingPanel: document.getElementById("pending-panel"),
   taskList: document.getElementById("task-list"),
   orbSummary: document.getElementById("orb-summary"),
-  transcriptStatus: document.getElementById("transcript-status"),
-  transcriptLog: document.getElementById("transcript-log"),
-  toolStream: document.getElementById("tool-stream"),
+  transcriptHeard: document.getElementById("transcript-heard"),
+  transcriptSpoken: document.getElementById("transcript-spoken"),
   commandForm: document.getElementById("command-form"),
   commandInput: document.getElementById("command-input"),
   micButton: document.getElementById("mic-button"),
   eventsFeed: document.getElementById("events-feed"),
   projectList: document.getElementById("project-list"),
-  eventTrack: document.getElementById("event-track"),
 };
 
 const { orb } = createOrbSystem({
@@ -61,7 +59,7 @@ const graph = createProjectGraph({
   tooltip: refs.graphTooltip,
   detail: refs.graphDetail,
 });
-const events = createEventsPanel({ container: refs.eventsFeed, refs });
+const events = createEventsPanel({ container: refs.eventsFeed });
 const macActivity = createMacActivityPanel({ container: refs.macActivityList });
 
 const panels = createPanels({

@@ -109,17 +109,6 @@
           <div class="events-feed" id="events-feed"></div>
         </section>
 
-        <section class="panel transcript-panel">
-          <div class="transcript-header">
-            <div class="panel-label">Transcript</div>
-            <div class="transcript-status" id="transcript-status">Live</div>
-          </div>
-
-          <div class="transcript-log" id="transcript-log"></div>
-
-          <div class="tool-stream" id="tool-stream"></div>
-        </section>
-
         <section class="panel project-panel">
           <div class="panel-label">Project Truth</div>
           <div class="project-list" id="project-list"></div>
@@ -144,7 +133,10 @@
         <button class="send-button" id="send-button" type="submit">Send</button>
       </form>
       <div class="dock-meta">
-        <div class="ticker-track" id="event-track">Burry event feed will appear here.</div>
+        <div class="dock-transcript">
+          <div class="dock-line"><strong>You said:</strong> <span id="transcript-heard">Listening for the next command.</span></div>
+          <div class="dock-line"><strong>Burry said:</strong> <span id="transcript-spoken">Standing by.</span></div>
+        </div>
       </div>
     </footer>
   </div>
