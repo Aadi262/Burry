@@ -2734,13 +2734,19 @@ def _record(
             pass
         # Record RL episode for model improvement (Phase 11)
         try:
-            from memory.rl_loop import record_episode
+            from memory.rl_loop import record_episode_with_agentscope_feedback
             _model = learning_meta.get("model", "") if learning_meta else ""
             _outcome = "success" if speech and not any(
                 str(r.get("status", "")).lower() == "error"
                 for r in (results or []) if isinstance(r, dict)
             ) else "failure"
-            record_episode(text, intent_name or "unknown", _model, speech, _outcome)
+            record_episode_with_agentscope_feedback(
+                text=text,
+                intent=intent_name or "unknown",
+                model=_model,
+                response=speech,
+                outcome=_outcome,
+            )
         except Exception:
             pass
         record_session(text[:100], speech[:200], actions, results=results or [])

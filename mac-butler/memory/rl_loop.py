@@ -71,19 +71,10 @@ def record_episode_with_agentscope_feedback(
     response: str,
     outcome: str,
 ) -> None:
-    """Record an episode and forward optional feedback into AgentScope tuning."""
+    """Record an episode locally and reserve AgentScope tuner integration."""
     record_episode(text, intent, model, response, outcome)
-    try:
-        from agentscope.tuner import record_feedback
-
-        record_feedback(
-            prompt=text,
-            response=response,
-            score=1.0 if outcome == "success" else 0.0,
-            metadata={"intent": intent, "model": model},
-        )
-    except Exception:
-        pass
+    # TODO: Re-enable AgentScope tuner feedback once agentscope.tuner exposes
+    # a stable record_feedback API in the installed package version.
 
 
 def get_best_model_for_intent(intent: str, candidates: list[str]) -> str:
