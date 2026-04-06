@@ -2504,6 +2504,12 @@ def _record(
             )
 
         _remember_conversation_turn(text, intent_name or "reply", speech)
+        # Add to three-tier long-term memory (Phase 6)
+        try:
+            from memory.long_term import add_to_working_memory
+            add_to_working_memory(text[:200], speech[:200])
+        except Exception:
+            pass
         record_session(text[:100], speech[:200], actions, results=results or [])
         save_session(
             {
