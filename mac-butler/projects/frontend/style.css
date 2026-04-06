@@ -17,6 +17,11 @@
   --pill-border: rgba(0, 212, 255, 0.26);
   --pill-bg: rgba(0, 212, 255, 0.08);
   --shadow: 0 32px 80px rgba(0, 0, 0, 0.45);
+  --font-label: 9px;
+  --font-meta: 10px;
+  --font-body: 12px;
+  --font-strong: 13px;
+  --font-headline: 15px;
 }
 
 * {
@@ -201,7 +206,7 @@ body[data-state="speaking"] {
 
 .state-pill-label {
   color: var(--state-color);
-  font-size: 12px;
+  font-size: var(--font-body);
   letter-spacing: 0.26em;
   text-transform: uppercase;
   font-weight: 700;
@@ -209,7 +214,7 @@ body[data-state="speaking"] {
 
 .state-pill-note {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -315,7 +320,7 @@ body[data-state="executing"] .panel {
 }
 
 .panel-label {
-  font-size: 11px;
+  font-size: var(--font-label);
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -336,7 +341,7 @@ body[data-state="executing"] .panel {
 
 .mac-activity-empty {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -392,7 +397,7 @@ body[data-state="executing"] .panel {
 
 .mac-app-topline strong {
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--font-strong);
   color: var(--text);
 }
 
@@ -401,7 +406,7 @@ body[data-state="executing"] .panel {
   border-radius: 999px;
   border: 1px solid rgba(13, 39, 68, 0.9);
   padding: 4px 8px;
-  font-size: 9px;
+  font-size: var(--font-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -409,7 +414,7 @@ body[data-state="executing"] .panel {
 .mac-app-context {
   margin-top: 6px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -427,7 +432,7 @@ body[data-state="executing"] .panel {
 
 .runtime-chip strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--font-strong);
   color: var(--text);
 }
 
@@ -435,13 +440,13 @@ body[data-state="executing"] .panel {
   display: block;
   margin-top: 4px;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.4;
 }
 
 .runtime-chip em {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--font-meta);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 6px 9px;
@@ -525,7 +530,7 @@ body[data-state="executing"] .panel {
 
 .ambient-item,
 .ambient-empty {
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -564,14 +569,14 @@ body[data-state="executing"] .panel {
   display: block;
   margin-bottom: 8px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-meta);
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .recall-bullet {
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -581,7 +586,7 @@ body[data-state="executing"] .panel {
 
 .recall-empty {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -594,7 +599,7 @@ body[data-state="executing"] .panel {
 
 .workspace-label {
   display: block;
-  font-size: 10px;
+  font-size: var(--font-meta);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -604,7 +609,7 @@ body[data-state="executing"] .panel {
 .workspace-value {
   display: block;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-strong);
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
@@ -653,7 +658,7 @@ body[data-state="executing"] .panel {
 
 .task-tag {
   display: block;
-  font-size: 9px;
+  font-size: var(--font-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -670,7 +675,7 @@ body[data-state="executing"] .panel {
 
 .task-item strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--font-strong);
   line-height: 1.45;
   color: var(--text);
 }
@@ -719,7 +724,7 @@ body[data-state="executing"] .panel {
   background: rgba(1, 13, 31, 0.96);
   padding: 10px 12px;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.45;
 }
 
@@ -738,7 +743,7 @@ body[data-state="executing"] .panel {
   display: inline-block;
   margin-bottom: 6px;
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--font-meta);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -758,14 +763,14 @@ body[data-state="executing"] .panel {
   border: 1px solid rgba(13, 39, 68, 0.9);
   background: rgba(1, 13, 31, 0.94);
   padding: 12px 14px;
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.5;
   color: var(--text-faint);
 }
 
 .graph-detail-card strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-strong);
 }
 
 .graph-detail-card span,
@@ -796,7 +801,7 @@ body[data-state="executing"] .panel {
   background: rgba(1, 13, 31, 0.94);
   padding: 14px;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -827,7 +832,7 @@ body[data-state="executing"] .panel {
 
 .event-time {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--font-meta);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   padding-top: 5px;
@@ -838,7 +843,7 @@ body[data-state="executing"] .panel {
   border-radius: 999px;
   border: 1px solid rgba(13, 39, 68, 0.9);
   padding: 5px 8px;
-  font-size: 9px;
+  font-size: var(--font-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -869,7 +874,7 @@ body[data-state="executing"] .panel {
 
 .event-message {
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
   color: var(--text);
 }
@@ -882,7 +887,7 @@ body[data-state="executing"] .panel {
   border: 1px solid rgba(13, 39, 68, 0.86);
   background: rgba(0, 2, 15, 0.88);
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1036,13 +1041,13 @@ body[data-state="executing"] .panel {
 }
 
 .project-name {
-  font-size: 16px;
+  font-size: var(--font-headline);
   font-weight: 600;
 }
 
 .project-meta {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
@@ -1054,7 +1059,7 @@ body[data-state="executing"] .panel {
   align-items: center;
   gap: 8px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--font-meta);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1111,7 +1116,7 @@ body[data-state="executing"] .panel {
 .project-next {
   min-height: 34px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-body);
   line-height: 1.5;
   white-space: normal;
   overflow: visible;
@@ -1126,7 +1131,7 @@ body[data-state="executing"] .panel {
   background: transparent;
   color: var(--accent);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-body);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1168,7 +1173,7 @@ body[data-state="executing"] .panel {
 .dock-line {
   min-width: 0;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--font-body);
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
@@ -1177,7 +1182,7 @@ body[data-state="executing"] .panel {
 
 .dock-line strong {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--font-meta);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   margin-right: 8px;
