@@ -77,6 +77,12 @@ _WATCHER_STARTED = False
 _PENDING_DIALOGUE_LOCK = threading.Lock()
 _PENDING_DIALOGUE: dict | None = None
 _CONVERSATION_LOCK = threading.Lock()
+_LEARNING_TRACE_LOCK = threading.Lock()
+_LAST_RESOLVED_COMMAND = {
+    "text": "",
+    "intent_name": "",
+    "at": 0.0,
+}
 _FOLLOWUP_PREFIXES = (
     "and ",
     "then ",
@@ -2203,6 +2209,39 @@ def _record(
     learning_meta: dict | None = None,
 ) -> None:
     try:
+        learning_payload = dict(learning_meta or {})
+        normalized_text = " ".join(str(text or "").split()).strip()
+        normalized_intent = " ".join(str(intent_name or "").split()).strip()
+        now_mono = time.monotonic()
+        with _LEARNING_TRACE_LOCK:
+            previous = dict(_LAST_RESOLVED_COMMAND)
+            _LAST_RESOLVED_COMMAND.update(
+                {
+                    "text": normalized_text,
+                    "intent_name": normalized_intent,
+                    "at": now_mono,
+                }
+            )
+        previous_text = " ".join(str(previous.get("text", "")).split()).strip()
+        previous_intent = " ".join(str(previous.get("intent_name", "")).split()).strip()
+        previous_at = float(previous.get("at", 0.0) or 0.0)
+        if (
+            normalized_text
+            and previous_text
+            and normalized_intent
+            and previous_intent == normalized_intent
+            and previous_text.lower() != normalized_text.lower()
+            and previous_at > 0
+            and now_mono - previous_at <= 60
+        ):
+            learning_payload.update(
+                {
+                    "previous_age_s": round(now_mono - previous_at, 2),
+                    "previous_intent": previous_intent,
+                    "previous_text": previous_text,
+                }
+            )
+
         _remember_conversation_turn(text, intent_name or "reply", speech)
         record_session(text[:100], speech[:200], actions, results=results or [])
         save_session(
@@ -2225,7 +2264,7 @@ def _record(
                 "results": results or [],
                 "intent_name": intent_name,
                 "projects": list(touched.keys()),
-                **(learning_meta or {}),
+                **learning_payload,
             }
         )
         try:
