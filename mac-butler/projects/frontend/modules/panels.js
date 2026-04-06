@@ -1,9 +1,15 @@
 import { basenamePath } from "./mac-activity.js";
 
 const FOCUS_STORAGE_KEY = "burry.focusKind";
+const VALID_FOCUS_KINDS = new Set(["mood", "session", "state"]);
 
 function collapseWhitespace(value) {
   return String(value || "").split(/\s+/).filter(Boolean).join(" ").trim();
+}
+
+function normalizeFocusKind(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  return VALID_FOCUS_KINDS.has(candidate) ? candidate : "state";
 }
 
 function toolPresentation(name) {
@@ -89,19 +95,21 @@ function orbStatusLine(data) {
 
 export function createPanels({ refs, state, orb, events, openProject }) {
   function persistFocus(nextFocus) {
+    const resolved = normalizeFocusKind(nextFocus);
     try {
-      window.localStorage.setItem(FOCUS_STORAGE_KEY, nextFocus);
+      window.localStorage.setItem(FOCUS_STORAGE_KEY, resolved);
     } catch (_error) {}
+    return resolved;
   }
 
   function restoreFocus() {
+    let stored = "";
     try {
-      const stored = window.localStorage.getItem(FOCUS_STORAGE_KEY);
-      if (stored && ["mood", "session", "state"].includes(stored)) {
-        return stored;
-      }
+      stored = window.localStorage.getItem(FOCUS_STORAGE_KEY) || "";
     } catch (_error) {}
-    return state.focusKind || "state";
+    const restored = normalizeFocusKind(stored || state.focusKind);
+    state.focusKind = persistFocus(restored);
+    return state.focusKind;
   }
 
   function setButlerState(mode, note) {
@@ -113,11 +121,10 @@ export function createPanels({ refs, state, orb, events, openProject }) {
   }
 
   function setFocus(nextFocus) {
-    state.focusKind = nextFocus;
-    persistFocus(nextFocus);
-    refs.body.dataset.focus = nextFocus;
+    state.focusKind = persistFocus(nextFocus);
+    refs.body.dataset.focus = state.focusKind;
     [refs.modeMood, refs.modeSession, refs.modeState].forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.focus === nextFocus);
+      button.classList.toggle("is-active", button.dataset.focus === state.focusKind);
     });
     refs.orbSummary.textContent = orbStatusLine(state.operator);
   }
