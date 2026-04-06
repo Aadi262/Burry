@@ -642,6 +642,15 @@ def handle_input(text: str, ...):
     # ... TTS ...
     add_event("tts.start", {"speech": speech[:100]})
 Commit: Add OpenTelemetry tracing — full pipeline observability
+
+To enable full AgentScope tracing locally:
+```bash
+# Install Phoenix local OTel backend
+pip install arize-phoenix
+python -m phoenix.server.main &
+export AGENTSCOPE_TRACING_URL=http://localhost:4318/v1/traces
+```
+
 STEAL 8 — IMESSAGE CHANNEL: Wire CoPaw's iMessage pattern so you can message Burry from iPhone.
 Create mac-butler/channels/imessage_channel.py:
 python#!/usr/bin/env python3

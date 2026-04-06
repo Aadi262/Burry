@@ -118,12 +118,21 @@ def ensure_agentscope_initialized() -> None:
             return
         log_dir = Path(__file__).resolve().parents[1] / "memory" / "agentscope_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        tracing_url = os.environ.get("AGENTSCOPE_TRACING_URL")
+        if not tracing_url:
+            try:
+                import urllib.request
+
+                urllib.request.urlopen("http://localhost:4318", timeout=1)
+                tracing_url = "http://localhost:4318/v1/traces"
+                print("[Backbone] Connected to local OTel backend at :4318")
+            except Exception:
+                tracing_url = None
         agentscope.init(
             project="burry-os",
             name="main-react-agent",
             logging_path=str(log_dir / "agentscope.log"),
-            # If AGENTSCOPE_TRACING_URL is set, AgentScope exports spans there.
-            tracing_url=os.environ.get("AGENTSCOPE_TRACING_URL") or None,
+            tracing_url=tracing_url or None,
         )
         _register_mcp_tools(force_refresh=False)
         _AGENTSCOPE_READY = True
