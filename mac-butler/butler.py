@@ -2076,10 +2076,11 @@ def _run_actions_with_response(
 
     def _queue_background_agent(action: dict) -> dict:
         try:
-            from agents.runner import run_agent_async
+            from agents.runner import run_agent_async, run_background_agents
 
-            run_agent_async(
-                str(action.get("agent", "")).strip(),
+            agent_name = str(action.get("agent", "")).strip()
+            run_background_agents(str(action.get("query", action.get("topic", ""))), [agent_name]) if agent_name else run_agent_async(
+                agent_name,
                 {k: v for k, v in action.items() if k not in ("type", "agent")},
             )
             agent_name = str(action.get("agent", "")).strip() or "agent"

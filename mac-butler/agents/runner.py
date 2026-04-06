@@ -912,6 +912,57 @@ def run_agent_async(
     return thread
 
 
+# ---------------------------------------------------------------------------
+# MsgHub-style parallel fan-out (STEAL 2)
+# Runs multiple lightweight agents in parallel via asyncio + threads.
+# Does NOT depend on agentscope (mcp module conflict avoided).
+# ---------------------------------------------------------------------------
+
+import asyncio as _asyncio
+
+_PARALLEL_REGISTRY: dict[str, str] = {
+    "search": "You search the web and return a concise factual summary under 30 words.",
+    "reddit": "You fetch top Reddit discussions and summarize the key points briefly.",
+    "hn": "You fetch Hacker News top stories and summarize the most relevant one.",
+    "news": "You fetch latest tech news and summarize the top story in under 25 words.",
+    "vps": "You check VPS server status and report CPU, memory, and disk usage.",
+}
+
+
+async def _run_parallel_agent_async(name: str, query: str) -> dict:
+    """Async coroutine for a single lightweight agent call."""
+    loop = _asyncio.get_event_loop()
+    try:
+        def _blocking():
+            return run_agent(name, {"query": query, "topic": query})
+        result = await loop.run_in_executor(None, _blocking)
+        text = str(result.get("result", "") or result.get("speech", ""))
+        note_agent_result(name, "ok", text[:300])
+        notify("Burry", f"{name} agent done", subtitle=text[:60])
+        return {"agent": name, "status": "ok", "result": text}
+    except Exception as exc:
+        note_agent_result(name, "error", str(exc))
+        return {"agent": name, "status": "error", "result": ""}
+
+
+async def run_agents_parallel(query: str, agent_names: list) -> list:
+    """Run multiple agents in parallel. Returns list of result dicts."""
+    tasks = [_run_parallel_agent_async(name, query) for name in agent_names]
+    return await _asyncio.gather(*tasks, return_exceptions=False)
+
+
+def run_background_agents(query: str, agent_names: list) -> None:
+    """Fire-and-forget — runs agents in background thread without blocking voice pipeline."""
+    def _bg():
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_agents_parallel(query, agent_names))
+        finally:
+            loop.close()
+    threading.Thread(target=_bg, daemon=True, name=f"burry-agents-{query[:20]}").start()
+
+
 def _news_agent(data: dict, model: str) -> dict:
     topic = data.get("topic", "AI and tech news")
     hours = data.get("hours", 24)
