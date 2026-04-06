@@ -31,7 +31,7 @@ from butler import (
     get_quick_response,
     reset_conversation_context,
 )
-from intents.router import Intent
+from intents.router import IntentResult
 
 
 class ButlerPipelineTests(unittest.TestCase):
@@ -41,13 +41,13 @@ class ButlerPipelineTests(unittest.TestCase):
 
     def test_contextualize_create_file_uses_workspace(self):
         action = {"type": "create_file_in_editor", "filename": "demo.py", "editor": "Cursor"}
-        intent = Intent("create_file", {"filename": "demo.py"}, 0.9, "create file demo.py")
+        intent = IntentResult("create_file", {"filename": "demo.py"}, 0.9, "create file demo.py")
         ctx = {"raw": {"editor": {"workspace_paths": ["~/Burry/mac-butler"]}}}
         enriched = _contextualize_action(action, intent, ctx)
         self.assertEqual(enriched["directory"], "~/Burry/mac-butler")
 
     def test_quick_response_for_open_project(self):
-        intent = Intent("open_project", {"project": "mac-butler"}, 0.9, "open mac-butler")
+        intent = IntentResult("open_project", {"project": "mac-butler"}, 0.9, "open mac-butler")
         self.assertIn("Opening", get_quick_response(intent))
 
     def test_normalize_response_collapses_lines(self):

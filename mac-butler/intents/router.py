@@ -113,7 +113,7 @@ GENERIC_FILE_NAMES = {
 LOW_SIGNAL_MAIL_WORDS = {"", "it", "this", "that", "someone", "mail", "email"}
 
 
-class Intent:
+class IntentResult:
     def __init__(
         self,
         name: str,
@@ -362,7 +362,12 @@ class Intent:
         return responses.get(self.name, "")
 
     def __repr__(self) -> str:
-        return f"Intent(name={self.name!r}, params={self.params!r}, confidence={self.confidence:.2f})"
+        return f"IntentResult(name={self.name!r}, params={self.params!r}, confidence={self.confidence:.2f})"
+
+
+Intent = IntentResult
+
+
 def clean_song_query(query: str) -> str:
     """Strip noise that STT adds to song names."""
     # Remove "on spotify / apple music / youtube" at the end
@@ -654,7 +659,7 @@ def extract_requested_filename(text: str) -> str:
     return candidate
 
 
-def route(text: str) -> Intent:
+def route(text: str) -> IntentResult:
     lowered = _normalize_voice_aliases(text.lower())
     lowered_compact = _normalize_spaces(lowered)
 
@@ -951,7 +956,7 @@ def route(text: str) -> Intent:
     return Intent("unknown", confidence=0.0, raw=text)
 
 
-def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
+def _extract_from_conversational(text: str, lowered: str) -> IntentResult | None:
     """Extract command intent from conversational / noisy STT speech.
     Used when direct pattern matching fails — searches anywhere in the string.
     """

@@ -1,3 +1,3 @@
-from .router import route, Intent
+from .router import IntentResult, route
 
-__all__ = ["route", "Intent"]
+__all__ = ["route", "IntentResult"]
