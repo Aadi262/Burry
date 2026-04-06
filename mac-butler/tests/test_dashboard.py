@@ -36,6 +36,11 @@ class DashboardTests(unittest.TestCase):
                 "matches": [{"speech": "Decided JWT, no sessions.", "timestamp": "2026-04-05T11:00:00"}],
                 "at": "2026-04-05T19:22:54",
             },
+            "ambient_context": [
+                "mac-butler blocker: auth recall path still needs a fix",
+                "email-infra depends on VPS stability",
+                "Adpilot shares deploy resources with staging",
+            ],
             "tasks": ["Ship live operator HUD"],
             "systems": [
                 {"name": "Voice", "status": "edge", "detail": "en-US-AvaMultilingualNeural", "tone": "healthy"}
@@ -175,6 +180,11 @@ class DashboardTests(unittest.TestCase):
                 "matches": [{"speech": "Decided JWT, no sessions.", "score": 0.91}],
                 "at": "2026-04-06T12:00:00",
             },
+            "ambient_context": [
+                "mac-butler blocker: auth recall path still needs a fix",
+                "email-infra depends on VPS stability",
+                "Adpilot shares deploy resources with staging",
+            ],
             "events": [],
             "last_intent": {},
         }
@@ -192,6 +202,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["workspace"], "/Users/adityatiwari/Burry/mac-butler")
         self.assertEqual(payload["active_tools"], ["recall_memory"])
         self.assertEqual(payload["memory_recall"]["query"], "auth decision")
+        self.assertEqual(len(payload["ambient_context"]), 3)
 
 
 if __name__ == "__main__":

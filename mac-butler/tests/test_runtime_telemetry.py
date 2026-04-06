@@ -75,6 +75,24 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["last_memory_recall"]["matches"][0]["speech"], "Decided JWT, no sessions.")
         self.assertEqual(state["events"][-1]["kind"], "memory")
 
+    def test_note_ambient_context_persists_three_bullets(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            runtime_path = Path(tempdir) / "runtime_state.json"
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path):
+                telemetry.note_ambient_context(
+                    [
+                        "- mac-butler blocker: auth recall still fails",
+                        "- adpilot depends on deploy creds",
+                        "- email-infra shares VPS with staging queue",
+                        "- ignored extra bullet",
+                    ]
+                )
+                state = telemetry.load_runtime_state()
+
+        self.assertEqual(len(state["ambient_context"]), 3)
+        self.assertEqual(state["ambient_context"][0], "mac-butler blocker: auth recall still fails")
+        self.assertEqual(state["events"][-1]["kind"], "ambient")
+
 
 if __name__ == "__main__":
     unittest.main()

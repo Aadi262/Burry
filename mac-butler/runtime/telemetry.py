@@ -55,6 +55,7 @@ def _default_runtime_state() -> dict:
             "matches": [],
             "at": "",
         },
+        "ambient_context": [],
         "events": [],
     }
 
@@ -77,6 +78,11 @@ def _load_unlocked() -> dict:
     default = _default_runtime_state()
     default.update(data if isinstance(data, dict) else {})
     default["events"] = list(default.get("events") or [])[-MAX_EVENTS:]
+    default["ambient_context"] = [
+        _clip_text(item, limit=140)
+        for item in list(default.get("ambient_context") or [])[:3]
+        if _clip_text(item, limit=140)
+    ]
     if not isinstance(default.get("last_intent"), dict):
         default["last_intent"] = _default_runtime_state()["last_intent"]
     return default
@@ -319,4 +325,19 @@ def note_memory_recall(query: str, matches: list[dict] | None = None) -> None:
             f"Recalled {len(items)} memory matches for {query_text or 'recent context'}",
             {"query": query_text, "count": len(items)},
         )
+        _save_unlocked(data)
+
+
+def note_ambient_context(items: list[str] | None = None) -> None:
+    bullets = []
+    for item in list(items or [])[:3]:
+        cleaned = _clip_text(str(item).lstrip("-*• ").strip(), limit=140)
+        if cleaned:
+            bullets.append(cleaned)
+    if not bullets:
+        return
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        data["ambient_context"] = bullets
+        _append_event(data, "ambient", "Ambient context refreshed", {"count": len(bullets)})
         _save_unlocked(data)

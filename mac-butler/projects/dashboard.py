@@ -332,6 +332,11 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
     memory_recall = runtime_state.get("last_memory_recall") if isinstance(runtime_state.get("last_memory_recall"), dict) else {}
     tool_stream = list(runtime_state.get("tool_stream") or [])[-6:]
     active_tools = [str(item).strip() for item in list(runtime_state.get("active_tools") or []) if str(item).strip()]
+    ambient_context = [
+        _clip_text(item, limit=140)
+        for item in list(runtime_state.get("ambient_context") or [])[:3]
+        if _clip_text(item, limit=140)
+    ]
     state_name = str(runtime_state.get("state", "idle") or "idle").strip().lower()
     session_active = bool(runtime_state.get("session_active"))
     session_label = "live" if session_active else "standby"
@@ -364,6 +369,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         "active_tools": active_tools[:4],
         "tool_stream": tool_stream,
         "memory_recall": memory_recall,
+        "ambient_context": ambient_context,
         "last_agent_result": last_agent_result,
         "events": events,
     }
