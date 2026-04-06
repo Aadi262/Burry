@@ -86,6 +86,13 @@
             <canvas id="orb-canvas" aria-label="Burry neural voice core"></canvas>
           </div>
         </section>
+      </main>
+
+      <aside class="rail rail-right">
+        <section class="panel project-panel">
+          <div class="panel-label">Project Truth</div>
+          <div class="project-list" id="project-list"></div>
+        </section>
 
         <section class="panel transcript-panel">
           <div class="transcript-header">
@@ -96,35 +103,29 @@
           <div class="transcript-log" id="transcript-log"></div>
 
           <div class="tool-stream" id="tool-stream"></div>
-
-          <form class="command-bar" id="command-form">
-            <button class="mic-button" id="mic-button" type="button" aria-label="Record a command">
-              <span class="mic-indicator"></span>
-              <span>Mic</span>
-            </button>
-            <input
-              class="command-input"
-              id="command-input"
-              name="command"
-              type="text"
-              autocomplete="off"
-              placeholder="Ask Burry anything..."
-            >
-            <button class="send-button" id="send-button" type="submit">Send</button>
-          </form>
-        </section>
-      </main>
-
-      <aside class="rail rail-right">
-        <section class="panel project-panel">
-          <div class="panel-label">Project Truth</div>
-          <div class="project-list" id="project-list"></div>
         </section>
       </aside>
     </div>
 
-    <footer class="ticker-bar">
-      <div class="ticker-track" id="event-track">Burry event feed will appear here.</div>
+    <footer class="command-dock">
+      <form class="command-bar" id="command-form">
+        <button class="mic-button" id="mic-button" type="button" aria-label="Record a command">
+          <span class="mic-indicator"></span>
+          <span>Mic</span>
+        </button>
+        <input
+          class="command-input"
+          id="command-input"
+          name="command"
+          type="text"
+          autocomplete="off"
+          placeholder="Ask Burry anything..."
+        >
+        <button class="send-button" id="send-button" type="submit">Send</button>
+      </form>
+      <div class="dock-meta">
+        <div class="ticker-track" id="event-track">Burry event feed will appear here.</div>
+      </div>
     </footer>
   </div>
 
