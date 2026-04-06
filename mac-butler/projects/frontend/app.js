@@ -118,7 +118,7 @@ commands.setupEventHandlers({
   setFocus: panels.setFocus,
   modeButtons: [refs.modeMood, refs.modeSession, refs.modeState],
 });
-panels.setFocus("state");
+panels.setFocus(panels.restoreFocus());
 macActivity.refresh();
 
 stream.connectOperatorStream();

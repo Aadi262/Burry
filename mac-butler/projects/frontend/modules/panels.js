@@ -1,5 +1,7 @@
 import { basenamePath } from "./mac-activity.js";
 
+const FOCUS_STORAGE_KEY = "burry.focusKind";
+
 function toolPresentation(name) {
   const normalized = String(name || "").trim().toLowerCase();
   if (normalized === "browse_web") return { label: "Browsing", icon: "🌐" };
@@ -82,6 +84,22 @@ function orbStatusLine(data) {
 }
 
 export function createPanels({ refs, state, orb, events, openProject }) {
+  function persistFocus(nextFocus) {
+    try {
+      window.localStorage.setItem(FOCUS_STORAGE_KEY, nextFocus);
+    } catch (_error) {}
+  }
+
+  function restoreFocus() {
+    try {
+      const stored = window.localStorage.getItem(FOCUS_STORAGE_KEY);
+      if (stored && ["mood", "session", "state"].includes(stored)) {
+        return stored;
+      }
+    } catch (_error) {}
+    return state.focusKind || "state";
+  }
+
   function setButlerState(mode, note) {
     const cleanedMode = ["idle", "listening", "thinking", "speaking", "executing"].includes(mode) ? mode : "idle";
     refs.body.dataset.state = cleanedMode;
@@ -92,6 +110,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
 
   function setFocus(nextFocus) {
     state.focusKind = nextFocus;
+    persistFocus(nextFocus);
     refs.body.dataset.focus = nextFocus;
     [refs.modeMood, refs.modeSession, refs.modeState].forEach((button) => {
       button.classList.toggle("is-active", button.dataset.focus === nextFocus);
@@ -254,6 +273,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     renderProjects,
     renderTasks,
     renderTranscript,
+    restoreFocus,
     setVpsStatus(payload) {
       state.vps = payload || null;
       renderRuntime(state.operator || {});
