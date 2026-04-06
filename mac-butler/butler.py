@@ -1405,8 +1405,37 @@ def _fallback_tool_response(text: str, ctx: dict) -> dict | None:
 
 
 def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: str = "") -> dict:
+    from brain.toolkit import get_toolkit
+    import brain.tools_registry  # noqa — triggers all @tool decorations
+
     name = str(tool_name or "").strip()
     args = dict(arguments or {})
+    toolkit = get_toolkit()
+
+    # Fast path: toolkit handles known tools
+    if name in toolkit._tools:
+        note_tool_started(name, str(args)[:120])
+        try:
+            result = toolkit.call(name, **args)
+            note_tool_finished(name, "ok", str(result)[:200])
+            return {
+                "tool": name,
+                "actions": [{"type": name}],
+                "results": [{"action": name, "status": "ok", "result": str(result)}],
+                "speech": str(result),
+            }
+        except Exception as exc:
+            note_tool_finished(name, "error", str(exc))
+            return {
+                "tool": name,
+                "actions": [],
+                "results": [{"action": name, "status": "error", "error": str(exc)}],
+                "speech": f"I had trouble with {name}.",
+            }
+
+    # Legacy path: keep old dispatch for any tools not yet in registry
+    _name = name
+    _args = args
 
     if name == "open_project":
         project_name = " ".join(str(args.get("name", "")).split()).strip()
