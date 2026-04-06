@@ -34,17 +34,22 @@ def _save(tasks: list) -> None:
     TASKS_PATH.write_text(json.dumps(tasks, indent=2))
 
 
-def _preferred_project_order(tasks: list[dict]) -> list[str]:
+def _configured_project_names() -> list[str]:
     try:
-        from projects import load_projects
+        from projects.project_store import load_projects
 
         configured = []
         for project in load_projects():
             name = " ".join(str(project.get("name", "")).split()).strip().lower()
             if name and name not in configured:
                 configured.append(name)
+        return configured
     except Exception:
-        configured = []
+        return []
+
+
+def _preferred_project_order(tasks: list[dict]) -> list[str]:
+    configured = _configured_project_names()
 
     task_projects = []
     for task in tasks:
@@ -172,13 +177,23 @@ def get_active_tasks(project: str = None) -> list:
 
 if __name__ == "__main__":
     if not _load():
-        add_task("Wire two-stage LLM into butler", "mac-butler", "high")
-        add_task("Add task system (this file)", "mac-butler", "high")
-        add_task("Add observe loop (feed results back)", "mac-butler", "high")
-        add_task("Implement layered memory (MEMORY.md pattern)", "mac-butler", "normal")
-        add_task("Design trust score formula", "email-infra", "high")
-        add_task("Build reputation graph schema", "email-infra", "normal")
-        add_task("Research warmup simulation engine", "email-infra", "normal")
+        configured = _configured_project_names()
+        primary = configured[0] if configured else ""
+        secondary = configured[1] if len(configured) > 1 else ""
+        seeds = [
+            ("Capture the next concrete step for the current project", primary, "high"),
+            ("Review active blockers and unblock the top task", primary, "high"),
+            ("Sync project memory and pending work", primary, "normal"),
+        ]
+        if secondary:
+            seeds.extend(
+                [
+                    ("Review cross-project dependencies and shared resources", secondary, "high"),
+                    ("Confirm the next delivery milestone", secondary, "normal"),
+                ]
+            )
+        for title, project, priority in seeds:
+            add_task(title, project, priority)
         print("Seeded initial tasks")
 
     print(get_tasks_for_prompt())
