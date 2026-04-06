@@ -674,5 +674,54 @@ def get_last_session_summary() -> str:
     return "\n".join(lines[:3])
 
 
+def get_compressed_context(max_tokens: int = 3000) -> str:
+    """Return recent sessions compressed to fit in max_tokens.
+    STEAL 5: Recent sessions kept verbatim. Older ones summarized by LLM.
+    Implements AgentScope memory compression pattern.
+    """
+    try:
+        from brain.ollama_client import _call
+    except Exception:
+        return get_memory_context()
+
+    sessions = load_recent_sessions(50)
+    if not sessions:
+        return ""
+
+    # Last 5 sessions — keep verbatim
+    recent = sessions[:5]
+    older = sessions[5:]
+
+    recent_text = "\n".join(
+        f"[{s.get('timestamp', '')[:16]}] {s.get('context_preview', s.get('context', ''))[:60]} → {s.get('speech', '')[:80]}"
+        for s in recent
+        if s.get("speech")
+    )
+
+    if not older:
+        return recent_text
+
+    # Older sessions — compress with LLM
+    older_text = "\n".join(
+        f"{s.get('timestamp', '')[:10]}: {s.get('speech', '')[:80]}"
+        for s in older[:20]
+        if s.get("speech")
+    )
+
+    try:
+        compressed = _call(
+            f"Summarize these past AI assistant sessions into 5 bullet points under 100 words total:\n{older_text}",
+            "gemma4:e4b",
+            max_tokens=120,
+            temperature=0.1,
+        )
+    except Exception:
+        compressed = ""
+
+    if compressed:
+        return f"PAST CONTEXT (compressed):\n{compressed}\n\nRECENT SESSIONS:\n{recent_text}"
+    return recent_text
+
+
 if __name__ == "__main__":
     print(get_memory_context() or "No memory yet — first session")

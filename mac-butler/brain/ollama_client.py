@@ -586,12 +586,17 @@ def _get_identity() -> str:
 
 def _get_memory() -> str:
     try:
-        from memory.store import get_last_session_summary
+        from memory.store import get_compressed_context
 
-        summary = get_last_session_summary()
-        return f"[LAST SESSION]\n{summary}" if summary else ""
+        ctx = get_compressed_context(max_tokens=3000)
+        return f"[MEMORY]\n{ctx}" if ctx else ""
     except Exception:
-        return ""
+        try:
+            from memory.store import get_last_session_summary
+            summary = get_last_session_summary()
+            return f"[LAST SESSION]\n{summary}" if summary else ""
+        except Exception:
+            return ""
 
 
 def _get_mood_state() -> dict:
