@@ -15,6 +15,21 @@ class DaemonConfigTests(unittest.TestCase):
         score = wake_word._score_from_prediction({"hey_burry": 0.18, "other": [0.3, 0.81]})
         self.assertEqual(score, 0.81)
 
+    def test_wake_word_dependency_help_mentions_install_steps(self):
+        help_text = wake_word._dependency_help_text()
+        self.assertIn("openwakeword", help_text)
+        self.assertIn("venv/bin/pip install", help_text)
+        self.assertIn("daemon/wake_word.py", help_text)
+
+    @patch("builtins.print")
+    @patch("daemon.wake_word.start_wake_word_daemon", return_value=None)
+    def test_wake_word_main_prints_help_when_dependencies_missing(self, _mock_start, mock_print):
+        result = wake_word.main()
+
+        self.assertEqual(result, 1)
+        printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
+        self.assertIn("openWakeWord is not installed", printed)
+
     @patch("daemon.heartbeat.subprocess.run")
     def test_heartbeat_calendar_lines_format_upcoming_events(self, mock_run):
         mock_run.return_value = MagicMock(

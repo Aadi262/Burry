@@ -1,17 +1,44 @@
 #!/usr/bin/env python3
-"""Optional wake-word trigger backed by openWakeWord."""
+"""Optional wake-word trigger backed by openWakeWord.
+
+Manual setup for local verification:
+1. `venv/bin/pip install openwakeword sounddevice`
+2. `venv/bin/python -c "from openwakeword.model import Model; Model()"`
+3. `venv/bin/python daemon/wake_word.py`
+
+On macOS, make sure the terminal app has Microphone access in
+System Settings > Privacy & Security > Microphone before step 3.
+Saying "hey Burry" should call the same `trigger.on_trigger()` path
+used by the clap detector.
+"""
 
 from __future__ import annotations
 
 import importlib
+import sys
 import threading
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 _WAKE_THREAD: threading.Thread | None = None
 _WAKE_LOCK = threading.Lock()
 _WAKE_STOP = threading.Event()
 _WAKE_THRESHOLD = 0.5
 _WAKE_COOLDOWN_SECONDS = 5.0
+
+
+def _dependency_help_text() -> str:
+    return (
+        "[WakeWord] openWakeWord is not installed.\n"
+        "Install it with:\n"
+        "  venv/bin/pip install openwakeword sounddevice\n"
+        "  venv/bin/python -c \"from openwakeword.model import Model; Model()\"\n"
+        "Then rerun:\n"
+        "  venv/bin/python daemon/wake_word.py\n"
+        "Also grant Terminal microphone access in macOS Privacy settings."
+    )
 
 
 def _load_dependencies() -> tuple[object, object, object] | None:
@@ -108,3 +135,24 @@ def start_wake_word_daemon():
 
 
 __all__ = ["start_wake_word_daemon"]
+
+
+def main() -> int:
+    thread = start_wake_word_daemon()
+    if thread is None:
+        print(_dependency_help_text())
+        return 1
+
+    print("[WakeWord] Listening for 'hey Burry'. Press Ctrl+C to stop.")
+    try:
+        while thread.is_alive():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n[WakeWord] Stopping.")
+    finally:
+        _WAKE_STOP.set()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
