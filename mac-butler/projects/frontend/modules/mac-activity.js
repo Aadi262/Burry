@@ -18,6 +18,59 @@ export const APP_CATEGORIES = {
   Obsidian: "notes",
 };
 
+const APP_CATEGORY_BADGES = {
+  ai: {
+    background: "rgba(0, 255, 136, 0.12)",
+    border: "rgba(0, 255, 136, 0.3)",
+    color: "#5dffb0",
+  },
+  browser: {
+    background: "rgba(79, 143, 255, 0.14)",
+    border: "rgba(79, 143, 255, 0.34)",
+    color: "#8db2ff",
+  },
+  comms: {
+    background: "rgba(255, 34, 68, 0.12)",
+    border: "rgba(255, 34, 68, 0.3)",
+    color: "#ff7c91",
+  },
+  data: {
+    background: "rgba(255, 170, 0, 0.12)",
+    border: "rgba(255, 170, 0, 0.3)",
+    color: "#ffd37a",
+  },
+  design: {
+    background: "rgba(255, 98, 176, 0.14)",
+    border: "rgba(255, 98, 176, 0.3)",
+    color: "#ff9bca",
+  },
+  editor: {
+    background: "rgba(0, 212, 255, 0.12)",
+    border: "rgba(0, 212, 255, 0.3)",
+    color: "#72e7ff",
+  },
+  music: {
+    background: "rgba(123, 94, 167, 0.16)",
+    border: "rgba(123, 94, 167, 0.34)",
+    color: "#baa2e3",
+  },
+  notes: {
+    background: "rgba(176, 227, 102, 0.12)",
+    border: "rgba(176, 227, 102, 0.28)",
+    color: "#d0f493",
+  },
+  shell: {
+    background: "rgba(255, 170, 0, 0.12)",
+    border: "rgba(255, 170, 0, 0.3)",
+    color: "#ffc65a",
+  },
+  tool: {
+    background: "rgba(232, 244, 255, 0.08)",
+    border: "rgba(232, 244, 255, 0.18)",
+    color: "rgba(232, 244, 255, 0.72)",
+  },
+};
+
 export function basenamePath(value) {
   const text = String(value || "").trim();
   if (!text) return "Unknown";
@@ -29,14 +82,8 @@ export function appCategory(name) {
   return APP_CATEGORIES[String(name || "").trim()] || "tool";
 }
 
-export function appCategoryTone(name) {
-  const category = appCategory(name);
-  if (category === "editor") return "accent";
-  if (category === "browser") return "cobalt";
-  if (category === "music") return "violet";
-  if (category === "shell") return "amber";
-  if (category === "ai") return "success";
-  return "faint";
+export function appCategoryBadgeStyle(name) {
+  return APP_CATEGORY_BADGES[appCategory(name)] || APP_CATEGORY_BADGES.tool;
 }
 
 function browserDomain(url) {
@@ -100,7 +147,7 @@ export function renderMacActivity(container, payload) {
   container.innerHTML = apps.map((appName) => {
     const status = appStatus(appName, payload);
     const category = appCategory(appName);
-    const tone = appCategoryTone(appName);
+    const badge = appCategoryBadgeStyle(appName);
     const context = appContext(appName, payload);
     return `
       <article class="mac-app-row ${status === "frontmost" ? "is-frontmost" : ""}">
@@ -108,7 +155,10 @@ export function renderMacActivity(container, payload) {
         <div class="mac-app-copy">
           <div class="mac-app-topline">
             <strong>${appName}</strong>
-            <span class="mac-app-badge tone-${tone}">${category}</span>
+            <span
+              class="mac-app-badge"
+              style="background:${badge.background};border-color:${badge.border};color:${badge.color};"
+            >${category}</span>
           </div>
           <div class="mac-app-context">${context}</div>
         </div>
