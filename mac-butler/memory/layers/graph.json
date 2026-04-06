@@ -1,0 +1,23 @@
+{
+  "updated_at": "2026-04-06T10:00:00",
+  "edges": [
+    {
+      "from": "Reachout",
+      "to": "LinkedPilot",
+      "type": "blocked_by",
+      "note": "Canonical app root still lives under linkedpilot."
+    },
+    {
+      "from": "LinkedPilot",
+      "to": "Reachout",
+      "type": "depends_on",
+      "note": "Plan docs and deployment ownership are still shared."
+    },
+    {
+      "from": "MaxLeads",
+      "to": "AI SDR",
+      "type": "shares_resource",
+      "note": "Frontend roadmap overlaps the AI SDR backend work."
+    }
+  ]
+}

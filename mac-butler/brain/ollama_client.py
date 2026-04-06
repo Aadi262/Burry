@@ -22,6 +22,7 @@ except ImportError:
     psutil = None
 
 from butler_secrets.loader import get_ollama_secret
+from memory.graph import read_graph
 from butler_config import (
     AGENT_MODEL_CHAINS,
     AGENT_MODELS,
@@ -104,6 +105,7 @@ Rules:
 6. Prefer mac-butler or email-infra by name when the context supports it.
 7. Do not invent vague work if the context already points to a concrete task.
 8. Prefer [PROJECT SNAPSHOT] over [TASK LIST] when both are present.
+9. If [DEPENDENCY GRAPH] shows fixing X unblocks Y, prefer X and mention the unblock reason.
 
 Return exactly this schema:
 {
@@ -200,7 +202,51 @@ FEW_SHOT_SPEECH_EXAMPLES = """Example A:
 COMPACT_VPS_PLANNER_SYSTEM_PROMPT = """Output only JSON:
 {"focus":"...", "next":"...", "actions":[]}
 Use the real project name from context when present.
-Keep focus and next concise. At most one action."""
+Keep focus and next concise. At most one action.
+If [DEPENDENCY GRAPH] shows an unblock path, prefer the step that unblocks another project."""
+
+
+def _normalize_graph_token(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+
+
+def _dependency_graph_context(context_text: str, limit: int = 6) -> str:
+    try:
+        edges = list(read_graph().get("edges") or [])
+    except Exception:
+        return ""
+    if not edges:
+        return ""
+
+    normalized_context = _normalize_graph_token(context_text)
+    relevant = []
+    for edge in edges:
+        source = str(edge.get("from", "")).strip()
+        target = str(edge.get("to", "")).strip()
+        if not source or not target:
+            continue
+        if normalized_context:
+            if _normalize_graph_token(source) not in normalized_context and _normalize_graph_token(target) not in normalized_context:
+                continue
+        relevant.append(edge)
+
+    if not relevant:
+        relevant = edges[:limit]
+
+    relation_map = {
+        "depends_on": "depends on",
+        "shares_resource": "shares resources with",
+        "blocked_by": "is blocked by",
+    }
+    lines = ["[DEPENDENCY GRAPH]"]
+    for edge in relevant[:limit]:
+        source = str(edge.get("from", "")).strip()
+        target = str(edge.get("to", "")).strip()
+        relation = relation_map.get(str(edge.get("type", "")).strip(), str(edge.get("type", "")).replace("_", " "))
+        note = " ".join(str(edge.get("note", "")).split()).strip()
+        suffix = f" ({note})" if note else ""
+        lines.append(f"  {source} {relation} {target}{suffix}")
+    return "\n".join(lines)
 
 
 def _check_memory() -> bool:
@@ -676,10 +722,12 @@ def send_to_ollama(context_text: str, model: str | None = None) -> str:
     mood_name = str(mood_state.get("name", "focused")).strip() or "focused"
     mood_instruction = str(mood_state.get("instruction", "")).strip()
     mood_note = str(mood_state.get("note", "")).strip()
+    dependency_block = _dependency_graph_context(context_text)
+    planner_context = "\n\n".join(part for part in (dependency_block, context_text) if part)
 
     if compact_vps_mode:
         plan_prompt = f"""Context:
-{context_text[:context_limit]}
+{planner_context[:context_limit]}
 
 Return ONLY JSON:
 {{"focus":"...", "next":"...", "actions":[]}}
@@ -696,6 +744,7 @@ Rules:
 Rules you MUST follow:
 - If context contains project names, use them directly
 - Prefer [PROJECT SNAPSHOT] over [TASK LIST] when both exist
+- If [DEPENDENCY GRAPH] shows that fixing X unblocks Y, choose X and say why
 - NEVER write "current work" — use the actual project name
 - NEVER write "next useful step" — name the actual task
 - mac-butler = his local voice operator agent project
@@ -703,7 +752,7 @@ Rules you MUST follow:
 - If the user asks to open or work on a project, prefer an open_project action
 
 Context:
-{context_text[:context_limit]}
+{planner_context[:context_limit]}
 
 Output ONLY this JSON object, nothing else:
 {{

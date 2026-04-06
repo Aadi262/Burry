@@ -12,6 +12,7 @@ class OllamaClientTests(unittest.TestCase):
         self.assertIn('"type": "search_and_play"', ollama_client.PLANNER_SYSTEM_PROMPT)
         self.assertIn('"type": "play_music"', ollama_client.PLANNER_SYSTEM_PROMPT)
         self.assertIn('"in_terminal": true', ollama_client.PLANNER_SYSTEM_PROMPT)
+        self.assertIn("[DEPENDENCY GRAPH]", ollama_client.PLANNER_SYSTEM_PROMPT)
 
     @patch("brain.ollama_client.requests.get")
     def test_get_ollama_url_falls_back_to_local_when_vps_disabled(self, mock_get):
@@ -105,7 +106,8 @@ class OllamaClientTests(unittest.TestCase):
     @patch("brain.ollama_client._get_mood_state", return_value={"name": "focused", "instruction": "Be sharp and direct.", "note": "Locked on the next concrete step."})
     @patch("brain.ollama_client.call_voice")
     @patch("brain.ollama_client._call")
-    def test_send_to_ollama_uses_two_stage_flow(self, mock_call, mock_call_voice, _mock_mood, _mock_greeting):
+    @patch("brain.ollama_client.read_graph", return_value={"edges": []})
+    def test_send_to_ollama_uses_two_stage_flow(self, mock_graph, mock_call, mock_call_voice, _mock_mood, _mock_greeting):
         with patch.object(ollama_client, "USE_VPS_OLLAMA", False):
             mock_call.side_effect = [
                 json.dumps(
@@ -126,9 +128,50 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(mock_call.call_args_list[0].args[1], "gemma4:e4b")
         self.assertEqual(mock_call_voice.call_args.args[1], "gemma4:e4b")
         self.assertIn("Current mood: focused", mock_call_voice.call_args.args[0])
+        mock_graph.assert_called_once_with()
         self.assertEqual(result["actions"][0]["type"], "play_music")
         self.assertEqual(result["mood"], "focused")
         self.assertTrue(result["speech"].startswith("Morning"))
+
+    @patch("brain.ollama_client._random_greeting", return_value="Morning")
+    @patch("brain.ollama_client._get_mood_state", return_value={"name": "focused", "instruction": "Be sharp and direct.", "note": "Locked on the next concrete step."})
+    @patch("brain.ollama_client.call_voice", return_value="Morning. Reachout is blocked until LinkedPilot ownership is settled. Want to fix that now?")
+    @patch("brain.ollama_client._call")
+    @patch(
+        "brain.ollama_client.read_graph",
+        return_value={
+            "edges": [
+                {
+                    "from": "Reachout",
+                    "to": "LinkedPilot",
+                    "type": "blocked_by",
+                    "note": "Canonical app root still lives under linkedpilot.",
+                }
+            ]
+        },
+    )
+    def test_send_to_ollama_includes_dependency_graph_context(
+        self,
+        _mock_graph,
+        mock_call,
+        _mock_call_voice,
+        _mock_mood,
+        _mock_greeting,
+    ):
+        with patch.object(ollama_client, "USE_VPS_OLLAMA", False):
+            mock_call.return_value = json.dumps(
+                {
+                    "focus": "Reachout",
+                    "why_now": "Fixing LinkedPilot ownership unblocks Reachout.",
+                    "question": "Do it now?",
+                    "actions": [],
+                }
+            )
+
+            ollama_client.send_to_ollama("[PROJECT SNAPSHOT]\n  Reachout: next=Decide canonical product root")
+
+        self.assertIn("[DEPENDENCY GRAPH]", mock_call.call_args.args[0])
+        self.assertIn("Reachout is blocked by LinkedPilot", mock_call.call_args.args[0])
 
     @patch("brain.ollama_client._random_greeting", return_value="Evening")
     @patch("brain.ollama_client.call_voice")
