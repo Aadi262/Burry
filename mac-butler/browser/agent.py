@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import urlparse
 
@@ -49,13 +50,14 @@ class BrowsingAgent:
         if not clean_query:
             return {"status": "ok", "result": "Tell me what to search for.", "data": {"items": [], "sources": []}}
 
+        prompt_question = question or clean_query
         items, sources = self._search_urls(clean_query)
         pages = []
         for item in items[:3]:
             url = str(item.get("url", "")).strip()
             if not url:
                 continue
-            text = self._fetch(url)
+            text = self._fetch(url, query=prompt_question)
             if not text:
                 continue
             pages.append(
@@ -67,7 +69,6 @@ class BrowsingAgent:
                 }
             )
 
-        prompt_question = question or clean_query
         summary = self._summarize_search(prompt_question, pages)
         if not summary:
             summary = _fallback_summary(prompt_question, pages or items)
@@ -97,7 +98,7 @@ class BrowsingAgent:
         if not clean_url.startswith(("http://", "https://")):
             clean_url = f"https://{clean_url}"
 
-        text = self._fetch(clean_url)
+        text = self._fetch(clean_url, query=question or clean_url)
         if not text:
             return {
                 "status": "ok",
@@ -268,14 +269,87 @@ Give one spoken answer in under 90 words. No raw URLs. Synthesize across sources
             if str(item.get("url", "")).strip()
         ]
 
-    def _fetch(self, url: str) -> str:
-        text = self._fetch_via_playwright(url)
+    def _run_async(self, coroutine) -> str:
+        try:
+            return asyncio.run(coroutine)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coroutine)
+            finally:
+                loop.close()
+
+    def _fetch(self, url: str, query: str = "") -> str:
+        text = self._fetch_via_scrapling(url)
+        if not text:
+            text = self._fetch_via_scrapling_stealth(url)
+        if not text:
+            text = self._fetch_via_playwright(url)
+        if text:
+            clean = self._fetch_via_crawl4ai(url, query=query)
+            if clean:
+                return clean
+            return text
+        text = self._fetch_via_crawl4ai(url, query=query)
         if text:
             return text
         text = self._fetch_via_jina(url)
         if text:
             return text
         return self._fetch_via_requests(url)
+
+    def _fetch_via_scrapling(self, url: str) -> str:
+        try:
+            from scrapling.fetchers import Fetcher
+        except Exception:
+            return ""
+
+        try:
+            page = Fetcher.get(url, stealthy_headers=True, follow_redirects=True, timeout=8000)
+            return _clip_text(page.get_all_text(separator="\n"), limit=10000)
+        except Exception:
+            return ""
+
+    def _fetch_via_scrapling_stealth(self, url: str) -> str:
+        try:
+            from scrapling.fetchers import StealthyFetcher
+        except Exception:
+            return ""
+
+        try:
+            page = StealthyFetcher.fetch(url, headless=True, network_idle=True, timeout=12000)
+            return _clip_text(page.get_all_text(separator="\n"), limit=10000)
+        except Exception:
+            return ""
+
+    def _fetch_via_crawl4ai(self, url: str, query: str = "") -> str:
+        if not query:
+            return ""
+        try:
+            from crawl4ai import AsyncWebCrawler
+            from crawl4ai.content_filter_strategy import BM25ContentFilter
+        except Exception:
+            return ""
+
+        async def _crawl() -> str:
+            try:
+                async with AsyncWebCrawler(verbose=False) as crawler:
+                    result = await crawler.arun(
+                        url=url,
+                        word_count_threshold=10,
+                        content_filter=BM25ContentFilter(
+                            user_query=query,
+                            bm25_threshold=1.2,
+                        ),
+                        bypass_cache=True,
+                    )
+                if not getattr(result, "success", False):
+                    return ""
+                return _clip_text(getattr(result, "markdown", "") or "", limit=8000)
+            except Exception:
+                return ""
+
+        return self._run_async(_crawl())
 
     def _fetch_via_playwright(self, url: str) -> str:
         try:

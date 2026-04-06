@@ -8,3 +8,5 @@ requests
 pynput
 SpeechRecognition
 psutil
+crawl4ai
+scrapling[fetchers]
