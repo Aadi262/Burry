@@ -6,10 +6,29 @@ from daemon import bug_hunter, heartbeat
 
 
 class DaemonConfigTests(unittest.TestCase):
+    @patch("daemon.heartbeat.subprocess.run")
+    def test_heartbeat_calendar_lines_format_upcoming_events(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="Standup||Tuesday, April 7, 2026 at 10:00:00 AM\n1:1||Tuesday, April 7, 2026 at 3:00:00 PM\n",
+            stderr="",
+            returncode=0,
+        )
+
+        lines = heartbeat._upcoming_calendar_lines(limit=2)
+
+        self.assertEqual(
+            lines,
+            [
+                "Upcoming: Standup at Tuesday, April 7, 2026 at 10:00:00 AM",
+                "Upcoming: 1:1 at Tuesday, April 7, 2026 at 3:00:00 PM",
+            ],
+        )
+
     @patch("daemon.heartbeat._call", return_value="nothing")
     @patch("daemon.heartbeat.build_structured_context", return_value={"formatted": "[TASK LIST]\n  ○ Ship HUD"})
+    @patch("daemon.heartbeat._upcoming_calendar_lines", return_value=["Upcoming: Demo at 2 PM"])
     @patch("daemon.heartbeat.datetime")
-    def test_heartbeat_uses_lightweight_model(self, mock_datetime, _mock_ctx, mock_call):
+    def test_heartbeat_uses_lightweight_model(self, mock_datetime, _mock_calendar, _mock_ctx, mock_call):
         mock_datetime.now.return_value.hour = 12
 
         heartbeat.heartbeat_tick()
@@ -17,6 +36,7 @@ class DaemonConfigTests(unittest.TestCase):
         self.assertTrue(heartbeat.HEARTBEAT_ENABLED)
         self.assertEqual(heartbeat.HEARTBEAT_MODEL, "gemma4:e4b")
         self.assertEqual(mock_call.call_args.args[1], "gemma4:e4b")
+        self.assertIn("[CALENDAR]", mock_call.call_args.args[0])
 
     @patch("daemon.bug_hunter.notify")
     @patch("daemon.bug_hunter.Executor")

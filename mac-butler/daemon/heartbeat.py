@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from datetime import datetime
 
@@ -22,6 +23,51 @@ from context import build_structured_context
 from executor.engine import Executor
 
 SAFE_ACTIONS = {"notify", "remind_in", "obsidian_note"}
+
+
+def _upcoming_calendar_lines(limit: int = 2) -> list[str]:
+    script = """
+tell application "Calendar"
+    set nowDate to current date
+    set futureDate to nowDate + (7 * days)
+    set eventLines to {}
+    repeat with cal in calendars
+        repeat with ev in (every event of cal whose start date is greater than or equal to nowDate and start date is less than or equal to futureDate)
+            set end of eventLines to ((summary of ev as text) & "||" & ((start date of ev) as string))
+        end repeat
+    end repeat
+end tell
+set AppleScript's text item delimiters to linefeed
+return eventLines as text
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return []
+
+    raw = str(result.stdout or "").strip()
+    if not raw:
+        return []
+
+    lines = []
+    for line in raw.splitlines():
+        title, _, start_text = line.partition("||")
+        title = " ".join(title.split()).strip()
+        start_text = " ".join(start_text.split()).strip()
+        if not title:
+            continue
+        if start_text:
+            lines.append(f"Upcoming: {title} at {start_text}")
+        else:
+            lines.append(f"Upcoming: {title}")
+        if len(lines) >= max(1, limit):
+            break
+    return lines
 
 
 def _safe_action_from_response(data: dict) -> dict | None:
@@ -45,11 +91,15 @@ def heartbeat_tick() -> None:
             return
 
         ctx = build_structured_context()
+        calendar_lines = _upcoming_calendar_lines(limit=2)
+        calendar_block = ""
+        if calendar_lines:
+            calendar_block = "\n[CALENDAR]\n" + "\n".join(calendar_lines)
         prompt = f"""You are a quiet background monitor for Aditya's work.
 Given the current context, decide if there is exactly one useful low-risk thing to surface.
 
 Context:
-{ctx['formatted'][:500]}
+{ctx['formatted'][:500]}{calendar_block}
 
 Rules:
 - Stay silent unless something is genuinely worth interrupting for
