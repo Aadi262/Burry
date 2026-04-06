@@ -59,4 +59,7 @@ def normalize_email(raw: str) -> str:
         if match:
             domain = f"{match.group(1)}.{_correct_common_tld(match.group(2))}"
 
-    return f"{local}@{domain}".strip("@")
+    email = f"{local}@{domain}".strip("@")
+    # Strip any trailing word that is not a valid TLD (more than 6 chars after final dot)
+    email = re.sub(r'(\.[a-z]{2,6})\.[a-z]{7,}$', r'\1', email, flags=re.IGNORECASE)
+    return email

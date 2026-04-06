@@ -134,6 +134,10 @@ class IntentResult:
     def intent(self) -> str:
         return self.name
 
+    @property
+    def entities(self) -> dict:
+        return self.params
+
     def to_action(self):
         name = self.name
         params = self.params
@@ -554,10 +558,14 @@ def _extract_compose_email_params(text: str) -> dict | None:
     lowered = normalized.lower()
     lowered = re.sub(r"\bmale\b", "mail", lowered)
 
-    match = re.search(
-        r"\b(?:compose|draft|write|send|open)\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b(.*)$",
-        lowered,
-    ) or re.search(r"\bnew\s+(?:mail|email)\b(.*)$", lowered)
+    match = (
+        re.search(
+            r"\b(?:compose|draft|write|send|open)\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b(.*)$",
+            lowered,
+        )
+        or re.search(r"\bnew\s+(?:mail|email)\b(.*)$", lowered)
+        or re.match(r"^email\b(.*)$", lowered)
+    )
     if not match:
         return None
 
@@ -565,7 +573,11 @@ def _extract_compose_email_params(text: str) -> dict | None:
     subject = ""
     body = ""
 
-    body_match = re.search(r"\b(?:body|message|saying|says)\s+(.+)$", remainder, flags=re.IGNORECASE)
+    body_match = re.search(
+        r'\b(?:body|message|saying|says|boyd|massage|massaging|content|text|write|telling)\s+(.+)$',
+        remainder,
+        flags=re.IGNORECASE,
+    )
     if body_match:
         body = body_match.group(1).strip()
         remainder = remainder[: body_match.start()].strip()
@@ -575,10 +587,20 @@ def _extract_compose_email_params(text: str) -> dict | None:
         subject = subject_match.group(1).strip()
         remainder = remainder[: subject_match.start()].strip()
 
+    _TRAILING_NOISE = re.compile(
+        r'\s+\b(with|and|that|saying|about|regarding|to|for|the|a|an)\b.*$',
+        re.IGNORECASE,
+    )
     recipient_match = re.search(r"\bto\s+(.+)$", remainder, flags=re.IGNORECASE)
-    recipient_text = recipient_match.group(1).strip() if recipient_match else ""
+    if recipient_match:
+        recipient_text = recipient_match.group(1).strip()
+    else:
+        # Fallback: extract first email-like token directly
+        direct_email = re.search(r'\S+@\S+', remainder)
+        recipient_text = direct_email.group(0) if direct_email else ""
     if recipient_text:
         recipient_text = recipient_text.strip(" .!?")
+        recipient_text = _TRAILING_NOISE.sub("", recipient_text).strip()
     recipient = _normalize_spoken_email(recipient_text)
 
     return {
@@ -1065,6 +1087,10 @@ def _extract_from_conversational(text: str, lowered: str) -> IntentResult | None
         return Intent("spotify_next", raw=text)
 
     return None
+
+
+# Alias for tests and external callers
+route_intent = route
 
 
 if __name__ == "__main__":
