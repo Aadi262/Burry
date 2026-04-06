@@ -502,6 +502,22 @@ def _dispatch_command(text: str) -> None:
         print(f"[dashboard] command dispatch failed: {exc}")
 
 
+def _dispatch_listen_once() -> None:
+    try:
+        from butler import handle_input
+        from voice.stt import listen_for_command
+    except Exception as exc:
+        print(f"[dashboard] listen dispatch unavailable: {exc}")
+        return
+
+    try:
+        text = " ".join(str(listen_for_command(timeout=10.0) or "").split()).strip()
+        if text:
+            handle_input(text, test_mode=False)
+    except Exception as exc:
+        print(f"[dashboard] listen dispatch failed: {exc}")
+
+
 def _write_dashboard() -> None:
     DASHBOARD_PATH.write_text(generate_dashboard(), encoding="utf-8")
 
@@ -851,6 +867,19 @@ def serve_dashboard():
                     parsed = urlparse(self.path)
                     if parsed.path == "/api/command":
                         payload = self._read_json_body()
+                        action = " ".join(str(payload.get("action", "")).split()).strip().lower()
+                        if action == "listen_once":
+                            worker = threading.Thread(target=_dispatch_listen_once, daemon=True)
+                            worker.start()
+                            self._send_json(
+                                {
+                                    "status": "accepted",
+                                    "action": action,
+                                    "queued_at": _timestamp(),
+                                },
+                                status=202,
+                            )
+                            return
                         text = " ".join(str(payload.get("text", "")).split()).strip()
                         if not text:
                             self._send_json({"status": "error", "error": "Command text required."}, status=400)
