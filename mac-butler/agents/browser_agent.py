@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""AgentScope-style browser-use agent — autonomous web navigation.
-Uses Playwright to browse and extract information from any website.
-Falls back to BrowsingAgent if Playwright unavailable.
-"""
+"""Browser agent wrappers with an AgentScope BrowserAgent fallback path."""
 from __future__ import annotations
 
 import asyncio
@@ -53,28 +50,21 @@ def _github_latest_commit_summary(task: str, page_text: str) -> str:
     return ""
 
 
-async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
-    """Give Burry a browser task in plain English. It figures out how to do it.
-
-    Examples:
-    - 'Go to github.com/Aadi262/Burry and tell me the latest commit message'
-    - 'Search Hacker News for AI agents and summarize the top 3 posts'
-    - 'Open mail.google.com and tell me how many unread emails I have'
-    """
+async def _browse_and_act_custom(task: str, model_name: str = "gemma4:e4b") -> str:
+    """Fallback browser task execution using Playwright or the legacy browser agent."""
     try:
         from playwright.async_api import async_playwright
+
         from brain.ollama_client import _call
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
 
-            # Navigate if URL is in the task
             target_url = _extract_task_url(task)
             if target_url:
                 await page.goto(target_url, wait_until="networkidle", timeout=10000)
             elif any(kw in task.lower() for kw in ["github", "hackernews", "hn ", "reddit", "mail.google"]):
-                # Derive simple URL from task
                 for site, url in [
                     ("github", "https://github.com"),
                     ("hacker news", "https://news.ycombinator.com"),
@@ -102,19 +92,55 @@ async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
             return result or text[:500]
 
     except Exception as exc:
-        # Fallback to existing BrowsingAgent
         try:
             from browser.agent import BrowsingAgent
+
             result = BrowsingAgent().search(task, question=task)
             return result.get("result", f"Browser error: {exc}")
         except Exception:
             return f"Browser unavailable: {exc}"
 
 
-def sync_browse(task: str) -> str:
-    """Synchronous wrapper for use in tool calls."""
+async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
+    """Async browser task entrypoint backed by the custom fallback implementation."""
+    return await _browse_and_act_custom(task, model_name=model_name)
+
+
+def _sync_browse_custom(task: str) -> str:
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(browse_and_act(task))
+        return loop.run_until_complete(_browse_and_act_custom(task))
     finally:
         loop.close()
+
+
+def sync_browse(task: str) -> str:
+    """Browse using AgentScope BrowserAgent if available, custom fallback otherwise."""
+    try:
+        from agentscope.agents import BrowserAgent
+        from agentscope.formatter import OllamaChatFormatter
+        from agentscope.message import Msg
+
+        from brain.agentscope_backbone import _get_persistent_loop, ensure_agentscope_initialized
+        from brain.agentscope_ollama_model import BurryOllamaChatModel
+
+        ensure_agentscope_initialized()
+        agent = BrowserAgent(
+            name="burry-browser",
+            model=BurryOllamaChatModel(
+                model_name="gemma4:e4b",
+                stream=False,
+                options={"num_ctx": 4096},
+            ),
+            formatter=OllamaChatFormatter(max_tokens=512),
+        )
+        loop = _get_persistent_loop()
+        future = asyncio.run_coroutine_threadsafe(
+            agent(Msg("user", task, "user")),
+            loop,
+        )
+        result = future.result(timeout=30)
+        return result.get_text_content() if hasattr(result, "get_text_content") else str(result)
+    except (ImportError, Exception):
+        pass
+    return _sync_browse_custom(task)
