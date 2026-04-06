@@ -999,6 +999,10 @@ def route(text: str) -> IntentResult:
     ):
         return Intent("question", confidence=0.6, raw=text)
 
+    # Multi-step complex task pattern → Meta Planner (Phase 5)
+    if re.search(r"\b(set up|prepare|do all|everything for|my morning|my routine|and then|step by step)\b", lowered):
+        return Intent("plan_and_execute", {"task": text}, confidence=0.7, raw=text)
+
     return Intent("unknown", confidence=0.0, raw=text)
 
 
