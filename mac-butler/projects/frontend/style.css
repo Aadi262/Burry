@@ -93,6 +93,25 @@ body[data-state="speaking"] {
   overflow: hidden;
 }
 
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 34, 68, 0.92);
+  color: #fff4f7;
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  box-shadow: 0 14px 30px rgba(255, 34, 68, 0.18);
+}
+
 .topbar {
   position: absolute;
   top: 18px;

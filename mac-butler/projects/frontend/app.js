@@ -18,6 +18,7 @@ const state = {
 
 const refs = {
   body: document.body,
+  offlineBanner: document.getElementById("offline-banner"),
   networkCanvas: document.getElementById("network-canvas"),
   orbCanvas: document.getElementById("orb-canvas"),
   graphCanvas: document.getElementById("project-graph-canvas"),
@@ -73,6 +74,9 @@ const panels = createPanels({
 
 const stream = createOperatorStream({
   bootstrap,
+  onConnectionChange: (connected) => {
+    refs.offlineBanner.hidden = connected;
+  },
   onOperator: (payload) => panels.renderOperator(payload),
   onProjects: (items) => {
     state.projects = items;
@@ -107,9 +111,7 @@ commands.setupEventHandlers({
 panels.setFocus("state");
 macActivity.refresh();
 
-if (!stream.connectOperatorStream()) {
-  window.setInterval(stream.refreshOperator, 2000);
-}
+stream.connectOperatorStream();
 window.setInterval(stream.refreshProjects, 8000);
 window.setInterval(macActivity.refresh, 10000);
 window.setInterval(graph.refresh, 60000);

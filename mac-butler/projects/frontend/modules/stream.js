@@ -1,6 +1,7 @@
-export function createOperatorStream({ bootstrap, onOperator, onProjects }) {
-  let operatorStream = null;
+export function createOperatorStream({ bootstrap, onConnectionChange, onOperator, onProjects }) {
+  let operatorSocket = null;
   let operatorStreamRetryTimer = null;
+  let operatorConnected = false;
 
   function handleOperatorTransportMessage(raw) {
     try {
@@ -40,62 +41,46 @@ export function createOperatorStream({ bootstrap, onOperator, onProjects }) {
     return `ws://${window.location.hostname || "127.0.0.1"}:3334/ws`;
   }
 
-  function scheduleOperatorReconnect(preferSse = false) {
+  function updateConnectionStatus(connected) {
+    operatorConnected = connected;
+    onConnectionChange(connected);
+  }
+
+  function scheduleOperatorReconnect() {
     if (operatorStreamRetryTimer) return;
     operatorStreamRetryTimer = window.setTimeout(() => {
       operatorStreamRetryTimer = null;
-      connectOperatorStream(preferSse);
-      refreshOperator();
-    }, 1500);
+      connectOperatorStream();
+    }, 3000);
   }
 
-  function connectOperatorSse() {
-    if (!window.EventSource) return false;
-    if (operatorStream) {
-      operatorStream.close();
-    }
-
-    const stream = new EventSource("/api/stream");
-    operatorStream = stream;
-
-    stream.onmessage = (event) => {
-      handleOperatorTransportMessage(event.data);
-    };
-
-    stream.onerror = () => {
-      try {
-        stream.close();
-      } catch (_error) {}
-      if (operatorStream === stream) {
-        operatorStream = null;
-      }
-      scheduleOperatorReconnect(false);
-    };
-
-    return true;
-  }
-
-  function connectOperatorWebSocket() {
+  function connectOperatorStream() {
     if (!window.WebSocket) return false;
-    if (operatorStream) {
-      operatorStream.close();
+    if (operatorSocket) {
+      operatorSocket.close();
     }
 
     const socket = new WebSocket(operatorWsUrl());
-    operatorStream = socket;
+    operatorSocket = socket;
 
     socket.onmessage = (event) => {
       handleOperatorTransportMessage(event.data);
     };
 
+    socket.onopen = () => {
+      updateConnectionStatus(true);
+    };
+
     socket.onclose = () => {
-      if (operatorStream === socket) {
-        operatorStream = null;
+      if (operatorSocket === socket) {
+        operatorSocket = null;
       }
-      scheduleOperatorReconnect(true);
+      updateConnectionStatus(false);
+      scheduleOperatorReconnect();
     };
 
     socket.onerror = () => {
+      updateConnectionStatus(false);
       try {
         socket.close();
       } catch (_error) {}
@@ -104,24 +89,20 @@ export function createOperatorStream({ bootstrap, onOperator, onProjects }) {
     return true;
   }
 
-  function connectOperatorStream(preferSse = false) {
-    if (!preferSse && connectOperatorWebSocket()) return true;
-    return connectOperatorSse();
-  }
-
   function hasActiveStream() {
-    return Boolean(operatorStream);
+    return operatorConnected;
   }
 
   function cleanup() {
-    if (operatorStream) {
-      operatorStream.close();
-      operatorStream = null;
+    if (operatorSocket) {
+      operatorSocket.close();
+      operatorSocket = null;
     }
     if (operatorStreamRetryTimer) {
       window.clearTimeout(operatorStreamRetryTimer);
       operatorStreamRetryTimer = null;
     }
+    updateConnectionStatus(false);
   }
 
   return {
