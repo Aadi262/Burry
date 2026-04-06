@@ -28,6 +28,7 @@ class TriggerTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:3333", printed)
 
     @patch("trigger._write_session_end_summary")
+    @patch("trigger._observe_session_project_relationships")
     @patch("butler.reset_conversation_context")
     @patch("butler.handle_input")
     @patch("voice.stt.listen_for_command", side_effect=["hello"])
@@ -40,6 +41,7 @@ class TriggerTests(unittest.TestCase):
         _mock_listen,
         mock_handle,
         _mock_reset_context,
+        mock_observe,
         _mock_summary,
     ):
         original_shutdown = trigger._shutdown_event
@@ -56,7 +58,50 @@ class TriggerTests(unittest.TestCase):
 
         transitioned_states = [call.args[0] for call in mock_transition.call_args_list if call.args]
         self.assertIn(trigger.State.LISTENING, transitioned_states)
+        mock_observe.assert_called_once()
         trigger._shutdown_event = original_shutdown
+
+    @patch(
+        "projects.load_projects",
+        return_value=[
+            {
+                "name": "mac-butler",
+                "aliases": ["butler"],
+                "path": "~/Burry/mac-butler",
+            },
+            {
+                "name": "Adpilot",
+                "aliases": ["adpilot"],
+                "path": "/Users/adityatiwari/Desktop/Development/Adpilot",
+            },
+        ],
+    )
+    def test_session_touched_projects_uses_aliases_and_paths(self, _mock_load_projects):
+        touched = trigger._session_touched_projects(
+            ["open adpilot and then check mac-butler"],
+            [{"type": "run_command", "cwd": "~/Burry/mac-butler"}],
+        )
+
+        self.assertIn("mac-butler", touched)
+        self.assertIn("Adpilot", touched)
+
+    @patch("memory.graph.observe_project_relationships")
+    @patch("trigger._session_touched_projects", return_value=["mac-butler"])
+    def test_observe_session_project_relationships_passes_aggregated_context(
+        self,
+        mock_touched,
+        mock_observe,
+    ):
+        trigger._observe_session_project_relationships(
+            ["open mac-butler", "run the tests"],
+            ["Opening the project.", "Tests are green."],
+            [{"type": "open_project", "name": "mac-butler"}],
+        )
+
+        mock_touched.assert_called_once()
+        self.assertEqual(mock_observe.call_args.kwargs["text"], "open mac-butler run the tests")
+        self.assertEqual(mock_observe.call_args.kwargs["speech"], "Opening the project. Tests are green.")
+        self.assertEqual(mock_observe.call_args.kwargs["touched_projects"], ["mac-butler"])
 
 
 if __name__ == "__main__":

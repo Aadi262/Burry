@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -178,6 +179,106 @@ Session log:
         return
 
 
+def _latest_recorded_session() -> dict | None:
+    try:
+        from memory.store import load_recent_sessions
+    except Exception:
+        return None
+
+    sessions = load_recent_sessions(1)
+    if not sessions:
+        return None
+    latest = sessions[0]
+    return dict(latest) if isinstance(latest, dict) else None
+
+
+def _accumulate_session_outcome(
+    *,
+    last_timestamp: str,
+    session_speeches: list[str],
+    session_actions: list[dict],
+) -> str:
+    latest = _latest_recorded_session()
+    if not latest:
+        return last_timestamp
+
+    timestamp = str(latest.get("timestamp", "")).strip()
+    if not timestamp or timestamp == last_timestamp:
+        return last_timestamp
+
+    speech = " ".join(str(latest.get("speech", "")).split()).strip()
+    if speech:
+        session_speeches.append(speech)
+    for action in list(latest.get("actions") or []):
+        if isinstance(action, dict):
+            session_actions.append(dict(action))
+    return timestamp
+
+
+def _session_touched_projects(texts: list[str], actions: list[dict]) -> list[str]:
+    try:
+        from projects import load_projects
+    except Exception:
+        return []
+
+    combined_parts = list(texts)
+    for action in actions:
+        combined_parts.extend(
+            [
+                str(action.get("name", "")),
+                str(action.get("project", "")),
+                str(action.get("path", "")),
+                str(action.get("cwd", "")),
+            ]
+        )
+    combined = " ".join(part for part in combined_parts if part)
+    normalized = re.sub(r"[^a-z0-9]+", "", combined.lower())
+    touched: list[str] = []
+
+    for project in load_projects():
+        name = str(project.get("name", "")).strip()
+        if not name:
+            continue
+        aliases = [name] + [str(alias).strip() for alias in list(project.get("aliases") or []) if str(alias).strip()]
+        path = os.path.expanduser(str(project.get("path", "") or "")).strip()
+        path_key = path.lower().rstrip("/")
+        matched = any(re.sub(r"[^a-z0-9]+", "", alias.lower()) in normalized for alias in aliases if alias)
+        if not matched and path_key:
+            for action in actions:
+                for key in ("path", "cwd"):
+                    candidate = os.path.expanduser(str(action.get(key, "") or "")).strip().lower().rstrip("/")
+                    if candidate and (candidate == path_key or candidate.startswith(path_key + os.sep.lower())):
+                        matched = True
+                        break
+                if matched:
+                    break
+        if matched and name not in touched:
+            touched.append(name)
+    return touched
+
+
+def _observe_session_project_relationships(
+    session_texts: list[str],
+    session_speeches: list[str],
+    session_actions: list[dict],
+) -> None:
+    text = " ".join(" ".join(str(item or "").split()).strip() for item in session_texts if str(item or "").strip()).strip()
+    speech = " ".join(" ".join(str(item or "").split()).strip() for item in session_speeches if str(item or "").strip()).strip()
+    if not text and not speech and not session_actions:
+        return
+    try:
+        from memory.graph import observe_project_relationships
+    except Exception:
+        return
+
+    observe_project_relationships(
+        text=text,
+        speech=speech,
+        actions=session_actions,
+        touched_projects=_session_touched_projects(session_texts, session_actions),
+    )
+
+
 def _run_continuous_session() -> None:
     """Listen for commands in a loop — no clap needed between commands.
     Exits when the user says 'sleep' / 'go quiet' (state → IDLE).
@@ -188,6 +289,10 @@ def _run_continuous_session() -> None:
     from voice.stt import listen_for_command
 
     print("[Trigger] Continuous session started — just speak, no clap needed between commands")
+    session_texts: list[str] = []
+    session_speeches: list[str] = []
+    session_actions: list[dict] = []
+    last_session_timestamp = ""
     try:
         while not _shutdown_event.is_set():
             # Sleep / go-quiet command transitions state to IDLE — that ends the session
@@ -214,8 +319,15 @@ def _run_continuous_session() -> None:
             if _shutdown_event.is_set():
                 break
             if text and len(text) > 2:
+                session_texts.append(text)
                 handle_input(text)  # blocking — returns only after TTS is done
+                last_session_timestamp = _accumulate_session_outcome(
+                    last_timestamp=last_session_timestamp,
+                    session_speeches=session_speeches,
+                    session_actions=session_actions,
+                )
     finally:
+        _observe_session_project_relationships(session_texts, session_speeches, session_actions)
         reset_conversation_context()
         _write_session_end_summary()
         _clear_session_flag()
