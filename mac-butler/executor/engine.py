@@ -270,6 +270,8 @@ class Executor:
                 action["direction"],
                 action.get("amount", 15),
             )
+        if t == "spotify_now_playing":
+            return self.spotify_now_playing()
         if t == "create_folder":
             return self.create_folder(action["path"])
         if t == "open_url_in_browser":
@@ -619,6 +621,22 @@ class Executor:
         )
         subprocess.Popen(["osascript", "-e", script])
         return f"volume {direction}"
+
+    def spotify_now_playing(self) -> str:
+        script = (
+            'tell application "Spotify"\n'
+            "    if player state is stopped then return \"Nothing is playing\"\n"
+            "    return name of current track & \" by \" & artist of current track\n"
+            "end tell"
+        )
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        track = " ".join((result.stdout or "").split()).strip()
+        return track or "Nothing is playing"
 
     # ─────────────────────────────────────────────────────
     # FILE + FOLDER ACTIONS

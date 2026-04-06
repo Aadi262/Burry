@@ -12,6 +12,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -52,6 +53,7 @@ from memory.store import (
     update_project_state,
 )
 from runtime import (
+    clear_confirmation,
     consume_project_context_hint,
     load_runtime_state,
     notify,
@@ -61,6 +63,8 @@ from runtime import (
     note_memory_recall,
     note_tool_finished,
     note_tool_started,
+    request_confirmation,
+    resolve_confirmation,
 )
 from state import State, state
 from tasks import get_active_tasks
@@ -1130,6 +1134,19 @@ def _project_path_for_name(name: str) -> str:
     return str(project.get("path", "") or "").strip()
 
 
+def _minutes_from_time_spec(value: str) -> int:
+    text = " ".join(str(value or "").lower().split()).strip()
+    if not text:
+        return 30
+    match = re.search(r"(\d+)", text)
+    if not match:
+        return 30
+    amount = max(1, int(match.group(1)))
+    if any(token in text for token in ("hour", "hr", "hrs")):
+        return amount * 60
+    return amount
+
+
 def _tool_chat_messages(ctx: dict, user_text: str) -> list[dict]:
     formatted = str(ctx.get("formatted", "") or "").strip()
     recent = _recent_turns_prompt_text()
@@ -1306,6 +1323,197 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
                 "status": result.get("status", "ok"),
                 "result": _clip_tool_payload(result.get("result", "") or result.get("error", "")),
             },
+        }
+
+    if name == "git_commit":
+        project_name = " ".join(str(args.get("project", "")).split()).strip()
+        message_hint = " ".join(str(args.get("message_hint", "")).split()).strip()
+        cwd = _project_path_for_name(project_name) or _first_workspace_path(ctx) or "~/Burry/mac-butler"
+        expanded_cwd = os.path.expanduser(cwd)
+        note_tool_started(name, project_name or expanded_cwd or "generating commit message")
+        diff = subprocess.run(
+            ["git", "diff", "--cached"],
+            cwd=expanded_cwd,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        staged_diff = str(diff.stdout or "").strip()
+        if not staged_diff:
+            note_tool_finished(name, "ok", "No staged changes to commit")
+            return {
+                "tool": name,
+                "actions": [{"type": "git_commit", "cwd": expanded_cwd}],
+                "results": [{"action": "git_commit", "status": "ok", "result": "No staged changes to commit"}],
+                "payload": {"cwd": expanded_cwd, "message": "", "status": "ok", "result": "No staged changes to commit"},
+            }
+
+        prompt = f"""Write a concise git commit message for these staged changes.
+Use imperative mood. No quotes. Under 12 words.
+Hint: {message_hint or "none"}
+
+Diff:
+{staged_diff[:6000]}
+"""
+        suggestion = _normalize_response(
+            _raw_llm(prompt, model=BUTLER_MODELS.get("voice") or "gemma4:e4b", max_tokens=40, temperature=0.2),
+            max_words=12,
+            single_sentence=True,
+        ).strip(" .")
+        if not suggestion:
+            suggestion = message_hint or "Update staged changes"
+
+        try:
+            speak(f"I suggest commit message: {suggestion}. Confirm in the HUD if you want me to commit.")
+        except Exception:
+            pass
+        if not _wait_for_runtime_confirmation(f"Confirm git commit: {suggestion}", "git_commit", timeout_s=30):
+            note_tool_finished(name, "ok", "Commit skipped - no confirmation")
+            return {
+                "tool": name,
+                "actions": [{"type": "git_commit", "cwd": expanded_cwd, "message": suggestion}],
+                "results": [{"action": "git_commit", "status": "ok", "result": "Commit skipped - no confirmation"}],
+                "payload": {"cwd": expanded_cwd, "message": suggestion, "status": "ok", "result": "Commit skipped - no confirmation"},
+            }
+
+        commit = subprocess.run(
+            ["git", "commit", "-m", suggestion],
+            cwd=expanded_cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        commit_result = " ".join((commit.stdout or commit.stderr or "").split()).strip()
+        status = "ok" if commit.returncode == 0 else "error"
+        note_tool_finished(name, status, commit_result or suggestion)
+        return {
+            "tool": name,
+            "actions": [{"type": "git_commit", "cwd": expanded_cwd, "message": suggestion}],
+            "results": [{"action": "git_commit", "status": status, "result": commit_result or suggestion}],
+            "payload": {"cwd": expanded_cwd, "message": suggestion, "status": status, "result": _clip_tool_payload(commit_result or suggestion)},
+        }
+
+    if name == "open_app":
+        app = " ".join(str(args.get("app", "")).split()).strip()
+        mode = " ".join(str(args.get("mode", "smart")).split()).strip() or "smart"
+        note_tool_started(name, app or "opening app")
+        action = {"type": "open_app", "app": app, "mode": mode}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "open_app", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"app": app, "mode": mode, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "spotify_control":
+        action_name = " ".join(str(args.get("action", "")).split()).strip().lower()
+        query = " ".join(str(args.get("query", "")).split()).strip()
+        note_tool_started(name, action_name or query or "spotify control")
+        if action_name == "play" and query:
+            action = {"type": "search_and_play", "query": query}
+        elif action_name == "play":
+            action = {"type": "play_music", "mode": "focus"}
+        elif action_name == "pause":
+            action = {"type": "spotify_pause"}
+        elif action_name == "next":
+            action = {"type": "spotify_next"}
+        elif action_name == "prev":
+            action = {"type": "spotify_prev"}
+        elif action_name == "volume_up":
+            action = {"type": "spotify_volume", "direction": "up", "amount": 15}
+        elif action_name == "volume_down":
+            action = {"type": "spotify_volume", "direction": "down", "amount": 15}
+        else:
+            action = {"type": "spotify_now_playing"}
+        results = executor.run([action])
+        result = results[0] if results else {"action": action.get("type", "spotify_control"), "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"action": action_name, "query": query, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "set_reminder":
+        time_spec = " ".join(str(args.get("time", "")).split()).strip()
+        message = " ".join(str(args.get("message", "")).split()).strip() or "Butler reminder"
+        minutes = _minutes_from_time_spec(time_spec)
+        note_tool_started(name, f"{minutes} minutes")
+        action = {"type": "remind_in", "minutes": minutes, "message": message}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "remind_in", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"minutes": minutes, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "ssh_vps":
+        command = " ".join(str(args.get("command", "")).split()).strip()
+        host = _default_vps_host()
+        note_tool_started(name, command or host or "running vps command")
+        action = {"type": "ssh_command", "host": host, "cmd": command}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "ssh_command", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"host": host, "command": command, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "obsidian_note":
+        title = " ".join(str(args.get("title", "")).split()).strip() or "Quick note"
+        content = str(args.get("content", "")).strip()
+        note_tool_started(name, title)
+        action = {"type": "obsidian_note", "title": title, "content": content, "folder": "Daily"}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "obsidian_note", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"title": title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "send_notification":
+        title = " ".join(str(args.get("title", "")).split()).strip() or "Burry"
+        message = " ".join(str(args.get("message", "")).split()).strip()
+        note_tool_started(name, title)
+        action = {"type": "notify", "title": title, "message": message}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "notify", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"title": title, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "web_search_summarize":
+        from browser.agent import BrowsingAgent
+        from brain.ollama_client import pick_butler_model
+
+        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
+        note_tool_started(name, query or "web search")
+        browser = BrowsingAgent(model=pick_butler_model("voice"))
+        result = browser.search(query, question=user_text or query)
+        summary = _normalize_response(str(result.get("result", "")).strip(), max_words=40) or "I couldn't get a useful web summary right now."
+        note_tool_finished(name, result.get("status", "ok"), summary)
+        return {
+            "tool": name,
+            "actions": [{"type": "browse_web", "mode": "search", "query": query}],
+            "results": [{"action": "web_search_summarize", "status": result.get("status", "ok"), "result": summary}],
+            "payload": {"query": query, "status": result.get("status", "ok"), "result": _clip_tool_payload(summary), "data": _clip_tool_payload(result.get("data", {}))},
         }
 
     if name == "browse_web":
@@ -2091,6 +2299,28 @@ def _speak_or_print(text: str, test_mode: bool = False) -> None:
     else:
         speak(text)
         notify("Burry", text[:180], subtitle="Response")
+
+
+def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30) -> bool:
+    pending = request_confirmation(prompt, action=action, timeout_s=timeout_s)
+    deadline = time.monotonic() + max(1, timeout_s)
+    while time.monotonic() < deadline:
+        runtime_state = load_runtime_state()
+        current = runtime_state.get("pending_confirmation", {}) if isinstance(runtime_state, dict) else {}
+        if current.get("id") != pending.get("id"):
+            time.sleep(0.25)
+            continue
+        status = str(current.get("status", "")).strip().lower()
+        if status == "approved":
+            clear_confirmation(pending["id"])
+            return True
+        if status == "rejected":
+            clear_confirmation(pending["id"])
+            return False
+        time.sleep(0.25)
+    resolve_confirmation(pending["id"], "timeout")
+    clear_confirmation(pending["id"])
+    return False
 
 
 def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> None:
