@@ -3094,6 +3094,12 @@ def main() -> None:
         load_configured_mcp_servers(get_toolkit())
     except Exception:
         pass
+    # Start A2A server — makes Burry discoverable by other AI agents (Phase 8)
+    try:
+        from channels.a2a_server import start_a2a_server
+        start_a2a_server()
+    except Exception:
+        pass
     _report_brain_backend_status()
     parser = argparse.ArgumentParser(description="Mac Butler")
     parser.add_argument("--test", action="store_true", help="Print-only, no voice or execution")
