@@ -295,6 +295,23 @@ body[data-state="speaking"] {
 
 .panel {
   padding: 18px;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+body[data-state="thinking"] .panel {
+  border-color: rgba(255, 170, 0, 0.35);
+}
+
+body[data-state="speaking"] .panel {
+  border-color: rgba(232, 244, 255, 0.25);
+}
+
+body[data-state="listening"] .panel {
+  border-color: rgba(0, 212, 255, 0.35);
+}
+
+body[data-state="executing"] .panel {
+  border-color: rgba(255, 170, 0, 0.45);
 }
 
 .panel-label {
