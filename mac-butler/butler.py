@@ -2544,6 +2544,17 @@ def _record(
             add_to_working_memory(text[:200], speech[:200])
         except Exception:
             pass
+        # Record RL episode for model improvement (Phase 11)
+        try:
+            from memory.rl_loop import record_episode
+            _model = learning_meta.get("model", "") if learning_meta else ""
+            _outcome = "success" if speech and not any(
+                str(r.get("status", "")).lower() == "error"
+                for r in (results or []) if isinstance(r, dict)
+            ) else "failure"
+            record_episode(text, intent_name or "unknown", _model, speech, _outcome)
+        except Exception:
+            pass
         record_session(text[:100], speech[:200], actions, results=results or [])
         save_session(
             {

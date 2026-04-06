@@ -471,6 +471,16 @@ def pick_butler_model(role: str, override: str | None = None) -> str:
     chain.extend(BUTLER_MODEL_CHAINS.get(role, []))
     chain.append(BUTLER_MODELS.get(role, ""))
     chain.append(OLLAMA_MODEL)
+    # RL-informed model selection (Phase 11)
+    try:
+        from memory.rl_loop import get_best_model_for_intent
+        candidates = [m for m in chain if m]
+        if candidates:
+            rl_best = get_best_model_for_intent(role, candidates)
+            if rl_best and rl_best not in chain[:1]:
+                chain.insert(0, rl_best)
+    except Exception:
+        pass
     return _pick_model_from_chain(chain, f"butler:{role}")
 
 
