@@ -718,8 +718,11 @@ def route(text: str) -> IntentResult:
     }:
         return Intent("what_next", confidence=0.95, raw=text)
 
-    if lowered in {"bye", "goodbye", "sleep", "go quiet", "go to sleep", "stop listening"}:
+    if lowered in {"bye", "goodbye", "sleep", "go quiet", "go to sleep", "stop listening", "burry sleep", "go to sleep burry"}:
         return Intent("butler_sleep", raw=text)
+
+    if re.search(r"\b(wake up|wake|burry wake|start listening|hey burry|listen up)\b", lowered):
+        return Intent("butler_wake", raw=text)
 
     if lowered in {"recap", "recap me", "tasks", "my tasks", "pending tasks", "what are my tasks"}:
         return Intent("what_next", confidence=0.95, raw=text)

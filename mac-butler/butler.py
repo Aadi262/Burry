@@ -2792,10 +2792,17 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
     intent_name = getattr(intent, "name", getattr(intent, "intent", ""))
 
     if intent_name == "butler_sleep":
-        response = "Going quiet."
+        response = "Going quiet. Say wake up to start again."
         _speak_or_print(response, test_mode=test_mode)
         _record(intent.raw, response, [], intent_name=intent_name)
         state.transition(State.IDLE)
+        return True
+
+    if intent_name == "butler_wake":
+        response = "I'm listening."
+        _speak_or_print(response, test_mode=test_mode)
+        _record(intent.raw, response, [], intent_name=intent_name)
+        state.transition(State.WAITING)
         return True
 
     if intent_name == "butler_help":
@@ -2912,7 +2919,27 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "unknown":
         response = _unknown_response_for_text(effective_text)
         if not response and _should_use_brain_for_unknown(effective_text):
+            # Fast-path: direct keyword routing so user never waits for LLM to pick a tool
+            import re as _re
+            _low = effective_text.lower()
+            if _re.search(r"\b(research|look up|look into|find out|investigate)\b", _low):
+                _speak_or_print("On it, researching now.", test_mode=test_mode)
+                _query = _re.sub(r"^(research|look up|look into|find out|investigate)\s+", "", _low).strip()
+                tool_reply = {"speech": "", "actions": [], "results": []}
+                try:
+                    from brain.toolkit import get_toolkit
+                    import brain.tools_registry  # noqa
+                    result = get_toolkit().call("deep_research", question=_query or effective_text)
+                    tool_reply = {"speech": str(result), "actions": [{"type": "deep_research"}], "results": [{"status": "ok", "result": str(result)}]}
+                except Exception as _exc:
+                    tool_reply = {"speech": f"Research failed: {_exc}", "actions": [], "results": []}
+                response = tool_reply.get("speech", "") or "I couldn't find anything on that."
+                _speak_or_print(response, test_mode=test_mode)
+                _record(text, response, tool_reply.get("actions", []), results=tool_reply.get("results", []), intent_name="deep_research", learning_meta=brain_learning_meta)
+                state.transition(State.WAITING if not test_mode else State.IDLE)
+                return
             ctx = build_structured_context()
+            _speak_or_print("Let me think about that.", test_mode=test_mode)
             tool_reply = _tool_chat_response(effective_text, ctx, model=model)
             response = tool_reply.get("speech", "") or _unknown_brain_response(effective_text, model=model)
             if response:
@@ -2995,6 +3022,24 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "question":
+        # Acknowledge immediately so user knows we're working
+        import re as _re2
+        _low2 = effective_text.lower()
+        if _re2.search(r"\b(research|look up|look into|find out|investigate)\b", _low2):
+            _speak_or_print("On it, researching now.", test_mode=test_mode)
+            _q2 = _re2.sub(r"^(research|look up|look into|find out|investigate)\s+", "", _low2).strip()
+            try:
+                from brain.toolkit import get_toolkit
+                import brain.tools_registry  # noqa
+                result = get_toolkit().call("deep_research", question=_q2 or effective_text)
+                speech = str(result)
+            except Exception as _exc:
+                speech = f"Research failed: {_exc}"
+            _speak_or_print(speech, test_mode=test_mode)
+            _record(text, speech, [{"type": "deep_research"}], results=[{"status": "ok"}], intent_name="question", learning_meta=brain_learning_meta)
+            state.transition(State.WAITING if not test_mode else State.IDLE)
+            return
+        _speak_or_print("One moment.", test_mode=test_mode)
         tool_reply = _tool_chat_response(effective_text, ctx, model=model)
         speech = tool_reply.get("speech", "") or "I don't know yet. Ask again in a shorter way."
         _speak_or_print(speech, test_mode=test_mode)

@@ -957,7 +957,7 @@ def _call_ollama_inner(
     url, headers, backend = _get_request_target_for_model(model)
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 12
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 45
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)
@@ -1113,7 +1113,7 @@ def chat_with_ollama(
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
     request_url = url.replace("/api/generate", "/api/chat")
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 12
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 45
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)

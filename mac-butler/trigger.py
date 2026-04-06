@@ -293,6 +293,11 @@ def _run_continuous_session() -> None:
     session_speeches: list[str] = []
     session_actions: list[dict] = []
     last_session_timestamp = ""
+    _handle_thread: threading.Thread | None = None
+
+    def _run_handle(cmd: str) -> None:
+        handle_input(cmd)
+
     try:
         while not _shutdown_event.is_set():
             # Sleep / go-quiet command transitions state to IDLE — that ends the session
@@ -300,14 +305,16 @@ def _run_continuous_session() -> None:
                 print("[Trigger] Session ended (sleep command). Clap to start a new session.")
                 break
 
-            # Wait if Butler is still thinking / speaking
-            if state.is_busy:
+            # Always keep listening — even while thinking.
+            # Speaking: skip (don't talk over Burry's response)
+            from state import State as _State
+            if state.current == _State.SPEAKING:
                 time.sleep(0.05)
                 continue
 
             try:
-                if state.current != State.LISTENING:
-                    state.transition(State.LISTENING)
+                if state.current not in (_State.LISTENING,):
+                    state.transition(_State.LISTENING)
                 text = listen_for_command(timeout=10.0, stop_event=_shutdown_event)
             except Exception as exc:
                 if _shutdown_event.is_set():
@@ -320,7 +327,25 @@ def _run_continuous_session() -> None:
                 break
             if text and len(text) > 2:
                 session_texts.append(text)
-                handle_input(text)  # blocking — returns only after TTS is done
+                # If a handle thread is already running, treat new input as interrupt
+                if _handle_thread is not None and _handle_thread.is_alive():
+                    try:
+                        from butler import interrupt_burry
+                        interrupt_burry(text)
+                        print(f"[Trigger] Interrupt sent: {text[:50]}")
+                    except Exception:
+                        pass
+                    last_session_timestamp = _accumulate_session_outcome(
+                        last_timestamp=last_session_timestamp,
+                        session_speeches=session_speeches,
+                        session_actions=session_actions,
+                    )
+                    continue
+                # Non-blocking: run handle_input in background thread so mic stays open
+                _handle_thread = threading.Thread(target=_run_handle, args=(text,), daemon=True)
+                _handle_thread.start()
+                _handle_thread.join()  # still wait, but thread is interruptible
+                _handle_thread = None
                 last_session_timestamp = _accumulate_session_outcome(
                     last_timestamp=last_session_timestamp,
                     session_speeches=session_speeches,
