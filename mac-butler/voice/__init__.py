@@ -3,6 +3,7 @@
 
 from .tts import describe_tts, shape_for_speech, speak
 from .stt import (
+    describe_stt,
     is_voice_follow_up_available,
     listen_continuous,
     listen_for_command,
@@ -11,6 +12,7 @@ from .stt import (
 
 __all__ = [
     "describe_tts",
+    "describe_stt",
     "speak",
     "shape_for_speech",
     "is_voice_follow_up_available",

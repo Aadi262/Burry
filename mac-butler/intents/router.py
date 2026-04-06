@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 import urllib.parse
 
+from contact_utils import normalize_email
+
 APP_MAP = {
     "visual studio code": "Visual Studio Code",
     "vs code": "Visual Studio Code",
@@ -26,6 +28,12 @@ APP_MAP = {
     "discord": "Discord",
     "telegram": "Telegram",
     "whatsapp": "WhatsApp",
+    "google sheet": ("browser", "https://sheets.google.com"),
+    "google sheets": ("browser", "https://sheets.google.com"),
+    "google doc": ("browser", "https://docs.google.com"),
+    "google docs": ("browser", "https://docs.google.com"),
+    "google drive": ("browser", "https://drive.google.com"),
+    "google meet": ("browser", "https://meet.google.com"),
     "postman": "Postman",
     "tableplus": "TablePlus",
     "antigravity": "Antigravity",
@@ -40,6 +48,8 @@ APP_MAP = {
     "x": ("browser", "https://x.com"),
     "linear": ("browser", "https://linear.app"),
     "vercel": ("browser", "https://vercel.com"),
+    "chatgpt": ("browser", "https://chat.openai.com"),
+    "perplexity": ("browser", "https://perplexity.ai"),
 }
 
 PROJECT_MAP = {
@@ -99,6 +109,8 @@ GENERIC_FILE_NAMES = {
     "name",
     "the file",
 }
+
+LOW_SIGNAL_MAIL_WORDS = {"", "it", "this", "that", "someone", "mail", "email"}
 
 
 class Intent:
@@ -234,6 +246,50 @@ class Intent:
                 "cmd": "codex",
                 "cwd": "~/Burry/mac-butler",
             }
+        if name == "compose_email":
+            return {
+                "type": "open_url_in_browser",
+                "url": _gmail_compose_url(
+                    params.get("recipient", ""),
+                    params.get("subject", ""),
+                    params.get("body", ""),
+                ),
+            }
+        if name == "whatsapp_open":
+            return {
+                "type": "whatsapp_open",
+                "contact": params.get("contact", ""),
+            }
+        if name == "whatsapp_send":
+            return {
+                "type": "whatsapp_send",
+                "contact": params.get("contact", ""),
+                "phone": params.get("phone", ""),
+                "message": params.get("message", ""),
+            }
+        if name == "browser_new_tab":
+            return {
+                "type": "browser_new_tab",
+                "url": params.get("url", ""),
+            }
+        if name == "browser_search":
+            return {
+                "type": "browser_search",
+                "query": params.get("query", ""),
+                "new_tab": params.get("new_tab", True),
+            }
+        if name == "browser_close_tab":
+            return {"type": "browser_close_tab"}
+        if name == "browser_close_window":
+            return {"type": "browser_close_window"}
+        if name == "pause_video":
+            return {"type": "pause_video"}
+        if name == "volume_set":
+            return {"type": "volume_set", "level": params.get("level", 50)}
+        if name == "system_volume":
+            return {"type": "system_volume", "direction": params.get("direction", "up")}
+        if name == "screenshot":
+            return {"type": "screenshot"}
         return None
 
     def needs_llm(self) -> bool:
@@ -277,6 +333,31 @@ class Intent:
             "set_reminder": f"Reminder in {self.params.get('minutes', 30)} minutes.",
             "open_last_workspace": "Reopening your last workspace.",
             "open_codex": "Opening Codex.",
+            "compose_email": (
+                f"Drafting an email to {self.params.get('recipient')}."
+                if self.params.get("recipient")
+                else "Opening Gmail compose."
+            ),
+            "whatsapp_open": (
+                f"Opening WhatsApp for {self.params.get('contact')}."
+                if self.params.get("contact")
+                else "Opening WhatsApp."
+            ),
+            "whatsapp_send": (
+                f"Sending a WhatsApp message to {self.params.get('contact')}."
+                if self.params.get("contact")
+                else "Sending the WhatsApp message."
+            ),
+            "browser_new_tab": "Opening a new tab.",
+            "browser_search": "Opening a new tab and searching.",
+            "browser_close_tab": "Closing the tab.",
+            "browser_close_window": "Closing the window.",
+            "pause_video": "Pausing the video.",
+            "volume_set": f"Setting volume to {self.params.get('level', 50)}.",
+            "system_volume": f"Volume {self.params.get('direction', 'up')}.",
+            "screenshot": "Taking a screenshot.",
+            "mcp_status": "Checking M C P status.",
+            "butler_sleep": "Going quiet.",
         }
         return responses.get(self.name, "")
 
@@ -306,6 +387,99 @@ def is_ambiguous_song_query(query: str) -> bool:
 
 def _normalize_spaces(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
+
+
+def _normalize_voice_aliases(text: str) -> str:
+    normalized = _normalize_spaces(text)
+    replacements = (
+        (r"\byou\s+tube\b", "youtube"),
+        (r"\bu\s*tube\b", "youtube"),
+        (r"\byou\s+do\b", "youtube"),
+        (r"\bg\s*mail\b", "gmail"),
+        (r"\be\s*mail\b", "email"),
+    )
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    return _normalize_spaces(normalized)
+
+
+def _clean_lookup_query(query: str) -> str:
+    cleaned = _normalize_spaces(query)
+    cleaned = re.sub(r"^(?:for|about|please|the)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+(?:please|thanks|thank you)$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" .!?")
+
+
+def _extract_news_hours(text: str) -> tuple[str, int]:
+    cleaned = _normalize_spaces(text)
+    hours = 24
+
+    def replace_match(match: re.Match) -> str:
+        nonlocal hours
+        amount = int(match.group(1))
+        unit = match.group(2).lower()
+        hours = amount * 24 if unit.startswith("day") else amount
+        return " "
+
+    cleaned = re.sub(
+        r"\s*(?:in\s+)?(?:the\s+)?(?:last|past)\s+(\d+)\s*(hours?|days?)\b",
+        replace_match,
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b(?:today|in the last day|in the past day)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = _normalize_spaces(cleaned)
+    return cleaned, hours
+
+
+def _extract_news_request(text: str) -> dict | None:
+    normalized = _normalize_voice_aliases(text)
+    lowered = normalized.lower()
+    if not any(token in lowered for token in ("news", "happened", "happening")):
+        return None
+
+    cleaned, hours = _extract_news_hours(lowered)
+    if re.search(r"\b(?:air|ai)\s+news\b", cleaned):
+        return {"topic": "AI", "hours": max(1, hours)}
+    if re.search(r"\btech\s+news\b", cleaned):
+        return {"topic": "tech", "hours": max(1, hours)}
+    patterns = (
+        r"(?:tell me|show me|give me|can you tell me|can you show me|what is|what's)\s+(?:the\s+)?(?:latest|recent|current|breaking)\s+news\s+(.+)$",
+        r"(?:latest|recent|current|breaking)\s+news\s+(.+)$",
+        r"(?:news)\s+(?:about|on|for|regarding|in)\s+(.+)$",
+        r"(?:what happened|what's happening|whats happening)\s+in\s+(.+)$",
+        r"(.+?)\s+news$",
+    )
+
+    topic = ""
+    for pattern in patterns:
+        match = re.search(pattern, cleaned)
+        if match:
+            topic = match.group(1).strip(" .!?")
+            break
+
+    if not topic:
+        return None
+
+    topic = re.sub(r"^(?:on|about|for|regarding|in)\s+", "", topic).strip()
+    topic = _clean_lookup_query(topic)
+    topic = re.sub(r"\bair news\b", "ai news", topic, flags=re.IGNORECASE)
+    topic = re.sub(r"\bair\b", "AI", topic, flags=re.IGNORECASE)
+    topic = re.sub(r"\s+", " ", topic).strip(" .!?")
+
+    if not topic:
+        topic = "AI and tech news"
+    elif topic.lower() == "tech":
+        topic = "tech"
+    elif topic.lower() in {"ai", "ai news"}:
+        topic = "AI"
+
+    return {"topic": topic, "hours": max(1, hours)}
 
 
 def _phrase_present(haystack: str, needle: str) -> bool:
@@ -353,7 +527,104 @@ def _editor_name(editor: str) -> str:
 
 
 def _youtube_search_url(query: str) -> str:
-    return f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
+    return f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(_clean_lookup_query(query))}"
+
+
+def _normalize_spoken_email(recipient: str) -> str:
+    cleaned = _clean_lookup_query(recipient)
+    if not cleaned:
+        return ""
+    return normalize_email(cleaned)
+
+
+def _extract_compose_email_params(text: str) -> dict | None:
+    normalized = _normalize_spaces(text)
+    lowered = normalized.lower()
+    lowered = re.sub(r"\bmale\b", "mail", lowered)
+
+    match = re.search(
+        r"\b(?:compose|draft|write|send|open)\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b(.*)$",
+        lowered,
+    ) or re.search(r"\bnew\s+(?:mail|email)\b(.*)$", lowered)
+    if not match:
+        return None
+
+    remainder = _normalize_spaces(match.group(1))
+    subject = ""
+    body = ""
+
+    body_match = re.search(r"\b(?:body|message|saying|says)\s+(.+)$", remainder, flags=re.IGNORECASE)
+    if body_match:
+        body = body_match.group(1).strip()
+        remainder = remainder[: body_match.start()].strip()
+
+    subject_match = re.search(r"\b(?:subject|about)\s+(.+)$", remainder, flags=re.IGNORECASE)
+    if subject_match:
+        subject = subject_match.group(1).strip()
+        remainder = remainder[: subject_match.start()].strip()
+
+    recipient_match = re.search(r"\bto\s+(.+)$", remainder, flags=re.IGNORECASE)
+    recipient_text = recipient_match.group(1).strip() if recipient_match else ""
+    if recipient_text:
+        recipient_text = recipient_text.strip(" .!?")
+    recipient = _normalize_spoken_email(recipient_text)
+
+    return {
+        "recipient": recipient,
+        "subject": _clean_lookup_query(subject),
+        "body": " ".join(body.split()).strip(),
+    }
+
+
+def _extract_whatsapp_params(text: str) -> dict | None:
+    normalized = _normalize_spaces(text)
+    lowered = normalized.lower()
+
+    patterns = (
+        r"\bwhatsapp\s+(.+?)(?:\s+(?:message|saying)\s+(.+))?$",
+        r"\bsend\s+(?:a\s+)?whatsapp(?:\s+message)?\s+to\s+(.+?)(?:\s+(?:message|saying)\s+(.+))?$",
+        r"\bmessage\s+(.+?)\s+on\s+whatsapp(?:\s+(?:message|saying)\s+(.+))?$",
+        r"\bopen\s+whatsapp\s+chat(?:\s+with)?\s+(.+)$",
+    )
+
+    for pattern in patterns:
+        match = re.search(pattern, lowered, flags=re.IGNORECASE)
+        if not match:
+            continue
+        contact = _clean_lookup_query(match.group(1))
+        message = _clean_lookup_query(match.group(2)) if match.lastindex and match.lastindex >= 2 and match.group(2) else ""
+        phone = ""
+        if re.fullmatch(r"[\d+\-\s]{8,20}", contact):
+            phone = re.sub(r"[^\d+]", "", contact)
+            if phone.startswith("00"):
+                phone = f"+{phone[2:]}"
+        if not contact:
+            return None
+        return {
+            "contact": contact,
+            "phone": phone,
+            "message": message,
+        }
+    return None
+
+
+def _gmail_compose_url(recipient: str = "", subject: str = "", body: str = "") -> str:
+    base = "https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1"
+    cleaned = _normalize_spoken_email(recipient)
+    subject_clean = " ".join(str(subject or "").split()).strip()
+    body_clean = " ".join(str(body or "").split()).strip()
+    params: list[tuple[str, str]] = []
+    if cleaned.lower() in LOW_SIGNAL_MAIL_WORDS:
+        cleaned = ""
+    if cleaned:
+        params.append(("to", cleaned))
+    if subject_clean:
+        params.append(("su", subject_clean))
+    if body_clean:
+        params.append(("body", body_clean))
+    if not params:
+        return base
+    return f"{base}&{urllib.parse.urlencode(params)}"
 
 
 def extract_requested_filename(text: str) -> str:
@@ -389,11 +660,91 @@ def extract_requested_filename(text: str) -> str:
 
 
 def route(text: str) -> Intent:
-    lowered = _normalize_spaces(text.lower())
+    lowered = _normalize_voice_aliases(text.lower())
+    lowered_compact = _normalize_spaces(lowered)
 
-    youtube_match = re.search(r"(?:search|find)\s+(.+?)\s+(?:on|in)\s+youtube\b", lowered)
+    if lowered_compact in {
+        "what's next",
+        "whats next",
+        "what should i",
+        "what do i work on",
+        "what should i do",
+    }:
+        return Intent("what_next", confidence=0.95, raw=text)
+
+    if lowered in {"bye", "goodbye", "sleep", "go quiet", "go to sleep", "stop listening"}:
+        return Intent("butler_sleep", raw=text)
+
+    if lowered in {"recap", "recap me", "tasks", "my tasks", "pending tasks", "what are my tasks"}:
+        return Intent("what_next", confidence=0.95, raw=text)
+
+    if lowered in {"news", "latest news", "recent news"}:
+        return Intent("news", {"topic": "AI and tech news", "hours": 24}, raw=text)
+
+    if any(value in lowered for value in ("mcp status", "which mcp", "brave mcp", "github mcp")):
+        return Intent("mcp_status", confidence=0.95, raw=text)
+
+    search_tab_match = re.search(
+        r"\b(?:open|create)\s+(?:a\s+)?new\s+tab(?:\s+to\s+search)?\s+(.+)$",
+        lowered,
+    )
+    if search_tab_match:
+        query = _clean_lookup_query(search_tab_match.group(1))
+        if query:
+            return Intent("browser_search", {"query": query, "new_tab": True}, raw=text)
+        return Intent("browser_new_tab", raw=text)
+
+    if lowered in {"open a new tab to search", "open new tab to search"}:
+        return Intent("browser_new_tab", raw=text)
+
+    if re.search(r"\b(?:open|create)\s+(?:a\s+)?new\s+tab\b", lowered) or lowered in {"open tab", "new tab"}:
+        return Intent("browser_new_tab", raw=text)
+
+    if re.search(r"\bclose\s+(?:the\s+)?tabs?\b", lowered):
+        return Intent("browser_close_tab", raw=text)
+
+    if re.search(r"\bclose\s+(?:the\s+)?(?:window|screen)\b", lowered):
+        return Intent("browser_close_window", raw=text)
+
+    if any(
+        value in lowered
+        for value in (
+            "what's happening in ai",
+            "whats happening in ai",
+            "market pulse",
+        )
+    ):
+        return Intent("market", {"topics": ["AI agents", "LLMs", "open source"]}, raw=text)
+
+    news_request = _extract_news_request(text)
+    if news_request is not None:
+        return Intent("news", news_request, raw=text)
+
+    whatsapp_params = _extract_whatsapp_params(text)
+    if whatsapp_params is not None:
+        intent_name = "whatsapp_send" if whatsapp_params.get("message") else "whatsapp_open"
+        return Intent(intent_name, whatsapp_params, raw=text)
+
+    if re.search(r"\b(?:take|capture)\s+(?:a\s+)?screenshot\b", lowered):
+        return Intent("screenshot", raw=text)
+
+    if re.search(r"\b(?:pause|stop)\s+(?:the\s+)?video\b", lowered):
+        return Intent("pause_video", raw=text)
+
+    match = re.search(r"\b(?:set|make)\s+(?:the\s+)?volume\s+(?:to)?\s*(\d{1,3})\b", lowered)
+    if match:
+        level = max(0, min(100, int(match.group(1))))
+        return Intent("volume_set", {"level": level}, raw=text)
+
+    if re.search(r"\b(?:volume up|turn up the volume|increase volume|louder)\b", lowered):
+        return Intent("system_volume", {"direction": "up"}, raw=text)
+
+    if re.search(r"\b(?:volume down|turn down the volume|decrease volume|quieter)\b", lowered):
+        return Intent("system_volume", {"direction": "down"}, raw=text)
+
+    youtube_match = re.search(r"(?:search|find)\s+(.+?)\s+(?:(?:on|in)\s+)?youtube\b", lowered)
     if youtube_match:
-        query = youtube_match.group(1).strip(" .!?")
+        query = _clean_lookup_query(youtube_match.group(1))
         if query:
             return Intent(
                 "open_app",
@@ -406,7 +757,7 @@ def route(text: str) -> Intent:
 
     youtube_match = re.search(r"(?:open|launch|start)\s+youtube\s+(?:and\s+)?search\s+(.+)$", lowered)
     if youtube_match:
-        query = youtube_match.group(1).strip(" .!?")
+        query = _clean_lookup_query(youtube_match.group(1))
         if query:
             return Intent(
                 "open_app",
@@ -417,15 +768,9 @@ def route(text: str) -> Intent:
                 raw=text,
             )
 
-    if re.search(r"\bcompose\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b", lowered):
-        return Intent(
-            "open_app",
-            {
-                "app": ("browser", "https://mail.google.com/mail/u/0/#inbox?compose=new"),
-                "name": "Gmail compose",
-            },
-            raw=text,
-        )
+    compose_params = _extract_compose_email_params(text)
+    if compose_params is not None:
+        return Intent("compose_email", compose_params, raw=text)
 
     match = re.match(r"^(?:play|put on)\s+(.+)$", lowered)
     if match:
@@ -524,15 +869,6 @@ def route(text: str) -> Intent:
         return Intent("vps_status", raw=text)
     if any(value in lowered for value in ("docker", "containers")):
         return Intent("docker_status", raw=text)
-    if any(
-        value in lowered
-        for value in (
-            "what's happening in ai",
-            "whats happening in ai",
-            "market pulse",
-        )
-    ):
-        return Intent("market", {"topics": ["AI agents", "LLMs", "open source"]}, raw=text)
     if any(value in lowered for value in ("ai news", "a i news", "air news", "tech news")):
         topic = "tech" if "tech news" in lowered else "AI"
         return Intent("news", {"topic": topic, "hours": 24}, raw=text)
@@ -632,9 +968,9 @@ def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
             return Intent("create_file", {"filename": filename, "editor": editor}, raw=text)
         return Intent("clarify_file", {"editor": editor}, confidence=0.55, raw=text)
 
-    m = re.search(r"\b(?:search|find)\s+(.+?)\s+(?:on|in)\s+youtube\b", lowered)
+    m = re.search(r"\b(?:search|find)\s+(.+?)\s+(?:(?:on|in)\s+)?youtube\b", lowered)
     if m:
-        query = m.group(1).strip(" .!?")
+        query = _clean_lookup_query(m.group(1))
         if query:
             return Intent(
                 "open_app",
@@ -645,15 +981,18 @@ def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
                 raw=text,
             )
 
-    if re.search(r"\bcompose\s+(?:a\s+)?(?:new\s+)?(?:mail|email)\b", lowered):
-        return Intent(
-            "open_app",
-            {
-                "app": ("browser", "https://mail.google.com/mail/u/0/#inbox?compose=new"),
-                "name": "Gmail compose",
-            },
-            raw=text,
-        )
+    compose_params = _extract_compose_email_params(text)
+    if compose_params is not None:
+        return Intent("compose_email", compose_params, raw=text)
+
+    if re.search(r"\bclose\s+(?:the\s+)?tabs?\b", lowered):
+        return Intent("browser_close_tab", raw=text)
+
+    if re.search(r"\bclose\s+(?:the\s+)?(?:window|screen)\b", lowered):
+        return Intent("browser_close_window", raw=text)
+
+    if re.search(r"\b(?:open|create)\s+(?:a\s+)?new\s+tab\b", lowered):
+        return Intent("browser_new_tab", raw=text)
 
     # open a new project window anywhere in text
     if re.search(r"\b(?:open|launch|start)\s+(?:a\s+)?new project\b", lowered):

@@ -1113,6 +1113,96 @@ def _clip_tool_payload(value, limit: int = 2600):
     return text[: limit - 3].rstrip() + "..."
 
 
+def _tool_chat_endpoint_missing(exc: Exception) -> bool:
+    lowered = " ".join(str(exc or "").lower().split())
+    return "/api/chat" in lowered and "404" in lowered
+
+
+def _looks_like_memory_question(text: str) -> bool:
+    lowered = " ".join(str(text or "").lower().split())
+    if not lowered:
+        return False
+    phrases = (
+        "what did we decide",
+        "what did we say",
+        "do you remember",
+        "what was the decision",
+        "what did we choose",
+        "remember about",
+        "recall",
+        "last time we",
+        "earlier we",
+        "before we",
+    )
+    return any(phrase in lowered for phrase in phrases)
+
+
+def _fallback_tool_outcome(text: str, ctx: dict) -> dict | None:
+    lowered = " ".join(str(text or "").lower().split())
+    if _looks_like_memory_question(lowered):
+        return _execute_tool_call("recall_memory", {"query": text}, ctx, user_text=text)
+
+    if any(phrase in lowered for phrase in ("what am i looking at", "what's on my screen", "describe this screen", "describe my screen")):
+        return _execute_tool_call("take_screenshot_and_describe", {"question": text}, ctx, user_text=text)
+
+    decision = analyze_query(text, conversation=_conversation_context_text())
+    action = str(decision.get("action", "") or "").strip().lower()
+    url = str(decision.get("url", "") or "").strip()
+    if action == "fetch" and url:
+        return _execute_tool_call("browse_web", {"url": url, "query": text}, ctx, user_text=text)
+    if action in {"search", "news", "fetch"}:
+        return _execute_tool_call("browse_web", {"query": text, "url": url}, ctx, user_text=text)
+    return None
+
+
+def _fallback_tool_speech(text: str, outcome: dict) -> str:
+    tool = str(outcome.get("tool", "")).strip()
+    payload = outcome.get("payload") if isinstance(outcome.get("payload"), dict) else {}
+    results = outcome.get("results") if isinstance(outcome.get("results"), list) else []
+
+    if tool == "recall_memory":
+        matches = payload.get("matches") if isinstance(payload.get("matches"), list) else []
+        if matches:
+            first = matches[0] if isinstance(matches[0], dict) else {}
+            candidate = str(first.get("speech", "") or first.get("context", "")).strip()
+            if candidate:
+                return _normalize_response(candidate, max_words=45)
+        return "I couldn't find a matching decision in memory."
+
+    if tool == "browse_web":
+        lead = ""
+        if results:
+            lead = str(results[0].get("result", "") or "").strip()
+        lead = lead or str(payload.get("result", "") or "").strip()
+        if lead:
+            return _normalize_response(lead, max_words=45)
+        return "I couldn't pull a useful web answer right now."
+
+    if tool == "take_screenshot_and_describe":
+        answer = str(payload.get("result", "") or "").strip()
+        if answer:
+            return _normalize_response(answer, max_words=45)
+        return "I couldn't read the screen clearly right now."
+
+    if results:
+        lead = str(results[0].get("result", "") or results[0].get("error", "")).strip()
+        if lead:
+            return _normalize_response(lead, max_words=45)
+
+    return _normalize_response(str(text or "").strip(), max_words=20) or "Done."
+
+
+def _fallback_tool_response(text: str, ctx: dict) -> dict | None:
+    outcome = _fallback_tool_outcome(text, ctx)
+    if not outcome:
+        return None
+    return {
+        "speech": _fallback_tool_speech(text, outcome),
+        "actions": outcome.get("actions", []),
+        "results": outcome.get("results", []),
+    }
+
+
 def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: str = "") -> dict:
     name = str(tool_name or "").strip()
     args = dict(arguments or {})
@@ -1242,14 +1332,32 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
     planning_model = pick_butler_model("planning", override=model)
     voice_model = pick_butler_model("voice", override=model)
     messages = _tool_chat_messages(ctx, text)
-    first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
+    try:
+        first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
+    except RuntimeError as exc:
+        if not _tool_chat_endpoint_missing(exc):
+            raise
+        outcome = _fallback_tool_outcome(text, ctx)
+        if not outcome:
+            speech = _unknown_brain_response(text, model=model)
+            return {"speech": speech, "actions": [], "results": []}
+        speech = _fallback_tool_speech(text, outcome)
+        return {
+            "speech": speech,
+            "actions": outcome.get("actions", []),
+            "results": outcome.get("results", []),
+        }
     message = first.get("message", {}) if isinstance(first, dict) else {}
     assistant_content = " ".join(str(message.get("content", "")).split()).strip()
     tool_calls = list(message.get("tool_calls") or [])
     executed_actions: list[dict] = []
     executed_results: list[dict] = []
+    last_outcome: dict | None = None
 
     if not tool_calls:
+        fallback = _fallback_tool_response(text, ctx)
+        if fallback is not None:
+            return fallback
         speech = _normalize_response(assistant_content, max_words=45)
         return {"speech": speech, "actions": [], "results": []}
 
@@ -1266,6 +1374,7 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
         tool_name = str(function.get("name", "")).strip()
         arguments = _parse_tool_arguments(function.get("arguments", {}))
         outcome = _execute_tool_call(tool_name, arguments, ctx, user_text=text)
+        last_outcome = outcome
         executed_actions.extend(outcome.get("actions", []))
         executed_results.extend(outcome.get("results", []))
         messages.append(
@@ -1279,6 +1388,9 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
     final = chat_with_ollama(messages, voice_model, max_tokens=140, temperature=0.3)
     final_message = final.get("message", {}) if isinstance(final, dict) else {}
     final_speech = _normalize_response(str(final_message.get("content", "")).strip(), max_words=45)
+    if not final_speech:
+        if last_outcome is not None:
+            final_speech = _fallback_tool_speech(text, last_outcome)
     if not final_speech:
         final_speech = assistant_content or "Done."
     return {"speech": final_speech, "actions": executed_actions, "results": executed_results}

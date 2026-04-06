@@ -7,6 +7,21 @@ from voice import stt
 
 
 class STTTests(unittest.TestCase):
+    @patch("voice.stt.VOICE_INPUT_MODEL", "mlx-community/whisper-tiny")
+    def test_candidate_mlx_model_repos_normalize_configured_model(self):
+        repos = stt._candidate_mlx_model_repos()
+        self.assertEqual(repos[0], "mlx-community/whisper-tiny-mlx")
+        self.assertIn("mlx-community/whisper-small-mlx", repos)
+
+    def test_normalize_transcript_fixes_common_voice_aliases(self):
+        cleaned = stt._normalize_transcript("search bhuvan bam you do and open g mail")
+        self.assertIn("youtube", cleaned)
+        self.assertIn("gmail", cleaned)
+
+    @patch("voice.stt.VOICE_INPUT_BEAM_SIZE", 3)
+    def test_requested_beam_size_is_clamped(self):
+        self.assertEqual(stt._requested_beam_size(), 3)
+
     @patch("voice.stt._recent_speech_snapshot", return_value=("Checking the latest news.", 100.0))
     @patch("voice.stt.time.monotonic", return_value=101.0)
     def test_strip_recent_speech_echo_removes_butler_prefix(self, _mock_time, _mock_snapshot):

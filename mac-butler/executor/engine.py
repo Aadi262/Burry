@@ -99,6 +99,23 @@ CONFIRM_REQUIRED_PATTERNS = [
     "sudo",
 ]
 
+DEFAULT_BROWSER_APP = "Google Chrome"
+WEB_APP_URLS = {
+    "google sheet": "https://sheets.google.com",
+    "google sheets": "https://sheets.google.com",
+    "google doc": "https://docs.google.com",
+    "google docs": "https://docs.google.com",
+    "google drive": "https://drive.google.com",
+    "google meet": "https://meet.google.com",
+    "notion": "https://notion.so",
+    "linear": "https://linear.app",
+    "figma": "https://figma.com",
+    "github": "https://github.com/Aadi262",
+    "chatgpt": "https://chat.openai.com",
+    "claude": "https://claude.ai",
+    "perplexity": "https://perplexity.ai",
+}
+
 try:
     from butler_config import OBSIDIAN_VAULT_NAME, OBSIDIAN_VAULT_PATH
 
@@ -264,7 +281,37 @@ class Executor:
         if t == "open_url_in_browser":
             return self.open_url_in_browser(
                 action["url"],
-                action.get("app", "Google Chrome"),
+                action.get("app", DEFAULT_BROWSER_APP),
+            )
+        if t == "browser_new_tab":
+            return self.browser_new_tab(action.get("url", ""))
+        if t == "browser_search":
+            return self.browser_search(
+                action.get("query", ""),
+                new_tab=bool(action.get("new_tab", True)),
+            )
+        if t == "browser_close_tab":
+            return self.browser_close_tab()
+        if t == "browser_close_window":
+            return self.browser_close_window()
+        if t == "pause_video":
+            return self.pause_video()
+        if t == "volume_set":
+            return self.system_volume_set(action.get("level", 50))
+        if t == "system_volume":
+            return self.system_volume_adjust(action.get("direction", "up"))
+        if t == "screenshot":
+            return self.take_screenshot()
+        if t == "whatsapp_open":
+            return self.whatsapp_open(
+                action.get("contact", ""),
+                action.get("phone", ""),
+            )
+        if t == "whatsapp_send":
+            return self.whatsapp_send(
+                action.get("contact", ""),
+                action.get("phone", ""),
+                action.get("message", ""),
             )
 
         raise ValueError(f"Unknown action type: {t}")
@@ -468,6 +515,13 @@ class Executor:
 
     def open_app(self, app_name: str, mode: str = "smart") -> str:
         from executor.app_state import is_app_running
+
+        if isinstance(app_name, tuple) and len(app_name) == 2 and app_name[0] == "browser":
+            return self.open_url_in_browser(str(app_name[1]), DEFAULT_BROWSER_APP)
+
+        normalized_label = " ".join(str(app_name or "").lower().split())
+        if normalized_label in WEB_APP_URLS:
+            return self.open_url_in_browser(WEB_APP_URLS[normalized_label], DEFAULT_BROWSER_APP)
 
         lowered = app_name.lower()
         if lowered in {"terminal", "iterm", "iterm2"}:
@@ -746,6 +800,108 @@ class Executor:
     def open_url_in_browser(self, url: str, app: str = "Google Chrome") -> str:
         subprocess.Popen(["open", "-a", app, url])
         return f"opened {url}"
+
+    def browser_new_tab(self, url: str = "") -> str:
+        target = str(url or "").strip() or "chrome://newtab"
+        script = (
+            'tell application "Google Chrome"\n'
+            "    activate\n"
+            "    if (count of windows) = 0 then make new window\n"
+            f"    make new tab at end of tabs of front window with properties {{URL:{json.dumps(target)}}}\n"
+            "    set active tab index of front window to (count of tabs of front window)\n"
+            "end tell"
+        )
+        subprocess.run(["osascript", "-e", script], timeout=10)
+        return f"opened new browser tab: {target}"
+
+    def browser_search(self, query: str, *, new_tab: bool = True) -> str:
+        cleaned = " ".join(str(query or "").split()).strip()
+        if not cleaned:
+            return self.browser_new_tab()
+        url = f"https://www.google.com/search?q={urllib.parse.quote_plus(cleaned)}"
+        if new_tab:
+            return self.browser_new_tab(url)
+        return self.open_url_in_browser(url, DEFAULT_BROWSER_APP)
+
+    def browser_close_tab(self) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return\n"
+            "    if (count of tabs of front window) > 0 then close active tab of front window\n"
+            "end tell"
+        )
+        subprocess.run(["osascript", "-e", script], timeout=10)
+        return "closed current browser tab"
+
+    def browser_close_window(self) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return\n"
+            "    close front window\n"
+            "end tell"
+        )
+        subprocess.run(["osascript", "-e", script], timeout=10)
+        return "closed current browser window"
+
+    def pause_video(self) -> str:
+        javascript = (
+            '(function(){'
+            'const media=[...document.querySelectorAll("video,audio")];'
+            "media.forEach(node=>{try{node.pause();}catch(e){}});"
+            "return media.length.toString();"
+            "})()"
+        )
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return\n"
+            f"    tell active tab of front window to execute javascript {json.dumps(javascript)}\n"
+            "end tell"
+        )
+        subprocess.run(["osascript", "-e", script], timeout=10)
+        return "paused media in browser"
+
+    def system_volume_set(self, level: int) -> str:
+        safe_level = max(0, min(100, int(level)))
+        subprocess.run(["osascript", "-e", f"set volume output volume {safe_level}"], timeout=5)
+        return f"set system volume to {safe_level}"
+
+    def system_volume_adjust(self, direction: str) -> str:
+        delta = 10 if str(direction).lower() == "up" else -10
+        script = (
+            "set currentVolume to output volume of (get volume settings)\n"
+            f"set targetVolume to currentVolume + ({delta})\n"
+            "if targetVolume > 100 then set targetVolume to 100\n"
+            "if targetVolume < 0 then set targetVolume to 0\n"
+            "set volume output volume targetVolume"
+        )
+        subprocess.run(["osascript", "-e", script], timeout=5)
+        return f"adjusted system volume {str(direction).lower()}"
+
+    def take_screenshot(self) -> str:
+        path = f"/tmp/butler_screenshot_{int(time.time())}.png"
+        subprocess.run(["screencapture", "-x", path], timeout=10)
+        return path
+
+    def whatsapp_open(self, contact: str = "", phone: str = "") -> str:
+        if phone:
+            digits = "".join(ch for ch in str(phone) if ch.isdigit() or ch == "+").lstrip("+")
+            if digits:
+                self.open_url(f"https://wa.me/{digits}")
+                return f"opened WhatsApp chat for {contact or phone}"
+        self.open_url("https://web.whatsapp.com/")
+        return f"opened WhatsApp{f' for {contact}' if contact else ''}"
+
+    def whatsapp_send(self, contact: str = "", phone: str = "", message: str = "") -> str:
+        cleaned_message = " ".join(str(message or "").split()).strip()
+        digits = "".join(ch for ch in str(phone) if ch.isdigit() or ch == "+").lstrip("+")
+        if digits:
+            url = f"https://wa.me/{digits}"
+            if cleaned_message:
+                url = f"{url}?text={urllib.parse.quote_plus(cleaned_message)}"
+            self.open_url(url)
+            return f"opened WhatsApp message flow for {contact or phone}"
+        self.open_url("https://web.whatsapp.com/")
+        return f"opened WhatsApp to message {contact or 'the contact'}"
 
     def notify(self, title: str, message: str) -> str:
         script = (

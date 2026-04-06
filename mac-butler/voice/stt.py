@@ -6,33 +6,86 @@ Real-time STT using mlx-whisper on Apple Silicon with faster-whisper fallback.
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
 from pathlib import Path
 
 import numpy as np
+from butler_config import (
+    VOICE_FASTER_WHISPER_MODEL,
+    VOICE_INPUT_BEAM_SIZE,
+    VOICE_INPUT_MODEL,
+    VOICE_INPUT_PROMPT,
+)
 
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 0.015
 SILENCE_END_S = 0.7
 MIN_SPEECH_S = 0.4
 MAX_SPEECH_S = 8.0
-MLX_MODEL = "mlx-community/whisper-small-mlx"
+DEFAULT_MLX_MODEL = "mlx-community/whisper-small-mlx"
+DEFAULT_FASTER_WHISPER_MODEL = "base.en"
 POST_TTS_COOLDOWN_S = 0.85
 RECENT_TTS_WINDOW_S = 8.0
 
 _MODEL = None
 _BACKEND = "none"
+_MLX_MODEL_REPO = DEFAULT_MLX_MODEL
 
 
-def _mlx_model_cached() -> bool:
+def _requested_voice_input_model() -> str:
+    return str(os.getenv("VOICE_INPUT_MODEL", VOICE_INPUT_MODEL) or DEFAULT_MLX_MODEL).strip() or DEFAULT_MLX_MODEL
+
+
+def _requested_faster_whisper_model() -> str:
+    return str(
+        os.getenv("VOICE_FASTER_WHISPER_MODEL", VOICE_FASTER_WHISPER_MODEL) or DEFAULT_FASTER_WHISPER_MODEL
+    ).strip() or DEFAULT_FASTER_WHISPER_MODEL
+
+
+def _requested_beam_size() -> int:
+    try:
+        value = int(os.getenv("VOICE_INPUT_BEAM_SIZE", str(VOICE_INPUT_BEAM_SIZE)))
+    except Exception:
+        value = 3
+    return max(1, min(value, 5))
+
+
+def _requested_prompt() -> str:
+    return " ".join(str(os.getenv("VOICE_INPUT_PROMPT", VOICE_INPUT_PROMPT) or "").split()).strip()
+
+
+def _candidate_mlx_model_repos() -> list[str]:
+    configured = _requested_voice_input_model()
+    candidates: list[str] = []
+
+    def add(repo: str) -> None:
+        repo = str(repo or "").strip()
+        if repo and repo not in candidates:
+            candidates.append(repo)
+
+    if configured:
+        if configured.endswith("-mlx"):
+            add(configured)
+        else:
+            model_name = configured.split("/", 1)[-1]
+            add(f"mlx-community/{model_name}-mlx")
+            if configured.startswith("mlx-community/"):
+                add(configured)
+
+    add(DEFAULT_MLX_MODEL)
+    return candidates
+
+
+def _mlx_model_cached(repo: str) -> bool:
     cache_root = (
         Path.home()
         / ".cache"
         / "huggingface"
         / "hub"
-        / "models--mlx-community--whisper-small-mlx"
+        / f"models--{repo.replace('/', '--')}"
     )
     if not cache_root.exists():
         return False
@@ -56,29 +109,36 @@ def _mlx_model_cached() -> bool:
 
 
 def _load():
-    global _MODEL, _BACKEND
+    global _MODEL, _BACKEND, _MLX_MODEL_REPO
     if _MODEL is not None or _BACKEND != "none":
         return _MODEL
 
-    if _mlx_model_cached():
+    print(f"[STT] Requested model: {_requested_voice_input_model()}")
+
+    for repo in _candidate_mlx_model_repos():
+        if not _mlx_model_cached(repo):
+            continue
         try:
             import mlx_whisper
 
             _MODEL = mlx_whisper
             _BACKEND = "mlx"
-            print("[STT] mlx-whisper loaded (Apple Silicon optimized)")
+            _MLX_MODEL_REPO = repo
+            print(f"[STT] mlx-whisper loaded (Apple Silicon optimized: {repo})")
             return _MODEL
         except ImportError:
-            pass
+            break
 
     try:
         from faster_whisper import WhisperModel
 
-        _MODEL = WhisperModel("base", device="cpu", compute_type="int8")
+        model_name = _requested_faster_whisper_model()
+        _MODEL = WhisperModel(model_name, device="cpu", compute_type="int8")
         _BACKEND = "faster"
-        print("[STT] faster-whisper loaded (fallback)")
+        print(f"[STT] faster-whisper loaded (fallback: {model_name})")
         return _MODEL
-    except ImportError:
+    except Exception as exc:
+        print(f"[STT] faster-whisper unavailable: {exc}")
         print("[STT] No STT model — using text input fallback")
         _MODEL = None
         _BACKEND = "none"
@@ -103,22 +163,47 @@ def transcribe(audio: np.ndarray) -> str:
         if _BACKEND == "mlx":
             result = model.transcribe(
                 audio,
-                path_or_hf_repo=MLX_MODEL,
+                path_or_hf_repo=_MLX_MODEL_REPO,
                 language="en",
             )
             return str(result.get("text", "")).strip()
 
         if _BACKEND == "faster":
+            beam_size = _requested_beam_size()
             segments, _ = model.transcribe(
                 audio,
                 language="en",
-                beam_size=1,
+                beam_size=beam_size,
+                condition_on_previous_text=False,
+                temperature=0.0,
                 vad_filter=True,
+                initial_prompt=_requested_prompt() or None,
             )
             return " ".join(segment.text for segment in segments).strip()
     except Exception as exc:
         print(f"[STT] Error: {exc}")
     return ""
+
+
+def warm_stt() -> str:
+    _load()
+    return _BACKEND
+
+
+def describe_stt() -> dict:
+    active_model = ""
+    if _BACKEND == "mlx":
+        active_model = _MLX_MODEL_REPO
+    elif _BACKEND == "faster":
+        active_model = _requested_faster_whisper_model()
+
+    return {
+        "backend": "pending" if _BACKEND == "none" else _BACKEND,
+        "requested_model": _requested_voice_input_model(),
+        "fallback_model": _requested_faster_whisper_model(),
+        "active_model": active_model,
+        "beam_size": _requested_beam_size(),
+    }
 
 
 def _recent_speech_snapshot() -> tuple[str, float]:
@@ -151,6 +236,19 @@ def _normalized_tokens(text: str) -> list[str]:
     cleaned = re.sub(r"[^a-z0-9\s]+", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned.split()
+
+
+def _normalize_transcript(text: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    replacements = (
+        (r"\byou\s+do\b", "youtube"),
+        (r"\byou\s+tube\b", "youtube"),
+        (r"\bu\s*tube\b", "youtube"),
+        (r"\bg\s*mail\b", "gmail"),
+    )
+    for pattern, replacement in replacements:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    return cleaned
 
 
 def _strip_recent_speech_echo(text: str) -> str:
@@ -244,7 +342,7 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
     if len(audio) / SAMPLE_RATE < MIN_SPEECH_S:
         return ""
 
-    raw_text = transcribe(audio)
+    raw_text = _normalize_transcript(transcribe(audio))
     text = _strip_recent_speech_echo(raw_text)
     if text:
         print(f"[STT] Heard: '{text}'")

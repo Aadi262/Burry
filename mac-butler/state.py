@@ -10,6 +10,12 @@ from enum import Enum
 
 from butler_config import VERBOSE_LOGS
 
+try:
+    from runtime import note_state_transition
+except Exception:
+    def note_state_transition(*_args, **_kwargs) -> None:
+        return None
+
 
 class State(Enum):
     IDLE = "idle"
@@ -66,6 +72,7 @@ class StateMachine:
                 icon = STATE_ICONS.get(new_state, "")
                 print(f"[State] {icon} {old_state.value} -> {new_state.value}")
 
+            note_state_transition(old_state, new_state)
             for callback in list(self._listeners):
                 try:
                     callback(old_state, new_state)

@@ -5,4 +5,4 @@ from .project_store import (
 )
 from .open_project import open_project
 from .github_sync import sync_all, get_github_context
-from .dashboard import open_dashboard, serve_dashboard
+from .dashboard import open_dashboard, serve_dashboard, show_dashboard_window

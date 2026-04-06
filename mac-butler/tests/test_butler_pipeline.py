@@ -335,6 +335,37 @@ class ButlerPipelineTests(unittest.TestCase):
         mock_tool_finished.assert_called_once()
 
     @patch("butler.note_tool_finished")
+    @patch("butler.note_memory_recall")
+    @patch("butler.note_tool_started")
+    @patch("memory.store.semantic_search", return_value=[{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}])
+    @patch(
+        "brain.ollama_client.chat_with_ollama",
+        return_value={
+            "message": {
+                "role": "assistant",
+                "content": "I think we discussed auth before.",
+                "tool_calls": [],
+            }
+        },
+    )
+    def test_tool_chat_response_falls_back_to_memory_when_model_skips_tool_call(
+        self,
+        _mock_chat,
+        _mock_semantic,
+        mock_tool_started,
+        mock_memory_recall,
+        mock_tool_finished,
+    ):
+        result = _tool_chat_response("what did we decide about auth", {"formatted": "[FOCUS]\n  project: mac-butler"})
+
+        self.assertEqual(result["speech"], "Decided JWT, no sessions.")
+        self.assertEqual(result["actions"][0]["type"], "recall_memory")
+        self.assertEqual(result["results"][0]["status"], "ok")
+        mock_tool_started.assert_called_once()
+        mock_memory_recall.assert_called_once()
+        mock_tool_finished.assert_called_once()
+
+    @patch("butler.note_tool_finished")
     @patch("butler.note_tool_started")
     @patch(
         "browser.agent.BrowsingAgent.search",

@@ -7,16 +7,21 @@ Loads local-only Butler secrets without colliding with the stdlib secrets module
 import json
 from pathlib import Path
 
-SECRETS_PATH = Path(__file__).resolve().parent.parent / "secrets" / "local_secrets.json"
+SECRETS_PATHS = [
+    Path(__file__).resolve().parent.parent / "vault" / "local_secrets.json",
+    Path(__file__).resolve().parent.parent / "secrets" / "local_secrets.json",
+]
 
 
 def _load_secrets() -> dict:
-    if not SECRETS_PATH.exists():
-        return {}
-    try:
-        return json.loads(SECRETS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    for path in SECRETS_PATHS:
+        if not path.exists():
+            continue
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 
 
 def get_local_secrets() -> dict:

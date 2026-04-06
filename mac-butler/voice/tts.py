@@ -9,6 +9,7 @@ Priority chain:
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import re
 import subprocess
@@ -21,7 +22,13 @@ from pathlib import Path
 
 import numpy as np
 
-from butler_config import TTS_ENGINE, TTS_MAX_WORDS, TTS_SPEED, TTS_VOICE
+from butler_config import EDGE_TTS_RATE, EDGE_TTS_VOICE, TTS_ENGINE, TTS_MAX_WORDS, TTS_SPEED, TTS_VOICE
+
+try:
+    from runtime import note_spoken_text
+except Exception:
+    def note_spoken_text(*_args, **_kwargs) -> None:
+        return None
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 KOKORO_MODEL_PATH = MODELS_DIR / "kokoro-v1.0.onnx"
@@ -69,11 +76,70 @@ def _get_kokoro():
     return Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
 
 
+@lru_cache(maxsize=1)
+def _edge_tts_module():
+    import edge_tts
+
+    return edge_tts
+
+
+def _tts_backend_order() -> tuple[str, ...]:
+    engine = (TTS_ENGINE or "auto").lower().strip()
+    if engine == "edge":
+        return ("edge", "kokoro", "say")
+    if engine == "kokoro":
+        return ("kokoro", "say")
+    if engine == "say":
+        return ("say",)
+    return ("edge", "kokoro", "say")
+
+
+def _edge_tts_available() -> bool:
+    try:
+        _edge_tts_module()
+        return True
+    except Exception:
+        return False
+
+
 def describe_tts() -> dict:
-    engine = (TTS_ENGINE or "auto").lower()
-    if engine != "say" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
-        return {"backend": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED}
+    for backend in _tts_backend_order():
+        if backend == "edge" and _edge_tts_available():
+            return {"backend": "edge", "voice": EDGE_TTS_VOICE, "rate": EDGE_TTS_RATE}
+        if backend == "kokoro" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
+            return {"backend": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED}
+        if backend == "say":
+            return {"backend": "say", "voice": _pick_say_voice(), "rate": 165}
     return {"backend": "say", "voice": _pick_say_voice(), "rate": 165}
+
+
+def warm_tts() -> bool:
+    warmed = False
+    for backend in _tts_backend_order():
+        if backend == "edge":
+            try:
+                _edge_tts_module()
+                warmed = True
+                if (TTS_ENGINE or "auto").lower().strip() == "edge":
+                    return True
+            except Exception as exc:
+                print(f"[Voice] Edge TTS warmup skipped: {exc}")
+        elif backend == "kokoro":
+            if not KOKORO_MODEL_PATH.exists() or not KOKORO_VOICES_PATH.exists():
+                continue
+            try:
+                _get_kokoro()
+                return True
+            except Exception as exc:
+                print(f"[Voice] Kokoro warmup skipped: {exc}")
+        elif backend == "say":
+            return warmed
+    return warmed
+
+
+def warmup_tts() -> bool:
+    """Backward-compatible warmup entrypoint for trigger/startup code."""
+    return warm_tts()
 
 
 def recent_speech_snapshot() -> tuple[str, float]:
@@ -120,11 +186,22 @@ def _shape_for_speech(text: str) -> str:
     cleaned = re.sub(r"\[\[slnc\s+\d+\]\]", " ", cleaned)
     cleaned = re.sub(r"[*_`#]", "", cleaned)
     cleaned = re.sub(r"https?://\S+", "", cleaned)
+    cleaned = re.sub(r"^\s*[-*]\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = cleaned.replace("|", ", ")
+    cleaned = cleaned.replace("&", " and ")
+    cleaned = re.sub(r"\s*;\s*", ". ", cleaned)
+    cleaned = re.sub(r"\s*:\s*", ". ", cleaned)
+    cleaned = cleaned.replace("->", " to ")
+    cleaned = re.sub(r"\bAI\b", "A I", cleaned)
     cleaned = cleaned.replace("LLM", "L L M")
     cleaned = cleaned.replace("API", "A P I")
     cleaned = cleaned.replace("VPS", "V P S")
     cleaned = cleaned.replace("MCP", "M C P")
+    cleaned = re.sub(r"\bGitHub\b", "Git hub", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bYouTube\b", "You tube", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bGmail\b", "G mail", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace('"', "")
+    cleaned = cleaned.replace("...", ".")
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     words = cleaned.split()
     if len(words) > TTS_MAX_WORDS:
@@ -150,24 +227,26 @@ def _prepare_kokoro_audio(samples) -> np.ndarray:
     peak = float(np.max(np.abs(audio))) if audio.size else 0.0
     if peak > 0:
         # Keep headroom so Kokoro output does not clip or crackle on laptop speakers.
-        audio = audio / peak * 0.72
+        audio = audio / peak * 0.58
 
     # Soft-limit any remaining spikes instead of hard clipping.
-    audio = np.tanh(audio * 1.15).astype(np.float32, copy=False)
+    audio = np.tanh(audio * 1.05).astype(np.float32, copy=False)
 
-    fade = min(256, max(16, audio.size // 200))
+    pad = min(480, max(120, audio.size // 250))
+    if pad > 0:
+        silence = np.zeros(pad, dtype=np.float32)
+        audio = np.concatenate((silence, audio, silence))
+
+    fade = min(768, max(64, audio.size // 120))
     if fade * 2 < audio.size:
         ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
         audio[:fade] *= ramp
         audio[-fade:] *= ramp[::-1]
 
-    return np.ascontiguousarray(np.clip(audio, -0.95, 0.95), dtype=np.float32)
+    return np.ascontiguousarray(np.clip(audio, -0.82, 0.82), dtype=np.float32)
 
 
 def _try_kokoro(text: str) -> bool:
-    engine = (TTS_ENGINE or "auto").lower()
-    if engine == "say":
-        return False
     if not KOKORO_MODEL_PATH.exists() or not KOKORO_VOICES_PATH.exists():
         return False
 
@@ -194,6 +273,50 @@ def _try_kokoro(text: str) -> bool:
         return False
 
 
+def _run_async(coro) -> None:
+    try:
+        asyncio.run(coro)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+
+def _try_edge_tts(text: str) -> bool:
+    try:
+        edge_tts = _edge_tts_module()
+    except Exception as exc:
+        print(f"[Voice] Edge TTS unavailable, falling back: {exc}")
+        return False
+
+    mp3_path = Path(tempfile.mkstemp(prefix="mac-butler-tts-", suffix=".mp3")[1])
+    try:
+        communicate = edge_tts.Communicate(
+            text,
+            voice=EDGE_TTS_VOICE or "en-US-AvaMultilingualNeural",
+            rate=EDGE_TTS_RATE or "+0%",
+        )
+        _run_async(communicate.save(str(mp3_path)))
+        if not mp3_path.exists() or mp3_path.stat().st_size <= 0:
+            return False
+        print(f"[Voice] 🔊 (edge:{EDGE_TTS_VOICE or 'en-US-AvaMultilingualNeural'}) {text[:120]}")
+        subprocess.run(
+            ["afplay", "-v", "0.85", str(mp3_path)],
+            check=False,
+        )
+        return True
+    except Exception as exc:
+        print(f"[Voice] Edge TTS failed, falling back: {exc}")
+        return False
+    finally:
+        try:
+            mp3_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _say_fallback(text: str) -> None:
     voice = _pick_say_voice()
     print(f"[Voice] 🔊 ({voice}) {text[:120]}")
@@ -211,11 +334,22 @@ def speak(text: str) -> None:
         if not acquired:
             print("[Voice] Skipping overlapping speech.")
             return
-        if _try_kokoro(clean):
-            _remember_recent_speech(clean)
-            return
-        _say_fallback(clean)
+        for backend in _tts_backend_order():
+            if backend == "edge" and _try_edge_tts(clean):
+                _remember_recent_speech(clean)
+                note_spoken_text(clean)
+                return
+            if backend == "kokoro" and _try_kokoro(clean):
+                _remember_recent_speech(clean)
+                note_spoken_text(clean)
+                return
+            if backend == "say":
+                _say_fallback(clean)
+                _remember_recent_speech(clean)
+                note_spoken_text(clean)
+                return
         _remember_recent_speech(clean)
+        note_spoken_text(clean)
 
 
 if __name__ == "__main__":

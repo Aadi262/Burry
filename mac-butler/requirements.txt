@@ -1,5 +1,8 @@
 faster-whisper
+edge-tts
 kokoro-onnx
+crawl4ai
+scrapling[fetchers]
 sounddevice
 soundfile
 numpy
@@ -8,5 +11,4 @@ requests
 pynput
 SpeechRecognition
 psutil
-crawl4ai
-scrapling[fetchers]
+pywebview

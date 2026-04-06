@@ -1,0 +1,200 @@
+{
+  "updated_at": "2026-04-06T11:15:15",
+  "session_active": true,
+  "session_changed_at": "2026-04-06T02:27:06",
+  "state": "listening",
+  "state_changed_at": "2026-04-06T11:15:15",
+  "last_heard_text": "what should I do next on mac-butler",
+  "last_heard_at": "2026-04-06T11:04:47",
+  "last_intent": {
+    "name": "what_next",
+    "params": {},
+    "confidence": 0.9,
+    "raw": "what should I do next on mac-butler",
+    "at": "2026-04-06T11:04:47"
+  },
+  "last_spoken_text": "hello",
+  "last_spoken_at": "2026-04-06T11:15:15",
+  "workspace": {
+    "focus_project": "mac-butler",
+    "frontmost_app": "Spotify",
+    "workspace": "/Users/adityatiwari/Burry/mac-butler",
+    "at": "2026-04-06T11:04:49"
+  },
+  "last_agent_result": {
+    "agent": "github_trending",
+    "status": "ok",
+    "result": "I couldn't fetch GitHub trending repos right now.",
+    "at": "2026-04-06T02:44:46"
+  },
+  "active_tools": [],
+  "tool_stream": [
+    {
+      "tool": "browse_web",
+      "status": "running",
+      "detail": "what's next",
+      "at": "2026-04-06T11:03:45"
+    },
+    {
+      "tool": "browse_web",
+      "status": "ok",
+      "detail": "These search results are from the DuckDuckGo search engine, providing information for two different queries: \"GTA V soundtrack\" and \"GTA V soundtrack\". The results are structure...",
+      "at": "2026-04-06T11:04:31"
+    }
+  ],
+  "last_memory_recall": {
+    "query": "",
+    "matches": [],
+    "at": ""
+  },
+  "ambient_context": [
+    "Last session: Testing uniqueword1775453540 session",
+    "mac-butler [active] blocker: Butler still uses macOS TTS by default, not a true neural local TTS yet",
+    "Adpilot [active] blocker: Mirror to Meta/Google needs OAuth or paid API setup"
+  ],
+  "events": [
+    {
+      "at": "2026-04-06T11:04:49",
+      "kind": "workspace",
+      "message": "Workspace: mac-butler \u00b7 Spotify",
+      "meta": {
+        "focus_project": "mac-butler",
+        "frontmost_app": "Spotify",
+        "workspace": "/Users/adityatiwari/Burry/mac-butler"
+      }
+    },
+    {
+      "at": "2026-04-06T11:04:50",
+      "kind": "state",
+      "message": "Thinking to Speaking",
+      "meta": {
+        "from": "thinking",
+        "to": "speaking"
+      }
+    },
+    {
+      "at": "2026-04-06T11:05:01",
+      "kind": "spoken",
+      "message": "Said: You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first step?"
+    },
+    {
+      "at": "2026-04-06T11:05:03",
+      "kind": "state",
+      "message": "Speaking to Waiting",
+      "meta": {
+        "from": "speaking",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:13:32",
+      "kind": "state",
+      "message": "Idle to Waiting",
+      "meta": {
+        "from": "idle",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:13:32",
+      "kind": "state",
+      "message": "Waiting to Waiting",
+      "meta": {
+        "from": "waiting",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:13:32",
+      "kind": "state",
+      "message": "Waiting to Idle",
+      "meta": {
+        "from": "waiting",
+        "to": "idle"
+      }
+    },
+    {
+      "at": "2026-04-06T11:14:16",
+      "kind": "state",
+      "message": "Idle to Waiting",
+      "meta": {
+        "from": "idle",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:14:16",
+      "kind": "state",
+      "message": "Waiting to Listening",
+      "meta": {
+        "from": "waiting",
+        "to": "listening"
+      }
+    },
+    {
+      "at": "2026-04-06T11:14:16",
+      "kind": "spoken",
+      "message": "Said: Good morning. mac-butler is ready."
+    },
+    {
+      "at": "2026-04-06T11:14:16",
+      "kind": "spoken",
+      "message": "Said: hello"
+    },
+    {
+      "at": "2026-04-06T11:14:32",
+      "kind": "state",
+      "message": "Idle to Waiting",
+      "meta": {
+        "from": "idle",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:14:32",
+      "kind": "state",
+      "message": "Waiting to Waiting",
+      "meta": {
+        "from": "waiting",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:14:32",
+      "kind": "state",
+      "message": "Waiting to Idle",
+      "meta": {
+        "from": "waiting",
+        "to": "idle"
+      }
+    },
+    {
+      "at": "2026-04-06T11:15:15",
+      "kind": "state",
+      "message": "Idle to Waiting",
+      "meta": {
+        "from": "idle",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-06T11:15:15",
+      "kind": "state",
+      "message": "Waiting to Listening",
+      "meta": {
+        "from": "waiting",
+        "to": "listening"
+      }
+    },
+    {
+      "at": "2026-04-06T11:15:15",
+      "kind": "spoken",
+      "message": "Said: Good morning. mac-butler is ready."
+    },
+    {
+      "at": "2026-04-06T11:15:15",
+      "kind": "spoken",
+      "message": "Said: hello"
+    }
+  ]
+}

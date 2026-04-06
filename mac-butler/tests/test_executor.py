@@ -52,6 +52,75 @@ class ExecutorTests(unittest.TestCase):
         result = Executor().search_and_play_spotify("chikni chameli")
         self.assertIn("timed out", result)
 
+    @patch("executor.engine.subprocess.Popen")
+    def test_open_app_maps_google_sheet_to_browser_url(self, mock_popen):
+        result = Executor().open_app("google sheet")
+        self.assertIn("sheets.google.com", result)
+        mock_popen.assert_called_once_with(["open", "-a", "Google Chrome", "https://sheets.google.com"])
+
+    @patch("executor.engine.subprocess.run")
+    def test_browser_new_tab_uses_applescript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_new_tab("https://example.com")
+        self.assertIn("opened new browser tab", result)
+        script = mock_run.call_args.args[0][2]
+        self.assertIn("Google Chrome", script)
+        self.assertIn("https://example.com", script)
+
+    @patch.object(Executor, "browser_new_tab", return_value="opened new browser tab: https://www.google.com/search?q=gemma")
+    def test_browser_search_uses_google_query(self, mock_new_tab):
+        result = Executor().browser_search("gemma")
+        self.assertIn("opened new browser tab", result)
+        self.assertIn("google.com/search", mock_new_tab.call_args.args[0])
+
+    @patch("executor.engine.subprocess.run")
+    def test_browser_close_tab_uses_applescript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_close_tab()
+        self.assertEqual(result, "closed current browser tab")
+        self.assertIn("close active tab", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_browser_close_window_uses_applescript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_close_window()
+        self.assertEqual(result, "closed current browser window")
+        self.assertIn("close front window", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_pause_video_executes_browser_javascript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().pause_video()
+        self.assertEqual(result, "paused media in browser")
+        self.assertIn("execute javascript", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_volume_set_uses_osascript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().system_volume_set(42)
+        self.assertEqual(result, "set system volume to 42")
+        self.assertEqual(mock_run.call_args.args[0], ["osascript", "-e", "set volume output volume 42"])
+
+    @patch("executor.engine.subprocess.run")
+    def test_volume_adjust_uses_osascript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().system_volume_adjust("down")
+        self.assertEqual(result, "adjusted system volume down")
+        self.assertIn("targetVolume", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_take_screenshot_uses_screencapture(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().take_screenshot()
+        self.assertTrue(result.startswith("/tmp/butler_screenshot_"))
+        self.assertEqual(mock_run.call_args.args[0][:2], ["screencapture", "-x"])
+
+    @patch.object(Executor, "open_url", return_value="opened https://wa.me/919999999999?text=hello")
+    def test_whatsapp_send_prefers_phone_url(self, mock_open_url):
+        result = Executor().whatsapp_send("vedang", "+91 99999 99999", "hello")
+        self.assertIn("opened WhatsApp message flow", result)
+        self.assertEqual(mock_open_url.call_args.args[0], "https://wa.me/919999999999?text=hello")
+
     @patch.object(Executor, "_cursor_cli_path", return_value="/usr/local/bin/cursor")
     @patch("executor.engine.subprocess.Popen")
     def test_create_and_open_prefers_cursor_cli(self, mock_popen, _mock_cursor_cli):

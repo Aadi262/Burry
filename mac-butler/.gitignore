@@ -2,3 +2,4 @@ venv/
 __pycache__/
 memory/butler_memory.json
 secrets/local_secrets.json
+vault/local_secrets.json
