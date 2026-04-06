@@ -11,13 +11,22 @@ const EDGE_COLORS = {
   shares_resource: "#7b5ea7",
 };
 
+const EMPTY_GRAPH_DETAIL = `
+  <div class="graph-detail-card">
+    <strong>No project graph yet</strong>
+    <span>Waiting for project and dependency data.</span>
+    <div><em>Next</em> Add projects to the store or let the graph observer write edges.</div>
+  </div>
+`;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function nodeRadius(project) {
+function nodeRadius(project, degree = 0) {
   const taskCount = Array.isArray(project.next_tasks) ? project.next_tasks.length : 0;
-  return 14 + Math.min(10, taskCount * 2);
+  const blockerCount = Array.isArray(project.blockers) ? project.blockers.length : 0;
+  return 14 + Math.min(12, (taskCount * 2) + blockerCount + (degree * 1.5));
 }
 
 function nodeColor(project) {
@@ -42,11 +51,65 @@ function detailMarkup(project) {
   `;
 }
 
+function normalizeProject(project) {
+  const name = String(project?.name || "").trim();
+  if (!name) return null;
+  return {
+    ...project,
+    name,
+    status: String(project?.status || "paused").trim().toLowerCase() || "paused",
+    completion: Number(project?.completion || 0) || 0,
+    next_tasks: Array.isArray(project?.next_tasks) ? project.next_tasks : [],
+    blockers: Array.isArray(project?.blockers) ? project.blockers : [],
+  };
+}
+
+function normalizeEdge(edge) {
+  const from = String(edge?.from || "").trim();
+  const to = String(edge?.to || "").trim();
+  if (!from || !to) return null;
+  return {
+    ...edge,
+    from,
+    to,
+    type: String(edge?.type || "").trim().toLowerCase() || "depends_on",
+  };
+}
+
+function mergeProjectsWithEdges(projectItems, edgeItems) {
+  const merged = new Map();
+
+  for (const project of Array.isArray(projectItems) ? projectItems : []) {
+    const normalized = normalizeProject(project);
+    if (!normalized) continue;
+    merged.set(normalized.name, normalized);
+  }
+
+  for (const edge of Array.isArray(edgeItems) ? edgeItems : []) {
+    const normalized = normalizeEdge(edge);
+    if (!normalized) continue;
+    for (const name of [normalized.from, normalized.to]) {
+      if (merged.has(name)) continue;
+      merged.set(name, {
+        name,
+        status: "paused",
+        completion: 0,
+        description: "Observed from the project relationship graph.",
+        next_tasks: [],
+        blockers: [],
+      });
+    }
+  }
+
+  return [...merged.values()];
+}
+
 export function createProjectGraph({ canvas, tooltip, detail }) {
   const ctx = canvas.getContext("2d");
   let projects = [];
   let edges = [];
   let nodes = [];
+  let nodeIndex = new Map();
   let hoverNode = null;
   let selectedNode = null;
   let rafId = 0;
@@ -66,28 +129,51 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   }
 
   function rebuildNodes() {
+    const priorNodes = new Map(nodes.map((node) => [node.name, node]));
+    const graphProjects = mergeProjectsWithEdges(projects, edges);
+    const edgeCounts = new Map();
+    for (const edge of edges) {
+      const normalized = normalizeEdge(edge);
+      if (!normalized) continue;
+      edgeCounts.set(normalized.from, (edgeCounts.get(normalized.from) || 0) + 1);
+      edgeCounts.set(normalized.to, (edgeCounts.get(normalized.to) || 0) + 1);
+    }
     const radius = Math.min(width, height) * 0.28 || 120;
     const centerX = width / 2;
     const centerY = height / 2;
-    nodes = projects.map((project, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(1, projects.length);
+    nodes = graphProjects.map((project, index) => {
+      const angle = (Math.PI * 2 * index) / Math.max(1, graphProjects.length);
+      const previous = priorNodes.get(project.name);
+      const degree = edgeCounts.get(project.name) || 0;
       return {
         ...project,
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-        vx: 0,
-        vy: 0,
-        radius: nodeRadius(project),
+        x: previous?.x ?? (centerX + Math.cos(angle) * radius),
+        y: previous?.y ?? (centerY + Math.sin(angle) * radius),
+        vx: previous?.vx ?? 0,
+        vy: previous?.vy ?? 0,
+        radius: nodeRadius(project, degree),
       };
     });
-    if (!selectedNode && nodes[0]) {
-      selectedNode = nodes[0];
-      detail.innerHTML = detailMarkup(selectedNode);
+    nodeIndex = new Map(nodes.map((node) => [node.name, node]));
+
+    if (!nodes.length) {
+      selectedNode = null;
+      detail.innerHTML = EMPTY_GRAPH_DETAIL;
+      return;
     }
+
+    if (selectedNode) {
+      selectedNode = nodeIndex.get(selectedNode.name) || null;
+    }
+
+    if (!selectedNode) {
+      selectedNode = nodes[0];
+    }
+    detail.innerHTML = detailMarkup(selectedNode);
   }
 
   function nodeByName(name) {
-    return nodes.find((node) => node.name === name) || null;
+    return nodeIndex.get(name) || null;
   }
 
   function applyPhysics() {
@@ -217,24 +303,39 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   });
 
   async function refresh() {
+    let nextProjects = projects;
+    let nextEdges = edges;
+
     try {
-      const response = await fetch("/api/graph");
-      if (!response.ok) return;
-      const payload = await response.json();
-      edges = Array.isArray(payload.edges) ? payload.edges : [];
+      const [projectsResponse, graphResponse] = await Promise.all([
+        fetch("/api/projects"),
+        fetch("/api/graph"),
+      ]);
+
+      if (projectsResponse.ok) {
+        const payload = await projectsResponse.json();
+        nextProjects = Array.isArray(payload) ? payload : nextProjects;
+      }
+      if (graphResponse.ok) {
+        const payload = await graphResponse.json();
+        nextEdges = Array.isArray(payload.edges) ? payload.edges : [];
+      }
     } catch (error) {
       console.error(error);
-      edges = [];
     }
+
+    projects = Array.isArray(nextProjects) ? nextProjects : [];
+    edges = Array.isArray(nextEdges) ? nextEdges.map((edge) => normalizeEdge(edge)).filter(Boolean) : [];
+    rebuildNodes();
   }
 
   function setProjects(nextProjects) {
-    projects = Array.isArray(nextProjects) ? nextProjects : [];
-    ensureSize();
+    projects = Array.isArray(nextProjects) ? nextProjects.map((project) => normalizeProject(project)).filter(Boolean) : [];
     rebuildNodes();
   }
 
   ensureSize();
+  detail.innerHTML = EMPTY_GRAPH_DETAIL;
   animate();
 
   return {
