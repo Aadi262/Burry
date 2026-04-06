@@ -256,7 +256,7 @@ body[data-state="speaking"] {
 
 .center-column {
   display: grid;
-  grid-template-rows: 380px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 380px) minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -518,6 +518,7 @@ body[data-state="speaking"] {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   padding: 16px 18px 18px;
+  max-height: 380px;
 }
 
 .orb-summary {
