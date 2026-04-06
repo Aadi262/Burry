@@ -112,7 +112,6 @@ MCP_SERVERS = {
 }
 SEARCH_BACKEND = "auto"
 MCP_CONTEXT_ENABLED = True
-EXA_API_KEY = "43dd4d35-dc20-4a62-af5f-1aa340963c07"
 SEARXNG_URL = "http://localhost:8080"
 EMBED_MODEL = "nomic-embed-text"
 TAVILY_API_KEY = ""

@@ -18,7 +18,8 @@ import urllib.parse
 import numpy as np
 import requests
 
-from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, EXA_API_KEY, OLLAMA_MODEL
+from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL
+from butler_secrets.loader import get_secret, get_vps_secret
 from brain.ollama_client import (
     _get_available_models,
     _check_memory,
@@ -27,7 +28,6 @@ from brain.ollama_client import (
     pick_agent_model,
 )
 from mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
-from butler_secrets.loader import get_vps_secret
 from runtime import note_agent_result, notify
 
 ROUTED_MODELS = {
@@ -204,7 +204,7 @@ def _clean_spoken_result(text: str) -> str:
 
 
 def _get_exa_api_key() -> str:
-    return os.environ.get("EXA_API_KEY", "").strip() or EXA_API_KEY.strip()
+    return get_secret("EXA_API_KEY")
 
 
 def _cosine_sim(a: list, b: list) -> float:

@@ -3,3 +3,4 @@ __pycache__/
 memory/butler_memory.json
 secrets/local_secrets.json
 vault/local_secrets.json
+butler_secrets/local_secrets.json

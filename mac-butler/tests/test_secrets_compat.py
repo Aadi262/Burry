@@ -13,7 +13,7 @@ class SecretsCompatTests(unittest.TestCase):
         self.assertTrue(all(char in "0123456789abcdef" for char in token))
 
     def test_loader_prefers_vault_path(self):
-        self.assertTrue(str(SECRETS_PATHS[0]).endswith("vault/local_secrets.json"))
+        self.assertTrue(str(SECRETS_PATHS[0]).endswith("butler_secrets/local_secrets.json"))
 
 
 if __name__ == "__main__":

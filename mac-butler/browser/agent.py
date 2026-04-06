@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 import requests
 
 from brain.ollama_client import _call, pick_butler_model
-from butler_config import EXA_API_KEY, SEARXNG_URL
+from butler_config import SEARXNG_URL
+from butler_secrets.loader import get_secret
 
 USER_AGENT = "BurryBrowser/1.0"
 
@@ -235,7 +236,7 @@ Give one spoken answer in under 90 words. No raw URLs. Synthesize across sources
         return items
 
     def _exa(self, query: str) -> list[dict]:
-        api_key = str(EXA_API_KEY or "").strip()
+        api_key = get_secret("EXA_API_KEY")
         if not api_key:
             return []
         try:
