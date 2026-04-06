@@ -193,7 +193,10 @@ export function createPanels({ refs, state, orb, events, openProject }) {
   function renderTasks(data, projectItems = state.projects) {
     const items = [];
     for (const task of Array.isArray(data.tasks) ? data.tasks : []) {
-      items.push({ label: "Live", text: task });
+      const taskStatus = typeof task === "object" ? String(task.status || "").toLowerCase() : "";
+      if (taskStatus === "done" || taskStatus === "completed") continue;
+      const taskText = typeof task === "object" ? (task.title || task.text || "") : task;
+      if (taskText) items.push({ label: "Live", text: taskText });
     }
     for (const project of projectItems) {
       for (const task of (project.next_tasks || []).slice(0, 2)) {
@@ -209,7 +212,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
             <strong>${item.text}</strong>
           </div>
         `).join("")
-      : "<div class=\"task-item\"><span class=\"task-tag\">Status</span><strong>No pending tasks loaded yet.</strong></div>";
+      : "<div class=\"task-item\"><span class=\"task-tag\">Status</span><strong>No active tasks.</strong></div>";
   }
 
   function renderProjects(projectItems) {
@@ -265,6 +268,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
       .reverse()
       .find((entry) => entry.role === "user" && entry.text);
     refs.transcriptHeard.textContent = latestHeard || optimisticHeard?.text || "Listening for the next command.";
+    refs.transcriptHeard.style.opacity = (!latestHeard && optimisticHeard?.dropped) ? "0.45" : "";
     refs.transcriptSpoken.textContent = collapseWhitespace(data.last_spoken_text) || "Standing by.";
   }
 

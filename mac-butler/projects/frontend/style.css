@@ -496,7 +496,7 @@ body[data-state="executing"] .panel {
 
 /* ── Mac Activity panel ─────────────────────────────────────────── */
 .mac-activity-panel {
-  min-height: 200px;
+  flex-shrink: 0;
 }
 
 .mac-activity-list {
@@ -600,7 +600,7 @@ body[data-state="executing"] .panel {
 
 /* ── Runtime panel ──────────────────────────────────────────────── */
 .runtime-panel {
-  min-height: 140px;
+  flex-shrink: 0;
 }
 
 .runtime-grid {
@@ -668,7 +668,7 @@ body[data-state="executing"] .panel {
 
 /* ── Workspace panel ────────────────────────────────────────────── */
 .workspace-panel {
-  min-height: 100px;
+  flex-shrink: 0;
   gap: 10px;
 }
 
@@ -719,7 +719,7 @@ body[data-state="executing"] .panel {
 
 /* ── Ambient panel ──────────────────────────────────────────────── */
 .ambient-panel {
-  min-height: 120px;
+  flex-shrink: 0;
 }
 
 .ambient-list {
@@ -756,7 +756,7 @@ body[data-state="executing"] .panel {
 
 /* ── Recall panel ───────────────────────────────────────────────── */
 .recall-panel {
-  min-height: 100px;
+  flex-shrink: 0;
 }
 
 .recall-panel .panel-label {
@@ -807,7 +807,7 @@ body[data-state="executing"] .panel {
 
 /* ── Pending panel ──────────────────────────────────────────────── */
 .pending-panel {
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 .pending-panel .panel-label {
@@ -1074,7 +1074,7 @@ body[data-state="executing"] .panel {
   width: 100%;
   text-align: left;
   display: grid;
-  grid-template-columns: 40px 60px minmax(0, 1fr);
+  grid-template-columns: 36px auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   min-height: 36px;
@@ -1117,6 +1117,7 @@ body[data-state="executing"] .panel {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .event-kind.tone-faint { color: var(--text-faint); }
@@ -1148,6 +1149,8 @@ body[data-state="executing"] .panel {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 /* ── Right rail: Project panel ──────────────────────────────────── */
@@ -1302,9 +1305,9 @@ body[data-state="executing"] .panel {
   left: 20px;
   right: 20px;
   bottom: var(--dock-bottom);
-  height: var(--dock-height);
+  min-height: var(--dock-height);
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto auto;
   gap: 6px;
   border-radius: 24px;
   border: 1px solid rgba(13, 39, 68, 0.86);

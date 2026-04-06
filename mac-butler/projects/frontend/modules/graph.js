@@ -395,8 +395,17 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
         <span>${hoverNode.status || "paused"} · ${completion}%</span>
         <div>${nextTask}</div>
       `;
-      tooltip.style.left = `${mouseX + 14}px`;
-      tooltip.style.top = `${mouseY + 14}px`;
+      const rect = canvas.getBoundingClientRect();
+      const tipW = tooltip.offsetWidth || 200;
+      const tipH = tooltip.offsetHeight || 80;
+      let tipLeft = mouseX + 14;
+      let tipTop = mouseY + 14;
+      if (tipLeft + tipW > rect.width) tipLeft = mouseX - tipW - 8;
+      if (tipTop + tipH > rect.height) tipTop = mouseY - tipH - 8;
+      if (tipLeft < 0) tipLeft = 8;
+      if (tipTop < 0) tipTop = 8;
+      tooltip.style.left = `${tipLeft}px`;
+      tooltip.style.top = `${tipTop}px`;
       tooltip.classList.add("is-visible");
     }
     if (selectedNode) {

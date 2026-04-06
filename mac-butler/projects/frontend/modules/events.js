@@ -40,19 +40,23 @@ function eventKey(event) {
   return [event.at || "", event.kind || "", event.message || ""].join("|");
 }
 
+function esc(str) {
+  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function metaMarkup(meta) {
   if (!meta || typeof meta !== "object" || !Object.keys(meta).length) return "";
-  return `<pre class="event-meta">${JSON.stringify(meta, null, 2)}</pre>`;
+  return `<pre style="max-height:120px;overflow-y:auto;font-size:9px;line-height:1.4;" class="event-meta">${esc(JSON.stringify(meta, null, 2))}</pre>`;
 }
 
 function eventMarkup(event, expandedKey) {
   const key = eventKey(event);
   const open = key === expandedKey;
   return `
-    <button class="event-row${open ? " is-open" : ""}" type="button" data-event-key="${key}">
+    <button class="event-row${open ? " is-open" : ""}" type="button" data-event-key="${esc(key)}">
       <span class="event-time">${formatClock(event.at)}</span>
-      <span class="event-kind tone-${eventKindClass(event.kind)}">${event.kind || "event"}</span>
-      <span class="event-message">${event.message || "No details recorded."}</span>
+      <span class="event-kind tone-${eventKindClass(event.kind)}">${esc(event.kind) || "event"}</span>
+      <span class="event-message">${esc(event.message) || "No details recorded."}</span>
       ${open ? metaMarkup(event.meta) : ""}
     </button>
   `;
@@ -77,8 +81,7 @@ export function createEventsPanel({ container }) {
     const signature = items.map(eventKey).join("||");
     const shouldStickBottom =
       !container.childElementCount
-      || container.scrollHeight - container.scrollTop - container.clientHeight < 40
-      || signature !== lastSignature;
+      || container.scrollHeight - container.scrollTop - container.clientHeight < 40;
 
     if (!items.length) {
       container.innerHTML = "<div class=\"events-empty\">Runtime events will appear here as Burry listens, routes, remembers, and executes.</div>";

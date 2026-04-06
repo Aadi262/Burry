@@ -14,10 +14,15 @@ async function postCommand(body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (response.status === 503) {
+    const payload = await response.json().catch(() => ({}));
+    return { status: payload.status || "busy" };
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || `Command failed with ${response.status}`);
   }
+  return await response.json().catch(() => ({}));
 }
 
 export function createCommandController({
@@ -51,17 +56,25 @@ export function createCommandController({
     const clean = collapseWhitespace(text);
     if (!clean) return;
 
-    state.optimisticEntries.push({
+    const entry = {
       role: "user",
       at: new Date().toISOString(),
       text: clean,
-    });
+    };
+    state.optimisticEntries.push(entry);
     renderTranscript(state.operator);
     setButlerState("thinking", "Routing the typed command now.");
 
     try {
-      await postCommand({ text: clean, source: "hud" });
-      kickOperatorRefreshWindow();
+      const result = await postCommand({ text: clean, source: "hud" });
+      if (result && result.status === "busy") {
+        entry.text = clean + " (not received — Burry was busy)";
+        entry.dropped = true;
+        renderTranscript(state.operator);
+        refs.transcriptHeard.style.opacity = "0.45";
+      } else {
+        kickOperatorRefreshWindow();
+      }
     } catch (error) {
       console.error(error);
       setButlerState(normalizeCurrentMode(), currentPillNote());
