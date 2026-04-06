@@ -12,9 +12,7 @@ import time
 from datetime import datetime
 
 from butler_config import (
-    HEARTBEAT_ENABLED,
     HEARTBEAT_INTERVAL_MINUTES,
-    HEARTBEAT_MODEL,
     OLLAMA_MODEL,
 )
 from brain.ollama_client import _call, _strip
@@ -22,6 +20,8 @@ from context import build_structured_context
 from executor.engine import Executor
 
 SAFE_ACTIONS = {"notify", "remind_in", "obsidian_note"}
+HEARTBEAT_ENABLED = True
+HEARTBEAT_MODEL = "gemma4:e4b"
 
 
 def _safe_action_from_response(data: dict) -> dict | None:

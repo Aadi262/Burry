@@ -13,11 +13,13 @@ import time
 from pathlib import Path
 
 from agents.runner import run_agent
-from butler_config import BUG_HUNTER_ENABLED, BUG_HUNTER_INTERVAL_MINUTES, BUG_HUNTER_MODEL
+from butler_config import BUG_HUNTER_INTERVAL_MINUTES
 from executor.engine import Executor
 from runtime.notify import notify
 
 ROOT = Path(__file__).resolve().parent.parent
+BUG_HUNTER_ENABLED = True
+BUG_HUNTER_MODEL = "gemma4:e4b"
 
 
 def run_bug_hunt_once() -> dict:
