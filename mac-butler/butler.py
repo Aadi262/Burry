@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import random
 import re
 import subprocess
@@ -83,6 +84,11 @@ _LAST_RESOLVED_COMMAND = {
     "intent_name": "",
     "at": 0.0,
 }
+_COMMAND_QUEUE: queue.Queue = queue.Queue(maxsize=3)
+_CTX_CACHE: dict | None = None
+_CTX_CACHE_AT: float = 0.0
+_CTX_CACHE_TTL_SECONDS: float = 30.0
+_CTX_CACHE_LOCK = threading.Lock()
 _FOLLOWUP_PREFIXES = (
     "and ",
     "then ",
@@ -2480,17 +2486,18 @@ def _record(
             f"{datetime.now().strftime('%m/%d')} command: {text[:80]} -> {speech[:80]}"
         )
         touched = record_project_execution(text, speech, actions, results=results or [])
-        analyze_and_learn(
-            {
-                "text": text,
-                "speech": speech,
-                "actions": actions,
-                "results": results or [],
-                "intent_name": intent_name,
-                "projects": list(touched.keys()),
-                **learning_payload,
-            }
-        )
+        with _LEARNING_TRACE_LOCK:
+            analyze_and_learn(
+                {
+                    "text": text,
+                    "speech": speech,
+                    "actions": actions,
+                    "results": results or [],
+                    "intent_name": intent_name,
+                    "projects": list(touched.keys()),
+                    **learning_payload,
+                }
+            )
         try:
             from memory.graph import observe_project_relationships
 
@@ -2608,6 +2615,36 @@ def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30
     return False
 
 
+def _get_structured_context() -> dict:
+    """Return cached build_structured_context(). Rebuilds every 30 seconds."""
+    global _CTX_CACHE, _CTX_CACHE_AT
+    now = time.monotonic()
+    with _CTX_CACHE_LOCK:
+        if _CTX_CACHE is not None and now - _CTX_CACHE_AT < _CTX_CACHE_TTL_SECONDS:
+            return _CTX_CACHE
+    ctx = build_structured_context()
+    with _CTX_CACHE_LOCK:
+        _CTX_CACHE = ctx
+        _CTX_CACHE_AT = now
+    return ctx
+
+
+def _invalidate_context_cache() -> None:
+    global _CTX_CACHE, _CTX_CACHE_AT
+    with _CTX_CACHE_LOCK:
+        _CTX_CACHE = None
+        _CTX_CACHE_AT = 0.0
+
+
+def _process_next_queued_command() -> None:
+    """Drain one item from the command queue if available."""
+    try:
+        queued_text = _COMMAND_QUEUE.get_nowait()
+    except queue.Empty:
+        return
+    threading.Thread(target=handle_input, args=(queued_text,), daemon=True).start()
+
+
 def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> None:
     global _briefing_done
     _ensure_watcher_started()
@@ -2699,7 +2736,11 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if not text or len(text.strip()) < 2:
         return
     if state.is_busy:
-        print("[Butler] Still processing previous command")
+        try:
+            _COMMAND_QUEUE.put_nowait(text)
+            speak("Got it, finishing current task first.")
+        except queue.Full:
+            speak("Still busy, please wait.")
         return
 
     note_heard_text(text)
@@ -2783,7 +2824,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     _clear_pending_dialogue()
-    ctx = build_structured_context()
+    ctx = _get_structured_context()
     _warn_if_search_offline()
     action = _contextualize_action(intent.to_action(), intent, ctx)
 
@@ -2877,6 +2918,16 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
 
 
 handle_command = handle_input
+
+
+def _on_state_change(old_state: State, new_state: State) -> None:
+    """Drain queued commands when butler becomes free."""
+    busy = {State.THINKING, State.SPEAKING, State.LISTENING}
+    if old_state in busy and new_state not in busy:
+        _process_next_queued_command()
+
+
+state.on_change(_on_state_change)
 
 
 def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: bool = False) -> None:

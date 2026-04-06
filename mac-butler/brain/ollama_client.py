@@ -42,10 +42,11 @@ from butler_config import (
     VPS_OLLAMA_URL,
     VPS_OLLAMA_USER,
 )
+from memory.learner import get_learned_patterns
 
 TIMEOUT = 45
 MEMORY_WARN_GB = 1.5
-VPS_REQUEST_TIMEOUT = 120
+VPS_REQUEST_TIMEOUT = 8
 MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
 _MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
 LLM_THINKING_NOTIFY_SECONDS = 8
@@ -923,7 +924,7 @@ def _call_ollama(
     url, headers, backend = _get_request_target_for_model(model)
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 60
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 12
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)
@@ -940,7 +941,8 @@ def _call_ollama(
         },
     }
     if system:
-        payload["system"] = system
+        patterns = get_learned_patterns()
+        payload["system"] = system + (f"\n\n{patterns}" if patterns else "")
 
     try:
         response = _post_with_thinking_notice(
@@ -950,11 +952,17 @@ def _call_ollama(
             timeout=request_timeout,
         )
         return response.json().get("response", "").strip()
+    except requests.exceptions.Timeout:
+        print(f"[Brain] Ollama timed out after {request_timeout}s, returning fallback")
+        return "I'm still thinking, give me a moment."
     except requests.exceptions.ConnectionError:
         if url != local_url:
             print("[Brain] VPS failed mid-request, retrying local")
-            local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=60)
-            return local_response.json().get("response", "").strip()
+            try:
+                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=12)
+                return local_response.json().get("response", "").strip()
+            except requests.exceptions.Timeout:
+                return "I'm still thinking, give me a moment."
         raise ConnectionError("Ollama not running. Start with: ollama serve")
     except Exception as exc:
         for retry_model in _dedupe_models(
@@ -1006,7 +1014,7 @@ def chat_with_ollama(
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
     request_url = url.replace("/api/generate", "/api/chat")
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 90
+    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 12
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)
@@ -1033,11 +1041,17 @@ def chat_with_ollama(
         )
         data = response.json()
         return data if isinstance(data, dict) else {}
+    except requests.exceptions.Timeout:
+        print(f"[Brain] Ollama chat timed out after {request_timeout}s")
+        return {"message": {"content": "I'm still thinking, give me a moment."}}
     except requests.exceptions.ConnectionError:
         if request_url != local_url:
-            local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=90)
-            data = local_response.json()
-            return data if isinstance(data, dict) else {}
+            try:
+                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=12)
+                data = local_response.json()
+                return data if isinstance(data, dict) else {}
+            except requests.exceptions.Timeout:
+                return {"message": {"content": "I'm still thinking, give me a moment."}}
         raise ConnectionError("Ollama not running. Start with: ollama serve")
     except Exception as exc:
         for retry_model in _dedupe_models(

@@ -84,7 +84,7 @@ def get_learned_patterns() -> str:
     patterns = data.get("patterns", [])
     if not patterns:
         return ""
-    return "[LEARNED PATTERNS]\n" + "\n".join(f"  - {pattern}" for pattern in patterns[-10:])
+    return "[LEARNED PATTERNS]\n" + "\n".join(f"  - {pattern}" for pattern in patterns[-5:])
 
 
 if __name__ == "__main__":
