@@ -1,67 +1,83 @@
 #!/usr/bin/env python3
-"""Meta Planner Agent — inspired by AgentScope's Meta Planner.
-Decomposes complex tasks into steps and executes them sequentially.
-"""
+"""AgentScope-backed meta planner for multi-step execution."""
 from __future__ import annotations
 
-import json
-import re
+import asyncio
 
-from brain.ollama_client import _call
+from agentscope.memory import InMemoryMemory
+from agentscope.message import Msg
+from agentscope.plan import PlanNotebook
+
+from brain.agentscope_backbone import build_agentscope_toolkit, create_react_agent
 from runtime.telemetry import note_agent_result
+
+_PLANNER_SYSTEM_PROMPT = """You are Burry's planning agent.
+
+Use AgentScope's planning tools for requests that require multiple dependent
+actions. Create a concrete plan when needed, execute the steps with real tools,
+update subtask state as you progress, and finish the plan when the task is
+complete. Do not narrate imagined work. Use tools for actual actions.
+
+Return a concise operator summary of what you completed, what failed, and what
+still needs follow-up."""
+
+
+def _planner_toolkit():
+    return build_agentscope_toolkit(exclude_tools={"plan_and_execute"})
+
+
+async def _run_plan(task: str, ctx: dict, model: str) -> str:
+    planner = create_react_agent(
+        name="BurryPlanner",
+        system_prompt=_PLANNER_SYSTEM_PROMPT,
+        model_name=model,
+        toolkit=_planner_toolkit(),
+        memory=InMemoryMemory(),
+        plan_notebook=PlanNotebook(max_subtasks=8),
+        max_iters=8,
+        stream=False,
+    )
+
+    focus_project = str(ctx.get("focus_project", "") or "")
+    workspace = str(ctx.get("workspace", "") or "")
+    context_bits = []
+    if focus_project:
+        context_bits.append(f"Focus project: {focus_project}")
+    if workspace:
+        context_bits.append(f"Workspace: {workspace}")
+    if ctx.get("formatted"):
+        context_bits.append(f"Context:\n{str(ctx['formatted'])[:2500]}")
+
+    prompt = task.strip()
+    if context_bits:
+        prompt = f"{task.strip()}\n\n" + "\n\n".join(context_bits)
+
+    note_agent_result("planner", "start", f"Planning task: {task[:80]}")
+    reply = await planner(
+        Msg(
+            "user",
+            prompt,
+            "user",
+            metadata={
+                "focus_project": focus_project,
+                "workspace": workspace,
+            },
+        ),
+    )
+    speech = " ".join(str(reply.get_text_content() or "").split()).strip()
+    speech = speech or "I couldn't complete that plan."
+    note_agent_result("planner", "ok", speech[:120])
+    return speech
 
 
 def plan_and_execute(task: str, ctx: dict, model: str = "gemma4:e4b") -> str:
-    """Break a complex task into steps and execute them.
-
-    Example: 'Set up my morning: open mac-butler in Cursor, play focus music,
-    check VPS status, and remind me of standup in 30 mins'
-    → Plan: [open_project, spotify_control, ssh_vps, set_reminder]
-    → Execute each step in order → Report results
-    """
-    from brain.toolkit import get_toolkit
-    import brain.tools_registry  # noqa
-
-    toolkit = get_toolkit()
-    available_tools = [t["function"]["name"] for t in toolkit.get_tools()]
-
-    # Generate plan
-    plan_prompt = f"""You are a task planner. Break this task into 2-5 steps using ONLY these available tools:
-{', '.join(available_tools)}
-
-Task: {task}
-
-Return a JSON array of steps. Each step: {{"tool": "tool_name", "args": {{"param": "value"}}, "reason": "why"}}
-Return ONLY the JSON array, nothing else:"""
-
-    raw_plan = _call(plan_prompt, model, max_tokens=400, temperature=0.1)
+    """Plan and execute a complex task with AgentScope orchestration."""
+    import concurrent.futures
 
     try:
-        raw_plan = re.sub(r"```json?\s*|\s*```", "", raw_plan or "").strip()
-        steps = json.loads(raw_plan)
-    except Exception:
-        return "I couldn't plan that task. Try breaking it into simpler steps."
-
-    # Execute each step
-    results = []
-    note_agent_result("planner", "start", f"Executing {len(steps)}-step plan for: {task[:50]}")
-
-    for i, step in enumerate(steps):
-        tool_name = step.get("tool", "")
-        args = step.get("args", {})
-
-        try:
-            result = toolkit.call(tool_name, **args)
-            results.append(f"Step {i+1} ({tool_name}): {str(result)[:100]}")
-            note_agent_result("planner_step", "ok", f"{tool_name}: {str(result)[:50]}")
-        except Exception as exc:
-            results.append(f"Step {i+1} ({tool_name}): failed — {str(exc)[:50]}")
-
-    # Summarize
-    summary_prompt = f"""Task completed: {task}
-Results: {chr(10).join(results)}
-
-Give a brief 1-2 sentence summary of what was accomplished:"""
-
-    summary = _call(summary_prompt, "gemma4:e4b", max_tokens=80, temperature=0.1)
-    return summary or f"Completed {len(results)} steps."
+        asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _run_plan(task, ctx or {}, model))
+            return future.result(timeout=120)
+    except RuntimeError:
+        return asyncio.run(_run_plan(task, ctx or {}, model))

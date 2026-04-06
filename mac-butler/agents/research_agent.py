@@ -1,64 +1,75 @@
 #!/usr/bin/env python3
-"""Deep Research Agent — multi-step parallel research with synthesis.
-Inspired by AgentScope's research agent.
-
-1. Decomposes question into 3 search queries
-2. Runs all searches in parallel via ThreadPoolExecutor
-3. Synthesizes into coherent answer
-"""
+"""AgentScope-backed deep research agent."""
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 
-from brain.ollama_client import _call
-from browser.agent import BrowsingAgent
+from agentscope.memory import InMemoryMemory
+from agentscope.message import Msg
+from agentscope.plan import PlanNotebook
+
+from brain.agentscope_backbone import build_agentscope_toolkit, create_react_agent
+from runtime.telemetry import note_agent_result
+
+_RESEARCH_SYSTEM_PROMPT = """You are Burry's research agent.
+
+Research questions using real search and browsing tools. For substantial
+queries, create a short plan first, gather evidence from multiple sources,
+cross-check important claims, and then produce a concise synthesis.
+
+Prefer search and browsing tools over speculation. If evidence is weak, say
+that clearly. Keep the final answer compact and useful for spoken delivery."""
+
+_RESEARCH_TOOLS = {
+    "browse_and_act",
+    "browse_web",
+    "web_search_summarize",
+    "search_knowledge_base",
+    "recall_memory",
+}
+
+
+def _research_toolkit():
+    return build_agentscope_toolkit(
+        include_tools=_RESEARCH_TOOLS,
+        exclude_tools={"deep_research"},
+    )
+
+
+async def _run_research(question: str, model: str) -> str:
+    researcher = create_react_agent(
+        name="BurryResearch",
+        system_prompt=_RESEARCH_SYSTEM_PROMPT,
+        model_name=model,
+        toolkit=_research_toolkit(),
+        memory=InMemoryMemory(),
+        plan_notebook=PlanNotebook(max_subtasks=4),
+        max_iters=7,
+        stream=False,
+    )
+
+    note_agent_result("research", "start", f"Researching: {question[:80]}")
+    reply = await researcher(
+        Msg(
+            "user",
+            question.strip(),
+            "user",
+        ),
+    )
+    answer = " ".join(str(reply.get_text_content() or "").split()).strip()
+    answer = answer or "I couldn't find enough reliable information on that."
+    note_agent_result("research", "ok", answer[:120])
+    return answer
 
 
 def deep_research(question: str, model: str = "gemma4:e4b") -> str:
-    """Multi-step research agent.
+    """Research a question with AgentScope-backed planning and tool use."""
+    import concurrent.futures
 
-    Example: 'What are the latest trends in AI agents?'
-    → 3 targeted searches → synthesis → one clear answer
-    """
-    # Step 1: Decompose into sub-queries
-    decompose_prompt = f"""Break this research question into exactly 3 specific web search queries.
-Return ONLY the 3 queries, one per line, no numbering or explanation.
-
-Question: {question}
-
-Queries:"""
-
-    raw_queries = _call(decompose_prompt, model, max_tokens=100, temperature=0.1)
-    queries = [q.strip() for q in (raw_queries or "").strip().split("\n") if q.strip()][:3]
-
-    if not queries:
-        queries = [question]
-
-    # Step 2: Search all queries in parallel
-    browser = BrowsingAgent()
-
-    def search_one(q: str) -> str:
-        try:
-            result = browser.search(q, question=question)
-            return result.get("result", "")
-        except Exception:
-            return ""
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(search_one, q) for q in queries]
-        results = [f.result() for f in concurrent.futures.as_completed(futures)]
-
-    # Step 3: Synthesize
-    combined = "\n\n---\n\n".join(r for r in results if r)
-    if not combined:
-        return "I couldn't find enough information on that topic."
-
-    synthesis_prompt = f"""Research question: {question}
-
-Research findings:
-{combined[:4000]}
-
-Provide a clear, concise answer in 3-5 sentences covering the key points:"""
-
-    answer = _call(synthesis_prompt, model, max_tokens=300, temperature=0.2)
-    return answer or combined[:500]
+    try:
+        asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _run_research(question, model))
+            return future.result(timeout=120)
+    except RuntimeError:
+        return asyncio.run(_run_research(question, model))
