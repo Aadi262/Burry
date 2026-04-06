@@ -26,6 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from intents.router import APP_MAP
+from utils import _normalize
+
 # Patch PATH so editor CLIs are always found.
 EXTRA_PATHS = [
     "/usr/local/bin",
@@ -100,21 +103,6 @@ CONFIRM_REQUIRED_PATTERNS = [
 ]
 
 DEFAULT_BROWSER_APP = "Google Chrome"
-WEB_APP_URLS = {
-    "google sheet": "https://sheets.google.com",
-    "google sheets": "https://sheets.google.com",
-    "google doc": "https://docs.google.com",
-    "google docs": "https://docs.google.com",
-    "google drive": "https://drive.google.com",
-    "google meet": "https://meet.google.com",
-    "notion": "https://notion.so",
-    "linear": "https://linear.app",
-    "figma": "https://figma.com",
-    "github": "https://github.com/Aadi262",
-    "chatgpt": "https://chat.openai.com",
-    "claude": "https://claude.ai",
-    "perplexity": "https://perplexity.ai",
-}
 
 try:
     from butler_config import OBSIDIAN_VAULT_NAME, OBSIDIAN_VAULT_PATH
@@ -519,9 +507,13 @@ class Executor:
         if isinstance(app_name, tuple) and len(app_name) == 2 and app_name[0] == "browser":
             return self.open_url_in_browser(str(app_name[1]), DEFAULT_BROWSER_APP)
 
-        normalized_label = " ".join(str(app_name or "").lower().split())
-        if normalized_label in WEB_APP_URLS:
-            return self.open_url_in_browser(WEB_APP_URLS[normalized_label], DEFAULT_BROWSER_APP)
+        normalized_label = _normalize(app_name)
+        for key, value in APP_MAP.items():
+            if _normalize(key) != normalized_label:
+                continue
+            if isinstance(value, tuple) and len(value) == 2 and value[0] == "browser":
+                return self.open_url_in_browser(str(value[1]), DEFAULT_BROWSER_APP)
+            break
 
         lowered = app_name.lower()
         if lowered in {"terminal", "iterm", "iterm2"}:

@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 from butler_config import EMBED_MODEL, OLLAMA_LOCAL_URL
+from utils import _clip_text, _now_iso
 
 MEMORY_PATH = Path(__file__).parent / "butler_memory.json"
 SESSION_DIR = Path(__file__).parent / "layers" / "sessions"
@@ -44,17 +45,8 @@ def _load() -> dict:
 def _save(data: dict) -> None:
     MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     MEMORY_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-
-def _clip(text: str, limit: int = 160) -> str:
-    value = " ".join(str(text or "").split()).strip()
-    if len(value) <= limit:
-        return value
-    return value[: limit - 3].rstrip() + "..."
-
-
 def _append_bounded(items: list[str], value: str, limit: int = 8) -> list[str]:
-    cleaned = _clip(value)
+    cleaned = _clip_text(value, limit=160)
     if not cleaned:
         return items[-limit:]
     kept = [item for item in items if item != cleaned]
@@ -319,8 +311,8 @@ def _projects_for_action(action: dict, context_text: str = "") -> list[dict]:
 def _summarize_result(result: dict) -> str:
     status = str(result.get("status", "")).strip() or "ok"
     if status == "error":
-        return _clip(result.get("error", ""), 140)
-    return _clip(result.get("result", ""), 140)
+        return _clip_text(result.get("error", ""), 140)
+    return _clip_text(result.get("result", ""), 140)
 
 
 def _detail_entry(
@@ -331,17 +323,17 @@ def _detail_entry(
     result: dict,
     project_name: str,
 ) -> str:
-    lines = [f"- request: {_clip(command_text, 120)}"]
+    lines = [f"- request: {_clip_text(command_text, 120)}"]
     lines.append(f"- action: {action.get('type', 'unknown')} [{result.get('status', 'ok')}]")
 
     if action.get("type") == "run_command" and action.get("cmd"):
-        lines.append(f"- command: {_clip(action.get('cmd', ''), 120)}")
+        lines.append(f"- command: {_clip_text(action.get('cmd', ''), 120)}")
     if action.get("path"):
-        lines.append(f"- path: {_clip(action.get('path', ''), 120)}")
+        lines.append(f"- path: {_clip_text(action.get('path', ''), 120)}")
     if action.get("directory"):
-        lines.append(f"- directory: {_clip(action.get('directory', ''), 120)}")
+        lines.append(f"- directory: {_clip_text(action.get('directory', ''), 120)}")
     if action.get("editor"):
-        lines.append(f"- editor: {_clip(action.get('editor', ''), 60)}")
+        lines.append(f"- editor: {_clip_text(action.get('editor', ''), 60)}")
 
     summary = _summarize_result(result)
     if summary:
@@ -372,7 +364,7 @@ def record_project_execution(
     """
     data = _load()
     project_states = data.get("project_state", {})
-    now = datetime.now().isoformat()
+    now = _now_iso()
     results = results or []
     touched: dict[str, dict] = {}
 
@@ -393,8 +385,8 @@ def record_project_execution(
             status = str(result.get("status", "ok")).strip() or "ok"
             summary = _summarize_result(result)
 
-            state["last_request"] = _clip(command_text, 140)
-            state["last_speech"] = _clip(speech, 160)
+            state["last_request"] = _clip_text(command_text, 140)
+            state["last_speech"] = _clip_text(speech, 160)
             state["last_action"] = action_type
             state["last_status"] = status
             state["last_result"] = summary
@@ -404,10 +396,10 @@ def record_project_execution(
                 state["last_ok_at"] = now
                 state["last_error"] = ""
             else:
-                state["last_error"] = _clip(result.get("error", ""), 160)
+                state["last_error"] = _clip_text(result.get("error", ""), 160)
 
             if action_type == "run_command":
-                command = _clip(action.get("cmd", ""), 140)
+                command = _clip_text(action.get("cmd", ""), 140)
                 if command:
                     state["last_command"] = command
                 cwd = action.get("cwd", "")
@@ -493,7 +485,7 @@ def record_session(
 ) -> None:
     """Called after every Butler interaction to build memory."""
     data = _load()
-    now = datetime.now().isoformat()
+    now = _now_iso()
     results = results or []
     data["session_count"] = data.get("session_count", 0) + 1
     data["last_session"] = now
@@ -541,7 +533,7 @@ def update_project_state(project_name: str, state: dict) -> None:
     if project_name not in projects:
         projects[project_name] = {}
     projects[project_name].update(state)
-    projects[project_name]["last_updated"] = datetime.now().isoformat()
+    projects[project_name]["last_updated"] = _now_iso()
     data["project_state"] = projects
     _save(data)
 
@@ -597,7 +589,7 @@ def get_memory_context() -> str:
             elif state.get("notes"):
                 parts.append(state["notes"])
             if state.get("last_error"):
-                parts.append(_clip(state["last_error"], 60))
+                parts.append(_clip_text(state["last_error"], 60))
             detail = " | ".join(part for part in parts if part)
             if detail:
                 lines.append(f"  {name}: {detail}")
@@ -657,7 +649,7 @@ def get_last_session_summary() -> str:
 
     actions = last.get("actions", [])
     results = last.get("results", []) or []
-    request = _clip(last.get("context", ""), 70)
+    request = _clip_text(last.get("context", ""), 70)
     action_parts = []
     for action in actions[:2]:
         action_type = action.get("type", "")

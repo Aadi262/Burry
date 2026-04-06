@@ -12,6 +12,7 @@ import requests
 from brain.ollama_client import _call, pick_butler_model
 from butler_config import SEARXNG_URL
 from butler_secrets.loader import get_secret
+from utils import _clip_text
 
 USER_AGENT = "BurryBrowser/1.0"
 
@@ -21,14 +22,6 @@ def _domain(url: str) -> str:
         return urlparse(url).netloc.replace("www.", "").strip() or url
     except Exception:
         return url
-
-
-def _clip_text(text: str, limit: int = 10000) -> str:
-    cleaned = " ".join(str(text or "").split()).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3].rstrip() + "..."
-
 
 def _fallback_summary(question: str, pages: list[dict]) -> str:
     if not pages:

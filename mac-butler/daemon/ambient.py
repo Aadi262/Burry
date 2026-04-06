@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import threading
@@ -13,18 +12,12 @@ from brain.ollama_client import _call
 from memory.store import load_recent_sessions
 from projects.project_store import load_projects
 from runtime import note_ambient_context
+from utils import _clip_text
 
 AMBIENT_INTERVAL_SECONDS = 10 * 60
 AMBIENT_FALLBACK_MODEL = "gemma4:e4b"
 _AMBIENT_LOCK = threading.Lock()
 _AMBIENT_THREAD: threading.Thread | None = None
-
-
-def _clip(text: str, limit: int = 120) -> str:
-    cleaned = " ".join(str(text or "").split()).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3].rstrip() + "..."
 
 
 def _bitnet_available() -> bool:
@@ -39,38 +32,38 @@ def _ambient_model() -> str:
 
 
 def _session_brief(entry: dict) -> str:
-    question = _clip(entry.get("text", ""), limit=72)
-    speech = _clip(entry.get("speech", ""), limit=88)
+    question = _clip_text(entry.get("text", ""), limit=72)
+    speech = _clip_text(entry.get("speech", ""), limit=88)
     if question and speech:
         return f"{question} -> {speech}"
-    return question or speech or _clip(entry.get("context", ""), limit=88) or "No recent session detail."
+    return question or speech or _clip_text(entry.get("context", ""), limit=88) or "No recent session detail."
 
 
 def _project_brief(project: dict) -> str:
-    name = _clip(project.get("name", ""), limit=40) or "unknown"
-    status = _clip(project.get("status", ""), limit=20) or "unknown"
+    name = _clip_text(project.get("name", ""), limit=40) or "unknown"
+    status = _clip_text(project.get("status", ""), limit=20) or "unknown"
     next_tasks = [str(item).strip() for item in list(project.get("next_tasks") or []) if str(item).strip()]
     blockers = [str(item).strip() for item in list(project.get("blockers") or []) if str(item).strip()]
     if blockers:
-        return f"{name} [{status}] blocker: {_clip(blockers[0], limit=88)}"
+        return f"{name} [{status}] blocker: {_clip_text(blockers[0], limit=88)}"
     if next_tasks:
-        return f"{name} [{status}] next: {_clip(next_tasks[0], limit=88)}"
+        return f"{name} [{status}] next: {_clip_text(next_tasks[0], limit=88)}"
     return f"{name} [{status}] steady"
 
 
 def _fallback_bullets(sessions: list[dict], projects: list[dict]) -> list[str]:
     bullets: list[str] = []
     if sessions:
-        bullets.append(_clip(f"Last session: {_session_brief(sessions[0])}", limit=120))
+        bullets.append(_clip_text(f"Last session: {_session_brief(sessions[0])}", limit=120))
     active = [project for project in projects if str(project.get("status", "")).lower() == "active"]
     if active:
-        bullets.append(_clip(_project_brief(active[0]), limit=120))
+        bullets.append(_clip_text(_project_brief(active[0]), limit=120))
     if len(active) > 1:
-        bullets.append(_clip(_project_brief(active[1]), limit=120))
+        bullets.append(_clip_text(_project_brief(active[1]), limit=120))
     elif len(projects) > 1:
-        bullets.append(_clip(_project_brief(projects[1]), limit=120))
+        bullets.append(_clip_text(_project_brief(projects[1]), limit=120))
     elif projects and len(bullets) < 3:
-        bullets.append(_clip(_project_brief(projects[0]), limit=120))
+        bullets.append(_clip_text(_project_brief(projects[0]), limit=120))
     if not bullets:
         bullets = [
             "No recent ambient context yet.",
@@ -92,7 +85,7 @@ def _parse_bullets(raw: str) -> list[str]:
             cleaned = cleaned[1:].strip()
         if not cleaned:
             continue
-        bullets.append(_clip(cleaned, limit=120))
+        bullets.append(_clip_text(cleaned, limit=120))
         if len(bullets) >= 3:
             break
     return bullets

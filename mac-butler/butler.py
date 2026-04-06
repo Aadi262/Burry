@@ -27,17 +27,17 @@ from butler_config import (
     SEARXNG_URL,
     VPS_HOSTS,
 )
-from daemons.ambient import start_ambient_daemon
+from daemon.ambient import start_ambient_daemon
 from brain.query_analyzer import analyze_query
 from context import build_structured_context
 from context.mac_activity import get_state_for_context, load_state as load_mac_state, start_watcher
 from executor.engine import Executor
 from intents.router import (
-    IntentResult,
-    PROJECT_MAP,
+    Intent,
     clean_song_query,
     detect_editor_choice,
     extract_requested_filename,
+    get_project_map,
     is_ambiguous_song_query,
     route,
 )
@@ -260,7 +260,7 @@ def _recent_turns_prompt_text(limit: int = 5) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
-def _resolve_pending_dialogue(text: str) -> IntentResult | None:
+def _resolve_pending_dialogue(text: str) -> Intent | None:
     pending = _get_pending_dialogue()
     if not pending:
         return None
@@ -274,14 +274,14 @@ def _resolve_pending_dialogue(text: str) -> IntentResult | None:
         candidate = clean_song_query(re.sub(r"^play\s+", "", text.lower().strip()))
         if not is_ambiguous_song_query(candidate):
             _clear_pending_dialogue()
-            return IntentResult("spotify_play", {"song": candidate}, confidence=0.85, raw=text)
-        return IntentResult("clarify_song", confidence=0.3, raw=text)
+            return Intent("spotify_play", {"song": candidate}, confidence=0.85, raw=text)
+        return Intent("clarify_song", confidence=0.3, raw=text)
 
     if pending.get("kind") == "file_name":
         candidate = extract_requested_filename(text) or _filename_from_follow_up(text)
         if candidate:
             _clear_pending_dialogue()
-            return IntentResult(
+            return Intent(
                 "create_file",
                 {
                     "filename": candidate,
@@ -290,7 +290,7 @@ def _resolve_pending_dialogue(text: str) -> IntentResult | None:
                 confidence=0.85,
                 raw=text,
             )
-        return IntentResult(
+        return Intent(
             "clarify_file",
             {"editor": pending.get("editor", "auto")},
             confidence=0.3,
@@ -494,7 +494,7 @@ def _reply_without_action(text: str, response: str, test_mode: bool = False, int
     state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
-def _build_voice_prompt(intent: IntentResult, text: str) -> str:
+def _build_voice_prompt(intent: Intent, text: str) -> str:
     conversation = _recent_turns_prompt_text()
     if intent.name == "what_next":
         ctx = build_structured_context()
@@ -1666,7 +1666,7 @@ def _run_actions_with_response(
     return final_response, results
 
 
-def get_quick_response(intent: IntentResult) -> str:
+def get_quick_response(intent: Intent) -> str:
     if hasattr(intent, "quick_response"):
         return intent.quick_response()
     template = QUICK_RESPONSES.get(intent.intent, "")
@@ -1804,7 +1804,7 @@ def _first_workspace_path(ctx: dict) -> str:
 
 def _project_path_from_text(text: str) -> str:
     lowered = text.lower()
-    for project, path in PROJECT_MAP.items():
+    for project, path in get_project_map().items():
         if project in lowered:
             return path
     return ""
@@ -1839,7 +1839,7 @@ def _preferred_editor(ctx: dict, project_path: str = "") -> str:
     return "auto"
 
 
-def _contextualize_action(action: dict | None, intent: IntentResult, ctx: dict) -> dict | None:
+def _contextualize_action(action: dict | None, intent: Intent, ctx: dict) -> dict | None:
     if action is None:
         return None
 
@@ -2055,7 +2055,7 @@ def _startup_intelligence_line() -> str:
     return f"Top on HN: {clipped}."
 
 
-def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
+def _handle_meta_intent(intent: Intent, test_mode: bool = False) -> bool:
     intent_name = getattr(intent, "name", getattr(intent, "intent", ""))
 
     if intent_name == "butler_sleep":

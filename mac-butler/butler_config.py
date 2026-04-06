@@ -142,6 +142,9 @@ VOICE_INPUT_MODEL = "mlx-community/whisper-base-mlx"
 VOICE_FASTER_WHISPER_MODEL = "small.en"
 VOICE_INPUT_BEAM_SIZE = 3
 VOICE_INPUT_PROMPT = "Transcribe a short English voice assistant command. Preserve proper nouns and app names accurately."
+VOICE_SILENCE_THRESHOLD = 0.015
+VOICE_MIN_SPEECH_S = 0.4
+VOICE_MAX_SPEECH_S = 8.0
 
 # --- Heartbeat (KAIROS) ---
 HEARTBEAT_ENABLED = True

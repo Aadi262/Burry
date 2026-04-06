@@ -5,17 +5,13 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime
 from pathlib import Path
+
+from utils import _clip_text, _now_iso
 
 RUNTIME_STATE_PATH = Path(__file__).resolve().parent.parent / "memory" / "runtime_state.json"
 MAX_EVENTS = 18
 _RUNTIME_LOCK = threading.Lock()
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
 
 def _default_runtime_state() -> dict:
     now = _now_iso()
@@ -58,15 +54,6 @@ def _default_runtime_state() -> dict:
         "ambient_context": [],
         "events": [],
     }
-
-
-def _clip_text(text: str, limit: int = 220) -> str:
-    cleaned = " ".join(str(text or "").split()).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3].rstrip() + "..."
-
-
 def _load_unlocked() -> dict:
     if not RUNTIME_STATE_PATH.exists():
         return _default_runtime_state()

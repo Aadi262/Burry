@@ -23,6 +23,7 @@ except ImportError:
 
 from butler_secrets.loader import get_ollama_secret
 from memory.graph import read_graph
+from utils import _normalize
 from butler_config import (
     AGENT_MODEL_CHAINS,
     AGENT_MODELS,
@@ -204,12 +205,6 @@ COMPACT_VPS_PLANNER_SYSTEM_PROMPT = """Output only JSON:
 Use the real project name from context when present.
 Keep focus and next concise. At most one action.
 If [DEPENDENCY GRAPH] shows an unblock path, prefer the step that unblocks another project."""
-
-
-def _normalize_graph_token(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
-
-
 def _dependency_graph_context(context_text: str, limit: int = 6) -> str:
     try:
         edges = list(read_graph().get("edges") or [])
@@ -218,7 +213,7 @@ def _dependency_graph_context(context_text: str, limit: int = 6) -> str:
     if not edges:
         return ""
 
-    normalized_context = _normalize_graph_token(context_text)
+    normalized_context = _normalize(context_text)
     relevant = []
     for edge in edges:
         source = str(edge.get("from", "")).strip()
@@ -226,7 +221,7 @@ def _dependency_graph_context(context_text: str, limit: int = 6) -> str:
         if not source or not target:
             continue
         if normalized_context:
-            if _normalize_graph_token(source) not in normalized_context and _normalize_graph_token(target) not in normalized_context:
+            if _normalize(source) not in normalized_context and _normalize(target) not in normalized_context:
                 continue
         relevant.append(edge)
 

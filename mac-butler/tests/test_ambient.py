@@ -1,14 +1,14 @@
 import unittest
 from unittest.mock import patch
 
-from daemons import ambient
+from daemon import ambient
 
 
 class AmbientDaemonTests(unittest.TestCase):
-    @patch("daemons.ambient._bitnet_available", return_value=False)
-    @patch("daemons.ambient._call", return_value="- auth recall still blocks startup\n- email-infra depends on VPS stability\n- Adpilot shares staging resources")
-    @patch("daemons.ambient.load_projects")
-    @patch("daemons.ambient.load_recent_sessions")
+    @patch("daemon.ambient._bitnet_available", return_value=False)
+    @patch("daemon.ambient._call", return_value="- auth recall still blocks startup\n- email-infra depends on VPS stability\n- Adpilot shares staging resources")
+    @patch("daemon.ambient.load_projects")
+    @patch("daemon.ambient.load_recent_sessions")
     def test_generate_ambient_context_uses_model_output(
         self,
         mock_sessions,
@@ -31,8 +31,8 @@ class AmbientDaemonTests(unittest.TestCase):
         )
         self.assertEqual(mock_call.call_args.args[1], "gemma4:e4b")
 
-    @patch("daemons.ambient.note_ambient_context")
-    @patch("daemons.ambient.generate_ambient_context", return_value=["one", "two", "three"])
+    @patch("daemon.ambient.note_ambient_context")
+    @patch("daemon.ambient.generate_ambient_context", return_value=["one", "two", "three"])
     def test_ambient_tick_persists_generated_bullets(self, mock_generate, mock_note):
         bullets = ambient.ambient_tick()
 

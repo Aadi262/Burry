@@ -12,19 +12,12 @@ from datetime import datetime
 from pathlib import Path
 
 from memory.store import prepare_session_entry, semantic_search
+from utils import _clip_text
 
 MEMORY_DIR = Path(__file__).parent / "layers"
 MEMORY_INDEX = MEMORY_DIR / "MEMORY.md"
 PROJECTS_DIR = MEMORY_DIR / "projects"
 SESSIONS_DIR = MEMORY_DIR / "sessions"
-
-
-def _clip_line(text: str, limit: int = 88) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
-
-
 def _ensure_dirs():
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -41,8 +34,8 @@ def get_memory_index() -> str:
         return text
 
     lines = [line for line in text.splitlines() if line.strip()]
-    head = [_clip_line(line) for line in lines[:5]]
-    tail = [_clip_line(line) for line in lines[-4:]]
+    head = [_clip_text(line, limit=88) for line in lines[:5]]
+    tail = [_clip_text(line, limit=88) for line in lines[-4:]]
 
     compact_lines = head + ["- ..."] + tail
     compact = "\n".join(compact_lines)

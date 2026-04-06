@@ -34,6 +34,31 @@ def _save(tasks: list) -> None:
     TASKS_PATH.write_text(json.dumps(tasks, indent=2))
 
 
+def _preferred_project_order(tasks: list[dict]) -> list[str]:
+    try:
+        from projects import load_projects
+
+        configured = []
+        for project in load_projects():
+            name = " ".join(str(project.get("name", "")).split()).strip().lower()
+            if name and name not in configured:
+                configured.append(name)
+    except Exception:
+        configured = []
+
+    task_projects = []
+    for task in tasks:
+        name = " ".join(str(task.get("project", "")).split()).strip().lower()
+        if name and name not in task_projects:
+            task_projects.append(name)
+
+    ordered = [name for name in configured if name in task_projects]
+    for name in task_projects:
+        if name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
 def get_tasks_for_prompt() -> str:
     """Compact task list for LLM context — always loaded."""
     tasks = [task for task in _load() if task.get("status") != "done"]
@@ -44,7 +69,7 @@ def get_tasks_for_prompt() -> str:
     candidates = scoped or tasks
 
     selected = []
-    for project in ("mac-butler", "email-infra"):
+    for project in _preferred_project_order(candidates):
         project_tasks = [
             task for task in candidates
             if task.get("project", "").lower() == project

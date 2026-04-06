@@ -363,11 +363,6 @@ class Intent:
 
     def __repr__(self) -> str:
         return f"Intent(name={self.name!r}, params={self.params!r}, confidence={self.confidence:.2f})"
-
-
-IntentResult = Intent
-
-
 def clean_song_query(query: str) -> str:
     """Strip noise that STT adds to song names."""
     # Remove "on spotify / apple music / youtube" at the end
@@ -495,7 +490,7 @@ def _match_from_map(target: str, mapping: dict) -> tuple[str | None, object | No
     return None, None
 
 
-def _project_map() -> dict:
+def get_project_map() -> dict:
     mapping = dict(PROJECT_MAP)
     try:
         from projects import load_projects
@@ -828,7 +823,7 @@ def route(text: str) -> Intent:
 
     if re.search(r"\b(?:open|launch|start)\s+(?:a\s+)?new project\b", lowered):
         editor = detect_editor_choice(text)
-        project_map = _project_map()
+        project_map = get_project_map()
         return Intent(
             "open_editor_window",
             {
@@ -924,7 +919,7 @@ def route(text: str) -> Intent:
     if match:
         target = match.group(1).strip()
         editor = detect_editor_choice(text)
-        project_key, path = _match_from_map(target, _project_map())
+        project_key, path = _match_from_map(target, get_project_map())
         if project_key and path:
             mode = "new_window" if "new window" in target else "smart"
             return Intent(
@@ -997,7 +992,7 @@ def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
     # open a new project window anywhere in text
     if re.search(r"\b(?:open|launch|start)\s+(?:a\s+)?new project\b", lowered):
         editor = detect_editor_choice(text)
-        project_map = _project_map()
+        project_map = get_project_map()
         return Intent(
             "open_editor_window",
             {
@@ -1031,7 +1026,7 @@ def _extract_from_conversational(text: str, lowered: str) -> Intent | None:
     if m:
         target = m.group(1).strip().rstrip(".,!? ")
         editor = detect_editor_choice(text)
-        project_key, path = _match_from_map(target, _project_map())
+        project_key, path = _match_from_map(target, get_project_map())
         if project_key and path:
             mode = "new_window" if "new window" in target else "smart"
             return Intent(
