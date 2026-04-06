@@ -1,7 +1,10 @@
+import asyncio
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from projects import dashboard
 from projects.dashboard import (
@@ -201,6 +204,19 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(frame.startswith("data: "))
         self.assertIn('"state":"listening"', frame)
         self.assertTrue(frame.endswith("\n\n"))
+
+    @patch("projects.dashboard._dashboard_projects", return_value=[{"name": "mac-butler"}])
+    @patch("projects.dashboard.operator_snapshot", return_value={"state": "listening"})
+    def test_ws_handler_sends_operator_and_projects_payloads(self, _mock_operator, _mock_projects):
+        websocket = AsyncMock()
+        websocket.request = SimpleNamespace(path="/ws")
+        websocket.wait_closed.return_value = None
+
+        asyncio.run(dashboard._ws_handler(websocket))
+
+        payloads = [json.loads(call.args[0]) for call in websocket.send.await_args_list]
+        self.assertEqual(payloads[0], {"type": "operator", "payload": {"state": "listening"}})
+        self.assertEqual(payloads[1], {"type": "projects", "payload": [{"name": "mac-butler"}]})
 
     @patch("projects.dashboard.subprocess.run")
     @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)

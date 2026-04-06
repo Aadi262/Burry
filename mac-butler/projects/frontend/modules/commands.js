@@ -4,6 +4,10 @@ function isEditableTarget(target) {
   return tagName === "input" || tagName === "textarea" || Boolean(target.isContentEditable);
 }
 
+function collapseWhitespace(value) {
+  return String(value || "").split(/\s+/).filter(Boolean).join(" ").trim();
+}
+
 async function postCommand(body) {
   const response = await fetch("/api/command", {
     method: "POST",
@@ -44,7 +48,7 @@ export function createCommandController({
   }
 
   async function sendCommand(text) {
-    const clean = " ".join(String(text || "").split()).trim();
+    const clean = collapseWhitespace(text);
     if (!clean) return;
 
     state.optimisticEntries.push({

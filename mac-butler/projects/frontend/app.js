@@ -122,7 +122,6 @@ panels.setFocus(panels.restoreFocus());
 macActivity.refresh();
 
 stream.connectOperatorStream();
-window.setInterval(stream.refreshProjects, 8000);
 window.setInterval(macActivity.refresh, 10000);
 window.setInterval(graph.refresh, 60000);
 window.setInterval(refreshVps, 30000);

@@ -2,6 +2,10 @@ import { basenamePath } from "./mac-activity.js";
 
 const FOCUS_STORAGE_KEY = "burry.focusKind";
 
+function collapseWhitespace(value) {
+  return String(value || "").split(/\s+/).filter(Boolean).join(" ").trim();
+}
+
 function toolPresentation(name) {
   const normalized = String(name || "").trim().toLowerCase();
   if (normalized === "browse_web") return { label: "Browsing", icon: "🌐" };
@@ -242,7 +246,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
   }
 
   function renderTranscript(data) {
-    const latestHeard = " ".join(String(data.last_heard_text || "").split()).trim();
+    const latestHeard = collapseWhitespace(data.last_heard_text);
     if (latestHeard) {
       state.optimisticEntries = state.optimisticEntries.filter((entry) => entry.text !== latestHeard);
     }
@@ -250,7 +254,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
       .reverse()
       .find((entry) => entry.role === "user" && entry.text);
     refs.transcriptHeard.textContent = latestHeard || optimisticHeard?.text || "Listening for the next command.";
-    refs.transcriptSpoken.textContent = " ".join(String(data.last_spoken_text || "").split()).trim() || "Standing by.";
+    refs.transcriptSpoken.textContent = collapseWhitespace(data.last_spoken_text) || "Standing by.";
   }
 
   function renderOperator(data) {

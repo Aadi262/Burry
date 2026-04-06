@@ -11,4 +11,5 @@ requests
 pynput
 SpeechRecognition
 psutil
+websockets
 pywebview

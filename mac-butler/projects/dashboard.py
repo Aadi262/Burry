@@ -522,6 +522,13 @@ def _event_stream_message(payload: dict) -> bytes:
     return f"data: {body}\n\n".encode("utf-8")
 
 
+def _ws_message(message_type: str, payload: dict | list) -> str:
+    return json.dumps(
+        {"type": message_type, "payload": payload},
+        separators=(",", ":"),
+    )
+
+
 async def _ws_handler(websocket) -> None:
     path = getattr(getattr(websocket, "request", None), "path", "/ws")
     if path != "/ws":
@@ -532,12 +539,8 @@ async def _ws_handler(websocket) -> None:
         _WS_CLIENTS.add(websocket)
 
     try:
-        await websocket.send(
-            json.dumps(
-                {"type": "operator", "payload": operator_snapshot()},
-                separators=(",", ":"),
-            )
-        )
+        await websocket.send(_ws_message("operator", operator_snapshot()))
+        await websocket.send(_ws_message("projects", _dashboard_projects()))
         await websocket.wait_closed()
     finally:
         with _WS_CLIENTS_LOCK:
@@ -564,15 +567,21 @@ async def _ws_broadcast(message: str) -> None:
 def _broadcast_operator_snapshot(payload: dict | None = None) -> None:
     if _WS_LOOP is None or not _WS_LOOP.is_running():
         return
-    message = json.dumps(
-        {"type": "operator", "payload": payload or operator_snapshot()},
-        separators=(",", ":"),
-    )
+    message = _ws_message("operator", payload or operator_snapshot())
+    asyncio.run_coroutine_threadsafe(_ws_broadcast(message), _WS_LOOP)
+
+
+def _broadcast_projects_snapshot(payload: list[dict] | None = None) -> None:
+    if _WS_LOOP is None or not _WS_LOOP.is_running():
+        return
+    message = _ws_message("projects", payload or _dashboard_projects())
     asyncio.run_coroutine_threadsafe(_ws_broadcast(message), _WS_LOOP)
 
 
 def _watch_operator_state() -> None:
-    last_payload = ""
+    last_operator_payload = ""
+    last_projects_payload = ""
+    last_projects_check_at = 0.0
     while True:
         with _WS_CLIENTS_LOCK:
             has_clients = bool(_WS_CLIENTS)
@@ -580,11 +589,20 @@ def _watch_operator_state() -> None:
             time.sleep(0.2)
             continue
 
-        payload = operator_snapshot()
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        if encoded != last_payload:
-            _broadcast_operator_snapshot(payload)
-            last_payload = encoded
+        operator_payload = operator_snapshot()
+        operator_encoded = json.dumps(operator_payload, sort_keys=True, separators=(",", ":"))
+        if operator_encoded != last_operator_payload:
+            _broadcast_operator_snapshot(operator_payload)
+            last_operator_payload = operator_encoded
+
+        now = time.monotonic()
+        if now - last_projects_check_at >= 1.0:
+            projects_payload = _dashboard_projects()
+            projects_encoded = json.dumps(projects_payload, sort_keys=True, separators=(",", ":"))
+            if projects_encoded != last_projects_payload:
+                _broadcast_projects_snapshot(projects_payload)
+                last_projects_payload = projects_encoded
+            last_projects_check_at = now
         time.sleep(0.12)
 
 
@@ -626,6 +644,10 @@ def _start_ws_server() -> bool:
     WS_PORT = _select_port(WS_PREFERRED_PORT, exclude={PORT})
     _WS_SERVER_THREAD = threading.Thread(target=_run_ws_server, daemon=True, name="burry-ws")
     _WS_SERVER_THREAD.start()
+    for _ in range(40):
+        if _WS_LOOP is not None and _WS_LOOP.is_running():
+            break
+        time.sleep(0.05)
     _start_ws_watcher()
     return True
 
