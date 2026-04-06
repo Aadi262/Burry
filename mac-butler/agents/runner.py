@@ -6,6 +6,7 @@ Specialist agent runner for Butler's delegated tasks.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import os
@@ -905,19 +906,6 @@ def run_agent_async(
                 }
             )
         )
-        try:
-            note_agent_result(
-                agent_type,
-                str(result.get("status", "ok") or "ok"),
-                str(result.get("result", "") or ""),
-            )
-            notify(
-                f"Burry {agent_type}",
-                str(result.get("result", "") or result.get("status", "done") or "done")[:180],
-                subtitle="Agent ready",
-            )
-        except Exception:
-            pass
         if callback is not None:
             try:
                 callback(result)
