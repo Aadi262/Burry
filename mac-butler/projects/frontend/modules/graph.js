@@ -123,22 +123,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   let mouseX = 0;
   let mouseY = 0;
 
-  function positionDetail(mx, my) {
-    const cw = canvas.clientWidth || canvas.offsetWidth || 300;
-    const ch = canvas.clientHeight || canvas.offsetHeight || 200;
-    let left = mx + 16;
-    let top = my - 60;
-    if (left + 220 > cw) left = mx - 236;
-    if (left < 0) left = 8;
-    if (top + 160 > ch) top = my - 160;
-    if (top < 0) top = 8;
-    detail.style.left = `${left}px`;
-    detail.style.top = `${top}px`;
-    detail.style.right = "auto";
-    detail.style.bottom = "auto";
-  }
-
-  function ensureSize() {
+function ensureSize() {
     const nextWidth = Math.max(1, canvas.clientWidth || canvas.offsetWidth || 1);
     const nextHeight = Math.max(1, canvas.clientHeight || canvas.offsetHeight || 1);
     if (nextWidth === width && nextHeight === height) return;
@@ -180,18 +165,21 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
 
     if (!nodes.length) {
       selectedNode = null;
-      detail.innerHTML = EMPTY_GRAPH_DETAIL;
+      detail.innerHTML = "";
+      detail.classList.remove("is-visible");
       return;
     }
 
     if (selectedNode) {
       selectedNode = nodeIndex.get(selectedNode.name) || null;
+      if (selectedNode) {
+        detail.innerHTML = detailMarkup(selectedNode);
+        detail.classList.add("is-visible");
+      } else {
+        detail.innerHTML = "";
+        detail.classList.remove("is-visible");
+      }
     }
-
-    if (!selectedNode) {
-      selectedNode = nodes[0];
-    }
-    detail.innerHTML = detailMarkup(selectedNode);
   }
 
   function nodeByName(name) {
@@ -231,7 +219,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const distance = Math.hypot(dx, dy) || 1;
-        const force = 5000 / (distance * distance);
+        const force = 9000 / (distance * distance);
         const fx = (dx / distance) * force;
         const fy = (dy / distance) * force;
         a.vx -= fx;
@@ -248,7 +236,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const distance = Math.hypot(dx, dy) || 1;
-      const target = 150;
+      const target = 130;
       const spring = (distance - target) * 0.002;
       const fx = (dx / distance) * spring;
       const fy = (dy / distance) * spring;
@@ -356,13 +344,20 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Label below node
+      // Label: inside node if near bottom edge, otherwise below
       const label = node.name.length > 14 ? node.name.slice(0, 13) + "\u2026" : node.name;
       ctx.font = "11px SF Mono, monospace";
       ctx.fillStyle = "rgba(232,244,255,0.85)";
       ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText(label, node.x, node.y + node.radius + 16);
+      const labelY = node.y + node.radius + 14;
+      if (labelY + 12 > height) {
+        // Draw label inside the node when it would clip
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, node.x, node.y);
+      } else {
+        ctx.textBaseline = "top";
+        ctx.fillText(label, node.x, labelY);
+      }
       ctx.textBaseline = "alphabetic";
     }
   }
@@ -395,7 +390,6 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
         <span>${hoverNode.status || "paused"} · ${completion}%</span>
         <div>${nextTask}</div>
       `;
-      const rect = canvas.getBoundingClientRect();
       const tipW = tooltip.offsetWidth || 200;
       const tipH = tooltip.offsetHeight || 80;
       let tipLeft = mouseX + 14;
@@ -408,9 +402,6 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       tooltip.style.top = `${tipTop}px`;
       tooltip.classList.add("is-visible");
     }
-    if (selectedNode) {
-      positionDetail(mouseX, mouseY);
-    }
   });
 
   canvas.addEventListener("mouseleave", () => {
@@ -420,10 +411,16 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
 
   canvas.addEventListener("click", (event) => {
     const hit = hitTest(event.clientX, event.clientY);
-    if (!hit) return;
+    if (!hit) {
+      // Dismiss detail card when clicking empty canvas space
+      selectedNode = null;
+      detail.innerHTML = "";
+      detail.classList.remove("is-visible");
+      return;
+    }
     selectedNode = hit;
     detail.innerHTML = detailMarkup(selectedNode);
-    positionDetail(mouseX, mouseY);
+    detail.classList.add("is-visible");
   });
 
   async function refresh() {
@@ -459,7 +456,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   }
 
   ensureSize();
-  detail.innerHTML = EMPTY_GRAPH_DETAIL;
+  detail.innerHTML = "";
   animate();
 
   if (canvas.parentElement && typeof ResizeObserver !== "undefined") {

@@ -1016,6 +1016,11 @@ body[data-state="executing"] .panel {
   max-width: 220px;
   z-index: 2;
   pointer-events: none;
+  display: none;
+}
+
+.graph-detail.is-visible {
+  display: block;
 }
 
 .graph-detail-card {
