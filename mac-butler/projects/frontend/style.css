@@ -247,10 +247,10 @@ body[data-state="speaking"] {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow-y: auto;
 }
 
 .rail-left {
-  overflow-y: auto;
   padding-right: 4px;
 }
 
@@ -359,7 +359,6 @@ body[data-state="speaking"] {
 .project-list,
 .transcript-log {
   min-height: 0;
-  overflow: auto;
 }
 
 .workspace-panel,
@@ -383,7 +382,6 @@ body[data-state="speaking"] {
 .memory-recall-list,
 .tool-stream {
   min-height: 0;
-  overflow: auto;
 }
 
 .memory-recall-list {
@@ -451,11 +449,10 @@ body[data-state="speaking"] {
 }
 
 .task-list {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding-right: 4px;
 }
 
 .task-item {
@@ -582,6 +579,7 @@ body[data-state="speaking"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: auto;
 }
 
 .tool-stream {
@@ -592,6 +590,7 @@ body[data-state="speaking"] {
   border: 1px solid rgba(13, 39, 68, 0.76);
   background: rgba(1, 5, 16, 0.78);
   padding: 10px 12px;
+  overflow: auto;
 }
 
 .tool-stream-label {
@@ -816,6 +815,7 @@ body[data-state="speaking"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: auto;
   padding-right: 4px;
 }
 
@@ -951,11 +951,7 @@ body[data-state="speaking"] {
 }
 
 .project-panel,
-.transcript-panel,
-.pending-panel,
-.recall-panel,
-.runtime-panel,
-.workspace-panel {
+.transcript-panel {
   overflow: hidden;
 }
 
