@@ -1,5 +1,6 @@
 import { createCommandController } from "./modules/commands.js";
 import { createProjectGraph } from "./modules/graph.js";
+import { createMacActivityPanel } from "./modules/mac-activity.js";
 import { createOrbSystem } from "./modules/orb.js";
 import { createPanels } from "./modules/panels.js";
 import { createOperatorStream } from "./modules/stream.js";
@@ -24,6 +25,7 @@ const refs = {
   modeMood: document.getElementById("mode-mood"),
   modeSession: document.getElementById("mode-session"),
   modeState: document.getElementById("mode-state"),
+  macActivityList: document.getElementById("mac-activity-list"),
   systemChips: document.getElementById("system-chips"),
   workspaceProject: document.getElementById("workspace-project"),
   workspaceApp: document.getElementById("workspace-app"),
@@ -49,6 +51,7 @@ const { orb } = createOrbSystem({
 });
 
 const graph = createProjectGraph();
+const macActivity = createMacActivityPanel({ container: refs.macActivityList });
 
 const panels = createPanels({
   refs,
@@ -89,11 +92,13 @@ commands.setupEventHandlers({
   modeButtons: [refs.modeMood, refs.modeSession, refs.modeState],
 });
 panels.setFocus("state");
+macActivity.refresh();
 
 if (!stream.connectOperatorStream()) {
   window.setInterval(stream.refreshOperator, 2000);
 }
 window.setInterval(stream.refreshProjects, 8000);
+window.setInterval(macActivity.refresh, 10000);
 window.addEventListener("beforeunload", () => {
   stream.cleanup();
   commands.cleanup();

@@ -292,6 +292,92 @@ body[data-state="speaking"] {
   gap: 10px;
 }
 
+.mac-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mac-activity-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mac-app-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: rgba(1, 13, 31, 0.94);
+}
+
+.mac-app-row.is-frontmost {
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+}
+
+.mac-app-status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 6px;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.mac-app-status.is-frontmost {
+  color: var(--success);
+  background: var(--success);
+}
+
+.mac-app-status.is-active {
+  color: var(--cobalt);
+  background: var(--cobalt);
+}
+
+.mac-app-status.is-background {
+  color: rgba(232, 244, 255, 0.32);
+  background: rgba(232, 244, 255, 0.32);
+}
+
+.mac-app-copy {
+  min-width: 0;
+}
+
+.mac-app-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mac-app-topline strong {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.mac-app-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(13, 39, 68, 0.9);
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mac-app-context {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .runtime-chip {
   border-radius: 18px;
   border: 1px solid rgba(13, 39, 68, 0.92);
