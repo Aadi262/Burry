@@ -89,11 +89,20 @@ def start_custom_a2a_server() -> None:
     print(f"[A2A] Burry is discoverable at http://localhost:{A2A_PORT}/agent-card")
 
 
-def start_agentscope_a2a(agent) -> None:
+def start_agentscope_a2a(agent=None) -> bool:
     """Start AgentScope native A2A when available, else fall back to custom A2A."""
     try:
+        # TODO: Switch this path to the native AgentScope service once the
+        # installed agentscope package includes agentscope.server.AgentService.
         from agentscope.server import AgentService
 
+        if agent is None:
+            from brain.agentscope_backbone import get_backbone
+
+            backbone = get_backbone()
+            agent = getattr(backbone, "agent", None)
+        if agent is None:
+            return False
         service = AgentService(agent=agent, host="localhost", port=8080)
         threading.Thread(
             target=service.run,
@@ -101,9 +110,14 @@ def start_agentscope_a2a(agent) -> None:
             name="burry-a2a-agentscope",
         ).start()
         print("[A2A] AgentScope native A2A at http://localhost:8080")
+        return True
     except (ImportError, Exception) as exc:
         print(f"[A2A] AgentScope A2A not available: {exc}")
-        start_custom_a2a_server()
+        try:
+            start_custom_a2a_server()
+        except Exception as fallback_exc:
+            print(f"[A2A] Custom A2A fallback failed: {fallback_exc}")
+        return False
 
 
 def start_a2a_server() -> None:
