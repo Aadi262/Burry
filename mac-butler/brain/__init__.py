@@ -9,6 +9,7 @@ from .ollama_client import call_voice, send_to_ollama
 MODELS = {
     "voice": BUTLER_MODELS.get("voice", ""),
     "planning": BUTLER_MODELS.get("planning", ""),
+    "vision": BUTLER_MODELS.get("vision", BUTLER_MODELS.get("voice", "")),
     "reasoning": BUTLER_MODELS.get("review", ""),
     "agents": AGENT_MODELS.get("memory", ""),
     "heartbeat": HEARTBEAT_MODEL,

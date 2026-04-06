@@ -34,7 +34,8 @@ OLLAMA_FALLBACK = "deepseek-r1:7b"
 # Main Butler flow can route different stages to different models.
 BUTLER_MODELS = {
     "voice": "gemma4:e4b",
-    "planning": "gemma4:26b",
+    "planning": "gemma4:e4b",
+    "vision": "gemma4:e4b",
     "review": "deepseek-r1:14b",
     "coding": "deepseek-r1:14b",
 }
@@ -53,7 +54,8 @@ def _chain(*models: str) -> list[str]:
 
 BUTLER_MODEL_CHAINS = {
     "voice": _chain(BUTLER_MODELS["voice"], "phi4-mini:latest", "llama3.2:3b", "deepseek-r1:7b", OLLAMA_MODEL),
-    "planning": _chain(BUTLER_MODELS["planning"], "deepseek-r1:14b", "qwen2.5-coder:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
+    "planning": _chain(BUTLER_MODELS["planning"], "gemma4:e4b", "deepseek-r1:14b", "qwen2.5-coder:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
+    "vision": _chain(BUTLER_MODELS["vision"], BUTLER_MODELS["voice"], "llama3.2-vision", BUTLER_MODELS["planning"], OLLAMA_MODEL),
     "review": _chain(BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
     "coding": _chain(BUTLER_MODELS["coding"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", "glm-4.7-flash:latest", OLLAMA_FALLBACK),
 }
