@@ -66,6 +66,10 @@ _WS_SERVER_THREAD: threading.Thread | None = None
 _WS_CLIENTS: set = set()
 _WS_CLIENTS_LOCK = threading.Lock()
 _WS_WATCHER_THREAD: threading.Thread | None = None
+_VPS_CACHE_LOCK = threading.Lock()
+_VPS_CACHE_PAYLOAD: dict | None = None
+_VPS_CACHE_AT = 0.0
+_VPS_CACHE_TTL_SECONDS = 30.0
 
 
 def _status_rank(status: str) -> int:
@@ -165,6 +169,56 @@ def _graph_payload() -> dict:
 
 def _tasks_payload() -> dict:
     return _load_json_file(TASKS_PATH, {})
+
+
+def _vps_payload() -> dict:
+    global _VPS_CACHE_PAYLOAD, _VPS_CACHE_AT
+
+    now = time.monotonic()
+    with _VPS_CACHE_LOCK:
+        if _VPS_CACHE_PAYLOAD is not None and now - _VPS_CACHE_AT < _VPS_CACHE_TTL_SECONDS:
+            return dict(_VPS_CACHE_PAYLOAD)
+
+    remote_command = (
+        "python3 -c 'import json, os, shutil; from pathlib import Path; "
+        "load = os.getloadavg()[0] if hasattr(os, \"getloadavg\") else 0.0; "
+        "cores = os.cpu_count() or 1; "
+        "cpu = round(min(100.0, (load / cores) * 100.0), 1); "
+        "page = os.sysconf(\"SC_PAGE_SIZE\"); "
+        "phys = os.sysconf(\"SC_PHYS_PAGES\"); "
+        "avail = os.sysconf(\"SC_AVPHYS_PAGES\"); "
+        "total = page * phys; "
+        "free = page * avail; "
+        "used = max(0, total - free); "
+        "memory = round((used / total) * 100.0, 1) if total else 0.0; "
+        "disk_total, disk_used, _ = shutil.disk_usage(\"/\"); "
+        "disk = round((disk_used / disk_total) * 100.0, 1) if disk_total else 0.0; "
+        "uptime = \"\"; "
+        "path = Path(\"/proc/uptime\"); "
+        "uptime = str(int(float(path.read_text().split()[0]))) if path.exists() else \"\"; "
+        "print(json.dumps({\"status\": \"online\", \"cpu\": cpu, \"memory\": memory, \"disk\": disk, \"uptime\": uptime}))'"
+    )
+    offline = {"status": "offline", "cpu": None, "memory": None, "disk": None, "uptime": ""}
+    try:
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "scripts" / "vps.py"), "exec", remote_command],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            payload = offline
+        else:
+            payload = json.loads(str(result.stdout or "").strip() or "{}")
+            if not isinstance(payload, dict):
+                payload = offline
+    except Exception:
+        payload = offline
+
+    with _VPS_CACHE_LOCK:
+        _VPS_CACHE_PAYLOAD = dict(payload)
+        _VPS_CACHE_AT = now
+    return dict(payload)
 
 
 def _status_tone(status: str) -> str:
@@ -744,6 +798,9 @@ def serve_dashboard():
                         return
                     if parsed.path == "/api/tasks":
                         self._send_json(_tasks_payload())
+                        return
+                    if parsed.path == "/api/vps":
+                        self._send_json(_vps_payload())
                         return
                     if parsed.path == "/api/status":
                         self._send_json(_dashboard_payload())

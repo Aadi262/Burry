@@ -41,6 +41,22 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(payload["tasks"][0]["project"], "mac-butler")
 
+    @patch("projects.dashboard.subprocess.run")
+    @patch("projects.dashboard.time.monotonic", side_effect=[100.0, 110.0])
+    def test_vps_payload_caches_remote_status(self, _mock_time, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"status":"online","cpu":31.2,"memory":48.0,"disk":71.5,"uptime":"1024"}',
+            stderr="",
+        )
+        with patch.object(dashboard, "_VPS_CACHE_PAYLOAD", None), patch.object(dashboard, "_VPS_CACHE_AT", 0.0):
+            first = dashboard._vps_payload()
+            second = dashboard._vps_payload()
+
+        self.assertEqual(first["status"], "online")
+        self.assertEqual(second["cpu"], 31.2)
+        mock_run.assert_called_once()
+
     @patch(
         "projects.dashboard.operator_snapshot",
         return_value={
