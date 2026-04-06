@@ -603,11 +603,23 @@ def _extract_compose_email_params(text: str) -> dict | None:
         recipient_text = _TRAILING_NOISE.sub("", recipient_text).strip()
     recipient = _normalize_spoken_email(recipient_text)
 
-    return {
+    result = {
         "recipient": recipient,
         "subject": _clean_lookup_query(subject),
         "body": " ".join(body.split()).strip(),
     }
+    # Fallback: if regex missed subject/body, use LLM structured extraction
+    if not result["subject"] and not result["body"]:
+        try:
+            from brain.structured_output import extract_structured, EmailIntent
+            extracted = extract_structured(text, EmailIntent)
+            if extracted:
+                result["recipient"] = result["recipient"] or extracted.recipient or ""
+                result["subject"] = extracted.subject or ""
+                result["body"] = extracted.body or ""
+        except Exception:
+            pass
+    return result
 
 
 def _extract_whatsapp_params(text: str) -> dict | None:
