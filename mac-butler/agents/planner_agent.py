@@ -31,6 +31,7 @@ async def _run_plan(task: str, ctx: dict, model: str) -> str:
         name="BurryPlanner",
         system_prompt=_PLANNER_SYSTEM_PROMPT,
         model_name=model,
+        intent_name="plan_and_execute",
         toolkit=_planner_toolkit(),
         memory=InMemoryMemory(),
         plan_notebook=PlanNotebook(max_subtasks=8),

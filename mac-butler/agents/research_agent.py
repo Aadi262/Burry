@@ -41,6 +41,7 @@ async def _run_research(question: str, model: str) -> str:
         name="BurryResearch",
         system_prompt=_RESEARCH_SYSTEM_PROMPT,
         model_name=model,
+        intent_name="deep_research",
         toolkit=_research_toolkit(),
         memory=InMemoryMemory(),
         plan_notebook=PlanNotebook(max_subtasks=4),

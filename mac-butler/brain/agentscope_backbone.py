@@ -33,8 +33,12 @@ _INIT_LOCK = threading.Lock()
 _BACKBONE_LOCK = threading.Lock()
 _AGENTSCOPE_READY = False
 _BACKBONE: "AgentScopeBackbone | None" = None
+_PERSISTENT_LOOP: asyncio.AbstractEventLoop | None = None
+_PERSISTENT_LOOP_THREAD: threading.Thread | None = None
 _TURN_TOOL_LOG: ContextVar[list[dict[str, Any]] | None] = ContextVar("agentscope_turn_tool_log", default=None)
 _AGENT_SCOPE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent_skills"
+_INTENT_TOOLKIT_CACHE: dict[str, AgentScopeToolkit] = {}
+_AGENT_CACHE: dict[str, ReActAgent] = {}
 INTENT_TOOLS: dict[str, list[str]] = {
     "question": ["deep_research", "web_search_summarize", "recall_memory"],
     "open_project": ["open_project", "focus_app", "run_shell"],
@@ -56,6 +60,20 @@ INTENT_TOOL_ALIASES = {
     "spotify_prev": "play_music",
     "spotify_mode": "play_music",
 }
+INTENT_CTX: dict[str, int] = {
+    "plan_and_execute": 8192,
+    "deep_research": 8192,
+    "question": 4096,
+    "what_next": 4096,
+    "default": 2048,
+    "greeting": 1024,
+    "play_music": 1024,
+    "volume_up": 1024,
+    "volume_down": 1024,
+    "focus_app": 1024,
+    "open_project": 2048,
+    "compose_email": 2048,
+}
 
 
 def _ollama_agent_host() -> str:
@@ -63,7 +81,7 @@ def _ollama_agent_host() -> str:
     return str(OLLAMA_LOCAL_URL or "http://127.0.0.1:11434").replace("localhost", "127.0.0.1")
 
 
-def _ensure_agentscope_initialized() -> None:
+def ensure_agentscope_initialized() -> None:
     global _AGENTSCOPE_READY
     if _AGENTSCOPE_READY:
         return
@@ -79,6 +97,25 @@ def _ensure_agentscope_initialized() -> None:
             tracing_url=os.environ.get("AGENTSCOPE_TRACING_URL") or None,
         )
         _AGENTSCOPE_READY = True
+
+
+def _get_persistent_loop() -> asyncio.AbstractEventLoop:
+    global _PERSISTENT_LOOP, _PERSISTENT_LOOP_THREAD
+    if _PERSISTENT_LOOP is None or _PERSISTENT_LOOP.is_closed():
+        loop = asyncio.new_event_loop()
+
+        def _runner() -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        _PERSISTENT_LOOP = loop
+        _PERSISTENT_LOOP_THREAD = threading.Thread(
+            target=_runner,
+            daemon=True,
+            name="burry-agentscope-loop",
+        )
+        _PERSISTENT_LOOP_THREAD.start()
+    return _PERSISTENT_LOOP
 
 
 def _tool_response_text(response: ToolResponse) -> str:
@@ -250,15 +287,27 @@ def _build_agentscope_toolkit() -> AgentScopeToolkit:
     return build_agentscope_toolkit()
 
 
-def _compression_config(model_name: str) -> ReActAgent.CompressionConfig:
+def _get_num_ctx(intent_name: str | None) -> int:
+    raw = str(intent_name or "").strip().lower()
+    if raw in INTENT_CTX:
+        return INTENT_CTX[raw]
+    key = _intent_tool_key(raw or "default")
+    return INTENT_CTX.get(key, INTENT_CTX["default"])
+
+
+def _compression_config(
+    model_name: str,
+    intent_name: str | None = None,
+) -> ReActAgent.CompressionConfig:
     compression_model_name = OLLAMA_FALLBACK or model_name or OLLAMA_MODEL
+    num_ctx = _get_num_ctx(intent_name)
     compression_model = BurryOllamaChatModel(
         model_name=compression_model_name,
         host=_ollama_agent_host(),
         stream=False,
-        options={"temperature": 0.1, "num_ctx": 4096},
+        options={"temperature": 0.1, "num_ctx": num_ctx},
     )
-    compression_formatter = OllamaChatFormatter(max_tokens=4096)
+    compression_formatter = OllamaChatFormatter(max_tokens=num_ctx)
     return ReActAgent.CompressionConfig(
         enable=True,
         agent_token_counter=CharTokenCounter(),
@@ -281,14 +330,35 @@ def _tool_names_for_intent(intent_name: str | None) -> set[str]:
     return set(INTENT_TOOLS.get(_intent_tool_key(intent_name), INTENT_TOOLS["default"]))
 
 
-def get_tools_for_intent(intent_name: str | None) -> AgentScopeToolkit:
-    tool_names = _tool_names_for_intent(intent_name)
-    include_skills = bool(tool_names & {"send_email", "send_imessage"})
-    return build_agentscope_toolkit(
-        include_tools=tool_names,
-        include_mcp=False,
-        include_skills=include_skills,
-    )
+def _build_filtered_toolkit(source_toolkit, tool_names: list[str]) -> AgentScopeToolkit:
+    """Build a reusable AgentScope toolkit with only the selected Burry tools."""
+    filtered = AgentScopeToolkit()
+    allowed = set(tool_names)
+    for tool_name, func in getattr(source_toolkit, "_tools", {}).items():
+        if tool_name not in allowed:
+            continue
+        filtered.register_tool_function(
+            _wrap_local_tool(tool_name, func),
+            async_execution=True,
+            namesake_strategy="override",
+        )
+    filtered.register_middleware(_tool_logging_middleware)
+    if allowed & {"send_email", "send_imessage"}:
+        _register_agent_skills(filtered)
+    return filtered
+
+
+def get_tools_for_intent(
+    intent_name: str | None,
+    full_toolkit=None,
+) -> AgentScopeToolkit:
+    """Return a cached toolkit for this intent. Build once, reuse forever."""
+    key = _intent_tool_key(intent_name or "default")
+    if key not in _INTENT_TOOLKIT_CACHE:
+        source_toolkit = full_toolkit or get_burry_toolkit()
+        tool_names = INTENT_TOOLS.get(key, INTENT_TOOLS.get("default", []))
+        _INTENT_TOOLKIT_CACHE[key] = _build_filtered_toolkit(source_toolkit, tool_names)
+    return _INTENT_TOOLKIT_CACHE[key]
 
 
 def _use_plan_notebook(intent_name: str | None) -> bool:
@@ -300,6 +370,7 @@ def create_react_agent(
     name: str,
     system_prompt: str,
     model_name: str,
+    intent_name: str | None = None,
     toolkit: AgentScopeToolkit | None = None,
     memory: InMemoryMemory | None = None,
     plan_notebook: PlanNotebook | None = None,
@@ -307,7 +378,8 @@ def create_react_agent(
     max_iters: int = 6,
     stream: bool = False,
 ) -> ReActAgent:
-    _ensure_agentscope_initialized()
+    ensure_agentscope_initialized()
+    num_ctx = _get_num_ctx(intent_name)
     agent = ReActAgent(
         name=name,
         sys_prompt=system_prompt,
@@ -315,16 +387,16 @@ def create_react_agent(
             model_name=model_name,
             host=_ollama_agent_host(),
             stream=stream,
-            options={"temperature": 0.2, "num_ctx": 8192},
+            options={"temperature": 0.2, "num_ctx": num_ctx},
             keep_alive="5m",
         ),
-        formatter=OllamaChatFormatter(max_tokens=8192),
+        formatter=OllamaChatFormatter(max_tokens=num_ctx),
         toolkit=toolkit or _build_agentscope_toolkit(),
         memory=memory or InMemoryMemory(),
         parallel_tool_calls=parallel_tool_calls,
         max_iters=max_iters,
         plan_notebook=plan_notebook,
-        compression_config=_compression_config(model_name),
+        compression_config=_compression_config(model_name, intent_name),
     )
     agent.set_console_output_enabled(False)
     return agent
@@ -332,7 +404,7 @@ def create_react_agent(
 
 class AgentScopeBackbone:
     def __init__(self, model_name: str):
-        _ensure_agentscope_initialized()
+        ensure_agentscope_initialized()
         self.model_name = model_name
         self._intent_key = "default"
         self._stream_enabled = False
@@ -346,6 +418,7 @@ class AgentScopeBackbone:
             name="Burry",
             system_prompt="You are Burry, a macOS operator agent.",
             model_name=model_name,
+            intent_name=intent_name,
             toolkit=get_tools_for_intent(intent_name),
             memory=self.memory,
             plan_notebook=PlanNotebook(max_subtasks=8) if _use_plan_notebook(intent_name) else None,
@@ -359,12 +432,23 @@ class AgentScopeBackbone:
     def _ensure_model(self, model_name: str | None, *, stream: bool, intent_name: str) -> None:
         resolved = str(model_name or "").strip() or self.model_name
         intent_key = _intent_tool_key(intent_name)
-        if resolved == self.model_name and stream == self._stream_enabled and intent_key == self._intent_key:
-            return
+        cache_key = f"{intent_key}:{resolved}"
+        if cache_key not in _AGENT_CACHE:
+            _AGENT_CACHE[cache_key] = self._build_agent(
+                resolved,
+                stream=stream,
+                intent_name=intent_key,
+            )
         self.model_name = resolved
         self._intent_key = intent_key
         self._stream_enabled = stream
-        self.agent = self._build_agent(resolved, stream=stream, intent_name=intent_key)
+        self.agent = _AGENT_CACHE[cache_key]
+        self.memory = getattr(self.agent, "memory", self.memory)
+        try:
+            self.agent.model.stream = stream
+        except Exception:
+            pass
+        self.agent.set_msg_queue_enabled(stream)
 
     @staticmethod
     def _text_delta(previous: str, current: str) -> str:
@@ -578,7 +662,8 @@ def run_agentscope_turn(
     on_sentence: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     backbone = get_backbone(model_name=model_name)
-    return asyncio.run(
+    loop = _get_persistent_loop()
+    future = asyncio.run_coroutine_threadsafe(
         backbone.run_turn(
             text,
             ctx,
@@ -587,8 +672,10 @@ def run_agentscope_turn(
             intent_name=intent_name,
             stream_speech=stream_speech,
             on_sentence=on_sentence,
-        )
+        ),
+        loop,
     )
+    return future.result(timeout=90)
 
 
 def interrupt_agentscope_turn(new_command: str) -> bool:

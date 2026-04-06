@@ -19,8 +19,12 @@ import urllib.parse
 import numpy as np
 import requests
 
+from agentscope.agent import AgentBase
+from agentscope.message import Msg
+from agentscope.pipeline import MsgHub, fanout_pipeline
 from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL
 from butler_secrets.loader import get_secret, get_vps_secret
+from brain.agentscope_backbone import ensure_agentscope_initialized
 from brain.ollama_client import (
     _get_available_models,
     _check_memory,
@@ -28,7 +32,7 @@ from brain.ollama_client import (
     _unload_model,
     pick_agent_model,
 )
-from mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
+from burry_mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
 from runtime import note_agent_result, notify
 
 ROUTED_MODELS = {
@@ -45,6 +49,10 @@ _LAST_FETCH_DATA: dict = {}
 _SEARXNG_AVAILABLE: bool | None = None
 REDDIT_HEADERS = {"User-Agent": "Butler/1.0"}
 GITHUB_HEADERS = {"User-Agent": "Butler/1.0"}
+
+
+def _ensure_agentscope_runner_init() -> None:
+    ensure_agentscope_initialized()
 
 
 def _get_installed_models() -> set[str]:
@@ -887,7 +895,16 @@ def run_agent_async(
     model_override: str | None = None,
 ) -> threading.Thread:
     def _worker() -> None:
-        result = run_agent(agent_type, input_data, model_override=model_override)
+        _ensure_agentscope_runner_init()
+        result = asyncio.run(
+            _run_specialist_request_async(
+                {
+                    "agent": agent_type,
+                    "input_data": dict(input_data or {}),
+                    "model_override": model_override,
+                }
+            )
+        )
         try:
             note_agent_result(
                 agent_type,
@@ -913,9 +930,9 @@ def run_agent_async(
 
 
 # ---------------------------------------------------------------------------
-# MsgHub-style parallel fan-out (STEAL 2)
-# Runs multiple lightweight agents in parallel via asyncio + threads.
-# Does NOT depend on agentscope (mcp module conflict avoided).
+# AgentScope-style specialist runner
+# AgentScope owns the orchestration layer here. Existing specialist logic in
+# run_agent remains the worker implementation behind each wrapped agent.
 # ---------------------------------------------------------------------------
 
 import asyncio as _asyncio
@@ -929,37 +946,109 @@ _PARALLEL_REGISTRY: dict[str, str] = {
 }
 
 
-async def _run_parallel_agent_async(name: str, query: str) -> dict:
-    """Async coroutine for a single lightweight agent call."""
-    loop = _asyncio.get_event_loop()
+class SpecialistWorkerAgent(AgentBase):
+    """Thin AgentScope agent wrapper around Burry's existing specialist logic."""
+
+    def __init__(
+        self,
+        agent_type: str,
+        input_data: dict | None = None,
+        *,
+        model_override: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.name = f"{agent_type}-worker"
+        self.agent_type = agent_type
+        self.input_data = dict(input_data or {})
+        self.model_override = model_override
+        self._latest_msg: Msg | None = None
+
+    async def observe(self, msg: Msg | list[Msg] | None) -> None:
+        if isinstance(msg, list):
+            msg = msg[-1] if msg else None
+        if isinstance(msg, Msg):
+            self._latest_msg = msg
+
+    async def reply(self, msg: Msg | list[Msg] | None = None) -> Msg:
+        if msg is not None:
+            await self.observe(msg)
+        payload = dict(self.input_data)
+        if self._latest_msg is not None:
+            query = " ".join(str(self._latest_msg.get_text_content() or "").split()).strip()
+            if query:
+                payload.setdefault("query", query)
+                payload.setdefault("topic", query)
+        result = await _asyncio.to_thread(
+            run_agent,
+            self.agent_type,
+            payload,
+            self.model_override,
+        )
+        text = str(result.get("result", "") or result.get("speech", "") or result.get("status", ""))
+        metadata = {
+            "agent_type": self.agent_type,
+            "status": str(result.get("status", "ok") or "ok"),
+        }
+        return Msg(self.name, text or "No result.", "assistant", metadata=metadata)
+
+
+async def _run_specialist_request_async(request: dict) -> dict:
+    """Run a single specialist via an AgentScope agent wrapper."""
+    _ensure_agentscope_runner_init()
+    agent_name = str(request.get("agent", "")).strip()
+    input_data = dict(request.get("input_data") or {})
+    worker = SpecialistWorkerAgent(
+        agent_name,
+        input_data,
+        model_override=str(request.get("model_override", "")).strip() or None,
+    )
+    msg = None
+    query = str(input_data.get("query") or input_data.get("topic") or "").strip()
+    if query:
+        msg = Msg("user", query, "user")
     try:
-        def _blocking():
-            return run_agent(name, {"query": query, "topic": query})
-        result = await loop.run_in_executor(None, _blocking)
-        text = str(result.get("result", "") or result.get("speech", ""))
-        note_agent_result(name, "ok", text[:300])
-        notify("Burry", f"{name} agent done", subtitle=text[:60])
-        return {"agent": name, "status": "ok", "result": text}
+        response = await worker(msg)
+        text = str(response.get_text_content() or "").strip()
+        status = str(response.metadata.get("status", "ok") if isinstance(response.metadata, dict) else "ok")
+        note_agent_result(agent_name, status, text[:300])
+        if text:
+            notify("Burry", f"{agent_name} agent done", subtitle=text[:60])
+        return {"agent": agent_name, "status": status, "result": text}
     except Exception as exc:
-        note_agent_result(name, "error", str(exc))
-        return {"agent": name, "status": "error", "result": ""}
+        note_agent_result(agent_name, "error", str(exc))
+        return {"agent": agent_name, "status": "error", "result": ""}
 
 
 async def run_agents_parallel(query: str, agent_names: list) -> list:
-    """Run multiple agents in parallel. Returns list of result dicts."""
-    tasks = [_run_parallel_agent_async(name, query) for name in agent_names]
-    return await _asyncio.gather(*tasks, return_exceptions=False)
+    """Run multiple specialist agents in parallel via AgentScope fanout."""
+    _ensure_agentscope_runner_init()
+    workers = [
+        SpecialistWorkerAgent(name, {"query": query, "topic": query})
+        for name in agent_names
+    ]
+    announcement = Msg("user", query, "user")
+    async with MsgHub(
+        participants=workers,
+        announcement=announcement,
+        enable_auto_broadcast=False,
+        name="burry-specialist-fanout",
+    ):
+        responses = await fanout_pipeline(agents=workers, msg=None, enable_gather=True)
+    results: list[dict] = []
+    for name, response in zip(agent_names, responses, strict=False):
+        text = str(response.get_text_content() or "").strip()
+        status = "ok"
+        if isinstance(response.metadata, dict):
+            status = str(response.metadata.get("status", "ok") or "ok")
+        results.append({"agent": name, "status": status, "result": text})
+    return results
 
 
 def run_background_agents(query: str, agent_names: list) -> None:
-    """Fire-and-forget — runs agents in background thread without blocking voice pipeline."""
+    """Fire-and-forget AgentScope fanout for true multi-agent background work."""
     def _bg():
-        loop = _asyncio.new_event_loop()
-        _asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_agents_parallel(query, agent_names))
-        finally:
-            loop.close()
+        _ensure_agentscope_runner_init()
+        _asyncio.run(run_agents_parallel(query, agent_names))
     threading.Thread(target=_bg, daemon=True, name=f"burry-agents-{query[:20]}").start()
 
 
