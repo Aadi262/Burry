@@ -125,9 +125,10 @@ def _get_latest_message_from_db() -> tuple[str, str, str] | None:
 
 def _get_latest_message_from_applescript() -> tuple[str, str, str] | None:
     """Fallback probe. Modern Messages builds often do not expose message history reliably."""
+    script = 'return ""'
     try:
         result = subprocess.run(
-            ["osascript", "-e", 'tell application "Messages" to return participants of first chat'],
+            ["osascript", "-e", script],
             capture_output=True,
             text=True,
             timeout=5,
