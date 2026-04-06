@@ -118,28 +118,93 @@ def get_full_context() -> str:
 
 
 def save_session_state(agent) -> None:
-    """Save AgentScope agent memory state to disk for the next session."""
+    """Persist AgentScope agent memory to disk for the next session."""
     try:
+        messages = []
         memory = getattr(agent, "memory", None)
-        memory_state = memory.state_dict() if memory is not None and hasattr(memory, "state_dict") else {}
+        memory_state = None
+        if memory is not None and hasattr(memory, "state_dict"):
+            try:
+                memory_state = memory.state_dict()
+            except Exception:
+                memory_state = None
+        if memory is not None and hasattr(memory, "get_memory"):
+            raw = memory.get_memory()
+            for item in raw if isinstance(raw, list) else []:
+                try:
+                    messages.append(
+                        {
+                            "role": getattr(item, "role", "assistant"),
+                            "content": (
+                                item.get_text_content()
+                                if hasattr(item, "get_text_content")
+                                else str(item)
+                            ),
+                        }
+                    )
+                except Exception:
+                    continue
         state = {
-            "memory_state": memory_state,
+            "memory": messages[-20:],
             "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        if isinstance(memory_state, dict):
+            state["memory_state"] = memory_state
         SESSION_FILE.write_text(json.dumps(state, indent=2))
-    except Exception:
-        pass
+        print(f"[Memory] Saved {len(messages)} turns to session file.")
+    except Exception as exc:
+        print(f"[Memory] save_session_state failed: {exc}")
 
 
 def restore_session_state(agent) -> None:
-    """Restore previously saved AgentScope memory into an agent instance."""
+    """Restore previous session memory into an AgentScope agent."""
     try:
         if not SESSION_FILE.exists():
             return
         state = json.loads(SESSION_FILE.read_text())
-        memory_state = state.get("memory_state")
         memory = getattr(agent, "memory", None)
-        if memory is not None and isinstance(memory_state, dict) and hasattr(memory, "load_state_dict"):
-            memory.load_state_dict(memory_state)
-    except Exception:
-        pass
+        if memory is None:
+            return
+
+        memory_state = state.get("memory_state")
+        if isinstance(memory_state, dict) and hasattr(memory, "load_state_dict"):
+            try:
+                memory.load_state_dict(memory_state)
+                print("[Memory] Restored session state from disk.")
+                return
+            except Exception:
+                pass
+
+        messages = state.get("memory", [])
+        if not messages:
+            return
+
+        from agentscope.message import Msg
+        import asyncio
+
+        restored = 0
+        add_message = getattr(memory, "add", None)
+        if add_message is None:
+            return
+
+        for item in messages[-10:]:
+            try:
+                msg = Msg(
+                    name=item.get("role", "assistant"),
+                    content=item.get("content", ""),
+                    role=item.get("role", "assistant"),
+                )
+                if asyncio.iscoroutinefunction(add_message):
+                    loop = asyncio.new_event_loop()
+                    try:
+                        loop.run_until_complete(add_message(msg))
+                    finally:
+                        loop.close()
+                else:
+                    add_message(msg)
+                restored += 1
+            except Exception:
+                continue
+        print(f"[Memory] Restored {restored} turns from previous session.")
+    except Exception as exc:
+        print(f"[Memory] restore_session_state failed: {exc}")

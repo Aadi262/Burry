@@ -7,6 +7,7 @@ Pipeline: Trigger -> STT -> Intent Router -> Executor -> LLM only if needed -> T
 
 from __future__ import annotations
 
+import atexit
 import argparse
 import asyncio
 import json
@@ -127,6 +128,7 @@ _CTX_CACHE_AT: float = 0.0
 _CTX_CACHE_TTL_SECONDS: float = 30.0
 _CTX_CACHE_LOCK = threading.Lock()
 _SHUTDOWN_HANDLERS_INSTALLED = False
+_SESSION_STATE_SAVED = False
 _FOLLOWUP_PREFIXES = (
     "and ",
     "then ",
@@ -3401,6 +3403,9 @@ def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: 
 
 
 def _save_backbone_session_state() -> None:
+    global _SESSION_STATE_SAVED
+    if _SESSION_STATE_SAVED:
+        return
     try:
         from brain.agentscope_backbone import get_backbone
         from memory.long_term import save_session_state
@@ -3408,13 +3413,32 @@ def _save_backbone_session_state() -> None:
         backbone = get_backbone()
         if getattr(backbone, "agent", None) is not None:
             save_session_state(backbone.agent)
+            _SESSION_STATE_SAVED = True
     except Exception:
         pass
 
 
-def _handle_shutdown_signal(_signum, _frame) -> None:
-    _save_backbone_session_state()
-    raise SystemExit(0)
+def _shutdown_handler(signum=None, frame=None) -> None:
+    """Clean shutdown - save AgentScope session state before exit."""
+    global _SESSION_STATE_SAVED
+    if _SESSION_STATE_SAVED:
+        if signum is not None:
+            raise SystemExit(0)
+        return
+    print("[Butler] Shutting down - saving session state...")
+    try:
+        from brain.agentscope_backbone import get_backbone
+        from memory.long_term import save_session_state
+
+        backbone = get_backbone()
+        if backbone and hasattr(backbone, "agent") and backbone.agent:
+            save_session_state(backbone.agent)
+            _SESSION_STATE_SAVED = True
+            print("[Butler] Session state saved.")
+    except Exception as exc:
+        print(f"[Butler] Could not save session state: {exc}")
+    if signum is not None:
+        raise SystemExit(0)
 
 
 def _install_shutdown_handlers() -> None:
@@ -3423,9 +3447,10 @@ def _install_shutdown_handlers() -> None:
         return
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            signal.signal(sig, _handle_shutdown_signal)
+            signal.signal(sig, _shutdown_handler)
         except Exception:
             continue
+    atexit.register(_shutdown_handler)
     _SHUTDOWN_HANDLERS_INSTALLED = True
 
 
