@@ -918,6 +918,19 @@ def serve_dashboard():
                         status = 200 if result.get("status") == "ok" else 400
                         self._send_json(result, status=status)
                         return
+                    if parsed.path == "/api/interrupt":
+                        # Human-in-loop: interrupt current Burry task (Phase 7)
+                        new_command = " ".join(str(payload.get("text", "")).split()).strip()
+                        if new_command:
+                            try:
+                                from butler import interrupt_burry
+                                interrupt_burry(new_command)
+                                self._send_json({"status": "interrupted", "new_command": new_command})
+                            except Exception as exc:
+                                self._send_json({"status": "error", "error": str(exc)}, status=500)
+                        else:
+                            self._send_json({"status": "error", "error": "text required"}, status=400)
+                        return
                     self._send_text("Not found", status=404)
                 except Exception as exc:
                     self._send_json({"status": "error", "error": str(exc)}, status=500)

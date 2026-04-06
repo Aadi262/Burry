@@ -104,6 +104,16 @@ export function createCommandController({
         return;
       }
       if (event.key === "Escape" && document.activeElement === refs.commandInput) {
+        // Human-in-loop interrupt: if Burry is busy and there's text, interrupt it (Phase 7)
+        const newCmd = refs.commandInput.value.trim();
+        if (newCmd && document.body.dataset.state !== "idle") {
+          fetch("/api/interrupt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: newCmd }),
+          }).catch(() => {});
+          refs.commandInput.value = "";
+        }
         refs.commandInput.blur();
         return;
       }

@@ -76,6 +76,34 @@ from runtime.tracing import add_event, trace_command
 executor = Executor()
 _WATCHER_LOCK = threading.Lock()
 _WATCHER_STARTED = False
+
+# Human-in-loop interrupt support (Phase 7)
+_INTERRUPT_EVENT = threading.Event()
+_INTERRUPT_MESSAGE = ""
+_INTERRUPT_LOCK = threading.Lock()
+
+
+def interrupt_burry(new_command: str) -> None:
+    """Interrupt current Burry task with a new command.
+    Called from HUD when user types while Burry is executing.
+    """
+    global _INTERRUPT_MESSAGE
+    with _INTERRUPT_LOCK:
+        _INTERRUPT_MESSAGE = new_command
+    _INTERRUPT_EVENT.set()
+    print(f"[Butler] Interrupted — switching to: {new_command[:50]}")
+
+
+def check_interrupt():
+    """Check if user interrupted. Returns new command if yes, None if no."""
+    global _INTERRUPT_MESSAGE
+    if _INTERRUPT_EVENT.is_set():
+        _INTERRUPT_EVENT.clear()
+        with _INTERRUPT_LOCK:
+            msg = _INTERRUPT_MESSAGE
+            _INTERRUPT_MESSAGE = ""
+        return msg
+    return None
 _PENDING_DIALOGUE_LOCK = threading.Lock()
 _PENDING_DIALOGUE: dict | None = None
 _CONVERSATION_LOCK = threading.Lock()
@@ -1928,6 +1956,12 @@ def _tool_chat_response(text: str, ctx: dict, model: str | None = None) -> dict:
     )
 
     for tool_call in tool_calls[:3]:
+        # Check for user interrupt before each tool call (Phase 7)
+        interrupt = check_interrupt()
+        if interrupt:
+            speak("Switching to your new request.")
+            _record(text, "Interrupted by user", [], intent_name="interrupted")
+            return handle_input(interrupt, test_mode=False)
         function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
         tool_name = str(function.get("name", "")).strip()
         arguments = _parse_tool_arguments(function.get("arguments", {}))
