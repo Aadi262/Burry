@@ -14,13 +14,13 @@ from pathlib import Path
 
 import numpy as np
 from butler_config import (
-    VOICE_MAX_SPEECH_S,
     VOICE_FASTER_WHISPER_MODEL,
     VOICE_INPUT_BEAM_SIZE,
     VOICE_INPUT_MODEL,
     VOICE_INPUT_PROMPT,
-    VOICE_MIN_SPEECH_S,
-    VOICE_SILENCE_THRESHOLD,
+    STT_MAX_SPEECH_S,
+    STT_MIN_SPEECH_S,
+    STT_SILENCE_THRESHOLD,
 )
 
 SAMPLE_RATE = 16000
@@ -292,7 +292,7 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
     silence_count = 0
     chunk_size = int(SAMPLE_RATE * 0.03)
     silence_needed = int(SILENCE_END_S / 0.03)
-    max_chunks = int(VOICE_MAX_SPEECH_S / 0.03)
+    max_chunks = int(STT_MAX_SPEECH_S / 0.03)
 
     print("[STT] 👂 Listening...")
     start = time.time()
@@ -318,7 +318,7 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
                 flat = chunk.flatten()
                 level = float(np.abs(flat).mean())
 
-                if level > VOICE_SILENCE_THRESHOLD:
+                if level > STT_SILENCE_THRESHOLD:
                     speaking = True
                     silence_count = 0
                     chunks.extend(flat.tolist())
@@ -339,7 +339,7 @@ def listen(timeout: float = 8.0, stop_event: threading.Event | None = None) -> s
         return ""
 
     audio = np.array(chunks, dtype=np.float32)
-    if len(audio) / SAMPLE_RATE < VOICE_MIN_SPEECH_S:
+    if len(audio) / SAMPLE_RATE < STT_MIN_SPEECH_S:
         return ""
 
     raw_text = _normalize_transcript(transcribe(audio))
