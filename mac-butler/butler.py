@@ -2791,6 +2791,18 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             speak("Still busy, please wait.")
         return
 
+    # Check skills FIRST before intent router (STEAL 4)
+    try:
+        from skills import match_skill
+        skill, entities = match_skill(text)
+        if skill:
+            result = skill["execute"](text, entities)
+            _speak_or_print(result.get("speech", "Done."), test_mode=test_mode)
+            _record(text, result.get("speech", ""), result.get("actions", []))
+            return
+    except Exception:
+        pass
+
     note_heard_text(text)
     state.transition(State.THINKING)
     effective_text = text
