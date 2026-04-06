@@ -1,5 +1,5 @@
 import { basenamePath } from "./mac-activity.js";
-import { formatClock, renderTicker, telemetryEntries } from "./events.js";
+import { formatClock, telemetryEntries } from "./events.js";
 
 function toolPresentation(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -39,7 +39,7 @@ function orbStatusLine(data) {
   return `BURRY ● ${mode} · Focus: ${focus} · ${frontmost}`;
 }
 
-export function createPanels({ refs, state, orb, openProject }) {
+export function createPanels({ refs, state, orb, events, openProject }) {
   function setButlerState(mode, note) {
     const cleanedMode = ["idle", "listening", "thinking", "speaking", "executing"].includes(mode) ? mode : "idle";
     refs.body.dataset.state = cleanedMode;
@@ -260,7 +260,7 @@ export function createPanels({ refs, state, orb, openProject }) {
     renderTasks(state.operator, state.projects);
     renderTranscript(state.operator);
     renderToolStream(state.operator);
-    renderTicker(refs, state.operator);
+    events.render(state.operator);
   }
 
   return {

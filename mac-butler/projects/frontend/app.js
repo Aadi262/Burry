@@ -1,4 +1,5 @@
 import { createCommandController } from "./modules/commands.js";
+import { createEventsPanel } from "./modules/events.js";
 import { createProjectGraph } from "./modules/graph.js";
 import { createMacActivityPanel } from "./modules/mac-activity.js";
 import { createOrbSystem } from "./modules/orb.js";
@@ -44,6 +45,7 @@ const refs = {
   commandForm: document.getElementById("command-form"),
   commandInput: document.getElementById("command-input"),
   micButton: document.getElementById("mic-button"),
+  eventsFeed: document.getElementById("events-feed"),
   projectList: document.getElementById("project-list"),
   eventTrack: document.getElementById("event-track"),
 };
@@ -58,12 +60,14 @@ const graph = createProjectGraph({
   tooltip: refs.graphTooltip,
   detail: refs.graphDetail,
 });
+const events = createEventsPanel({ container: refs.eventsFeed, refs });
 const macActivity = createMacActivityPanel({ container: refs.macActivityList });
 
 const panels = createPanels({
   refs,
   state,
   orb,
+  events,
   openProject: async (name) => fetch(`/api/open_project?name=${encodeURIComponent(name)}`, { method: "POST" }),
 });
 

@@ -25,7 +25,41 @@ export function telemetryEntries(data) {
   return entries;
 }
 
-export function renderTicker(refs, data) {
+function eventKindClass(kind) {
+  const normalized = String(kind || "event").toLowerCase();
+  if (["heard", "ambient"].includes(normalized)) return "faint";
+  if (normalized === "intent") return "accent";
+  if (normalized === "tool") return "cobalt";
+  if (normalized === "state") return "amber";
+  if (normalized === "memory") return "violet";
+  if (normalized === "agent") return "success";
+  return "default";
+}
+
+function eventKey(event) {
+  return [event.at || "", event.kind || "", event.message || ""].join("|");
+}
+
+function metaMarkup(meta) {
+  if (!meta || typeof meta !== "object" || !Object.keys(meta).length) return "";
+  return `<pre class="event-meta">${JSON.stringify(meta, null, 2)}</pre>`;
+}
+
+function eventMarkup(event, expandedKey) {
+  const key = eventKey(event);
+  const open = key === expandedKey;
+  return `
+    <button class="event-row${open ? " is-open" : ""}" type="button" data-event-key="${key}">
+      <span class="event-time">${formatClock(event.at)}</span>
+      <span class="event-kind tone-${eventKindClass(event.kind)}">${event.kind || "event"}</span>
+      <span class="event-message">${event.message || "No details recorded."}</span>
+      ${open ? metaMarkup(event.meta) : ""}
+    </button>
+  `;
+}
+
+function renderTicker(refs, data) {
+  if (!refs.eventTrack) return;
   const events = Array.isArray(data.events) ? data.events : [];
   if (events.length) {
     refs.eventTrack.textContent = events.map((event) => `${event.kind || "event"} · ${event.message || ""}`).join("   •   ");
@@ -35,7 +69,47 @@ export function renderTicker(refs, data) {
     refs.eventTrack.textContent = `${formatClock(data.last_agent_result.at || data.updated_at)} · Agent ${data.last_agent_result.agent || "background"} · ${data.last_agent_result.result}`;
     return;
   }
-  const brain = (data.systems || []).find((item) => item.name === "Brain");
-  const voice = (data.systems || []).find((item) => item.name === "Voice");
-  refs.eventTrack.textContent = `${formatClock(new Date().toISOString())} · System nominal · Brain: ${brain?.detail || "localhost:11434"} · Voice: ${(voice?.status || "edge").toUpperCase()}`;
+  refs.eventTrack.textContent = `${formatClock(new Date().toISOString())} · Waiting for the next operator event.`;
+}
+
+export function createEventsPanel({ container, refs }) {
+  let expandedKey = "";
+  let lastSignature = "";
+  let latestData = {};
+
+  container.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-event-key]");
+    if (!row) return;
+    const key = row.getAttribute("data-event-key") || "";
+    expandedKey = expandedKey === key ? "" : key;
+    render(latestData);
+  });
+
+  function render(data) {
+    latestData = data || {};
+    const items = (Array.isArray(data.events) ? data.events : []).slice(-18);
+    const signature = items.map(eventKey).join("||");
+    const shouldStickBottom =
+      !container.childElementCount
+      || container.scrollHeight - container.scrollTop - container.clientHeight < 40
+      || signature !== lastSignature;
+
+    if (!items.length) {
+      container.innerHTML = "<div class=\"events-empty\">Runtime events will appear here as Burry listens, routes, remembers, and executes.</div>";
+      lastSignature = "";
+      renderTicker(refs, data);
+      return;
+    }
+
+    container.innerHTML = items.map((event) => eventMarkup(event, expandedKey)).join("");
+    if (shouldStickBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
+    lastSignature = signature;
+    renderTicker(refs, data);
+  }
+
+  return {
+    render,
+  };
 }

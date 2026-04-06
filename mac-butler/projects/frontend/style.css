@@ -737,6 +737,121 @@ body[data-state="speaking"] {
   color: var(--text-dim);
 }
 
+.events-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.events-feed {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.events-empty {
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: rgba(1, 13, 31, 0.94);
+  padding: 14px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.event-row {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 54px auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: rgba(1, 13, 31, 0.94);
+  color: var(--text);
+  padding: 12px;
+  cursor: pointer;
+}
+
+.event-row:hover {
+  border-color: rgba(0, 212, 255, 0.24);
+}
+
+.event-row.is-open {
+  border-color: rgba(0, 212, 255, 0.32);
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.08);
+}
+
+.event-time {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding-top: 5px;
+}
+
+.event-kind {
+  justify-self: start;
+  border-radius: 999px;
+  border: 1px solid rgba(13, 39, 68, 0.9);
+  padding: 5px 8px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.event-kind.tone-faint {
+  color: var(--text-faint);
+}
+
+.event-kind.tone-accent {
+  color: var(--accent);
+}
+
+.event-kind.tone-cobalt {
+  color: var(--cobalt);
+}
+
+.event-kind.tone-amber {
+  color: var(--amber);
+}
+
+.event-kind.tone-violet {
+  color: var(--violet);
+}
+
+.event-kind.tone-success {
+  color: var(--success);
+}
+
+.event-message {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.event-meta {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: rgba(0, 2, 15, 0.88);
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .orb-summary {
   margin: 0;
   color: var(--text-dim);
