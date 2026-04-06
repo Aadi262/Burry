@@ -2623,6 +2623,24 @@ def _speak_or_print(text: str, test_mode: bool = False) -> None:
         notify("Burry", text[:180], subtitle="Response")
 
 
+async def _stream_response_with_tts(prompt: str, model: str) -> str:
+    """Stream LLM response and speak each sentence as it arrives.
+    STEAL 3: user hears first words within 1-2 seconds instead of waiting 45s.
+    Falls back silently if streaming fails.
+    """
+    from brain.ollama_client import stream_llm_tokens
+    import asyncio
+
+    full_response = ""
+    try:
+        async for sentence in stream_llm_tokens(prompt, model):
+            full_response += " " + sentence
+            threading.Thread(target=speak, args=(sentence,), daemon=True).start()
+        return full_response.strip()
+    except Exception:
+        return ""
+
+
 def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30) -> bool:
     pending = request_confirmation(prompt, action=action, timeout_s=timeout_s)
     deadline = time.monotonic() + max(1, timeout_s)

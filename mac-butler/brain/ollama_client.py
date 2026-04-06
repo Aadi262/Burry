@@ -1002,6 +1002,72 @@ def _call(
     )
 
 
+async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
+    """Stream tokens from Ollama as they arrive. Yields sentence chunks for TTS.
+    STEAL 3 — speak as tokens arrive instead of waiting for full response.
+    """
+    import httpx
+    from typing import AsyncIterator
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "system": system,
+        "stream": True,
+    }
+    buffer = ""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            async with client.stream("POST", f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate", json=payload) as response:
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                        token = chunk.get("response", "")
+                        buffer += token
+                        while any(p in buffer for p in [".", "!", "?"]):
+                            for punct in [".", "!", "?"]:
+                                if punct in buffer:
+                                    idx = buffer.index(punct) + 1
+                                    sentence = buffer[:idx].strip()
+                                    buffer = buffer[idx:].strip()
+                                    if sentence:
+                                        yield sentence
+                                    break
+                        if chunk.get("done"):
+                            if buffer.strip():
+                                yield buffer.strip()
+                            break
+                    except Exception:
+                        continue
+    except Exception:
+        # Fallback: return nothing (caller will use standard _call)
+        return
+
+
+async def async_call(prompt: str, model: str, system: str = "", max_tokens: int = 300) -> str:
+    """Non-blocking async LLM call via httpx. Never blocks the voice pipeline.
+    STEAL 9 — use in background daemons so they don't block voice.
+    """
+    import httpx
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "system": system,
+        "stream": False,
+        "options": {"num_predict": max_tokens},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            response = await client.post(f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate", json=payload)
+            return response.json().get("response", "").strip()
+    except httpx.TimeoutException:
+        return ""
+    except Exception:
+        return ""
+
+
 def chat_with_ollama(
     messages: list[dict],
     model: str,
