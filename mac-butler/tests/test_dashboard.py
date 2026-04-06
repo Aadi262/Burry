@@ -142,6 +142,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('type="module" src="/app.js?v=', html)
         self.assertIn('"wsUrl"', html)
         self.assertIn("search ranveer alahabadia on youtube", html)
+        self.assertIn('"/vendor/three.module.js"', html)
+        self.assertIn('"/vendor/addons/"', html)
+        self.assertNotIn("unpkg.com/three", html)
 
     @patch("projects.dashboard.subprocess.Popen")
     @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)

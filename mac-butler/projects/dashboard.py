@@ -43,6 +43,7 @@ FRONTEND_ROOT = ROOT / "frontend"
 FRONTEND_INDEX_PATH = FRONTEND_ROOT / "index.html"
 FRONTEND_STYLE_PATH = FRONTEND_ROOT / "style.css"
 FRONTEND_APP_PATH = FRONTEND_ROOT / "app.js"
+FRONTEND_VENDOR_ROOT = FRONTEND_ROOT / "vendor"
 MAC_STATE_PATH = PROJECT_ROOT / "memory" / "mac_state.json"
 GRAPH_PATH = PROJECT_ROOT / "memory" / "layers" / "graph.json"
 TASKS_PATH = PROJECT_ROOT / "tasks" / "tasks.json"
@@ -813,6 +814,15 @@ def serve_dashboard():
                         return
                     if parsed.path == "/app.js":
                         _serve_asset(self, FRONTEND_APP_PATH, "application/javascript; charset=utf-8")
+                        return
+                    if parsed.path.startswith("/vendor/"):
+                        relative_path = parsed.path.removeprefix("/vendor/")
+                        asset_path = (FRONTEND_VENDOR_ROOT / relative_path).resolve(strict=False)
+                        if FRONTEND_VENDOR_ROOT.resolve(strict=False) not in asset_path.parents and asset_path != FRONTEND_VENDOR_ROOT.resolve(strict=False):
+                            self._send_text("Not found", status=404)
+                            return
+                        content_type = "application/javascript; charset=utf-8"
+                        _serve_asset(self, asset_path, content_type)
                         return
                     if parsed.path in {"/", "/index.html"}:
                         _write_dashboard()
