@@ -6,6 +6,7 @@ from unittest.mock import patch
 from projects.project_store import (
     _explicit_progress_candidate,
     _table_progress_candidate,
+    ensure_project_blurb,
     load_projects,
 )
 
@@ -150,6 +151,40 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(projects[0]["git_branch"], "main")
         self.assertEqual(projects[0]["last_test_status"], "ok")
         self.assertTrue(projects[0]["live"])
+
+    def test_ensure_project_blurb_persists_generated_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "projects.json"
+            path.write_text(
+                """
+[
+  {
+    "name": "Demo",
+    "aliases": ["demo"],
+    "path": "/tmp/demo",
+    "description": "Demo project",
+    "blurb": "",
+    "status": "active",
+    "completion": 50,
+    "blockers": ["Auth still needs a pass"],
+    "next_tasks": ["Ship the dashboard card"],
+    "status_files": []
+  }
+]
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with patch("projects.project_store.PROJECTS_PATH", path), patch(
+                "projects.project_store._generate_project_blurb",
+                return_value="Demo project is active. Next up is shipping the dashboard card.",
+            ):
+                project = ensure_project_blurb("Demo")
+                payload = path.read_text(encoding="utf-8")
+
+        self.assertIsNotNone(project)
+        self.assertEqual(project["blurb"], "Demo project is active. Next up is shipping the dashboard card.")
+        self.assertIn('"blurb": "Demo project is active. Next up is shipping the dashboard card."', payload)
 
 
 if __name__ == "__main__":

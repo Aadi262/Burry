@@ -97,6 +97,7 @@ def _dashboard_projects() -> list[dict]:
         item["next_tasks"] = list(item.get("next_tasks") or [])
         item["blockers"] = list(item.get("blockers") or [])
         item["description"] = str(item.get("description", "") or item.get("deploy_target", "") or "Local operator project")
+        item["blurb"] = str(item.get("blurb", "") or "")
         projects.append(item)
     return projects
 

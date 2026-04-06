@@ -206,10 +206,14 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     const ordered = [...projectItems].sort((a, b) => (Number(b.completion || 0) - Number(a.completion || 0)));
     refs.projectList.innerHTML = ordered.map((project) => {
       const nextAction = (project.next_tasks && project.next_tasks[0]) || (project.blockers && project.blockers[0]) || "No next action logged yet.";
+      const blurb = project.blurb || project.description || "";
       return `
         <article class="project-card">
           <div class="project-topline">
-            <div class="project-name">${project.name || "Project"}</div>
+            <div>
+              <div class="project-name">${project.name || "Project"}</div>
+              <div class="project-blurb">${blurb}</div>
+            </div>
             <div class="project-status">
               <span class="health-dot ${healthClass(project)}"></span>
               <span>${project.status || "paused"}</span>

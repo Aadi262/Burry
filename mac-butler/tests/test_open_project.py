@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from projects.open_project import open_project_by_path
+from projects.open_project import open_project, open_project_by_path
 
 
 class OpenProjectTests(unittest.TestCase):
@@ -26,6 +26,35 @@ class OpenProjectTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertIsNone(result["editor_used"])
+
+    @patch("projects.open_project.ensure_project_blurb")
+    @patch("projects.open_project.set_last_opened")
+    @patch("projects.open_project.open_project_by_path")
+    @patch("projects.open_project.get_project")
+    def test_open_project_hydrates_blurb_on_success(
+        self,
+        mock_get_project,
+        mock_open_by_path,
+        _mock_set_last_opened,
+        mock_ensure_blurb,
+    ):
+        mock_get_project.return_value = {
+            "name": "Demo",
+            "path": "/tmp/demo",
+            "blurb": "",
+        }
+        mock_open_by_path.return_value = {
+            "status": "ok",
+            "editor_used": "cursor",
+            "project_name": "Demo",
+            "path": "/tmp/demo",
+        }
+
+        result = open_project("demo")
+
+        self.assertEqual(result["status"], "ok")
+        mock_get_project.assert_called_once_with("demo", hydrate_blurb=True)
+        mock_ensure_blurb.assert_called_once_with("Demo")
 
 
 if __name__ == "__main__":

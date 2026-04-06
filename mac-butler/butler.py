@@ -1242,7 +1242,7 @@ def _project_path_for_name(name: str) -> str:
     try:
         from projects import get_project
 
-        project = get_project(candidate)
+        project = get_project(candidate, hydrate_blurb=True)
     except Exception:
         project = None
     if not project:

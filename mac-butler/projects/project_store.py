@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 PROJECTS_PATH = Path(__file__).resolve().parent / "projects.json"
+PROJECT_BLURB_MODEL = "gemma4:e4b"
 
 
 def _load_raw() -> list[dict]:
@@ -148,6 +149,76 @@ def _clean_text(value: str, limit: int = 120) -> str:
     if len(text) > limit:
         text = text[: limit - 3].rstrip() + "..."
     return text
+
+
+def _normalize_blurb_text(text: str, max_words: int = 42) -> str:
+    cleaned = " ".join(str(text or "").strip().strip('"').split())
+    if not cleaned:
+        return ""
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", cleaned) if part.strip()]
+    if not sentences:
+        return ""
+    if len(sentences) == 1 and sentences[0][-1] not in ".!?":
+        sentences[0] = sentences[0].rstrip(",;:-") + "."
+    candidate = " ".join(sentences[:2])
+    words = candidate.split()
+    if len(words) > max_words:
+        candidate = " ".join(words[:max_words]).rstrip(",;:-")
+        if candidate and candidate[-1] not in ".!?":
+            candidate += "."
+    return candidate
+
+
+def _project_blurb_fallback(project: dict) -> str:
+    name = _clean_text(project.get("name", ""), limit=80) or "This project"
+    description = _clean_text(
+        project.get("description", "") or project.get("deploy_target", "") or "is still in progress",
+        limit=120,
+    )
+    next_task = _clean_text((project.get("next_tasks") or ["review the current status"])[0], limit=120)
+    blocker = _clean_text((project.get("blockers") or [""])[0], limit=120)
+    first = f"{name} is {description}."
+    second = f"Next up is {next_task}."
+    if blocker:
+        second = f"Next up is {next_task}, while {blocker} still needs attention."
+    return _normalize_blurb_text(f"{first} {second}")
+
+
+def _project_blurb_prompt(project: dict) -> str:
+    name = _clean_text(project.get("name", ""), limit=80) or "Unknown project"
+    description = _clean_text(project.get("description", ""), limit=180) or "No description provided."
+    blockers = [_clean_text(item, limit=140) for item in list(project.get("blockers") or []) if _clean_text(item, limit=140)]
+    next_tasks = [_clean_text(item, limit=140) for item in list(project.get("next_tasks") or []) if _clean_text(item, limit=140)]
+    blocker_lines = "\n".join(f"- {item}" for item in blockers[:3]) or "- No active blockers recorded."
+    task_lines = "\n".join(f"- {item}" for item in next_tasks[:3]) or "- No next tasks recorded."
+    return f"""You are summarizing a software project for Burry's HUD.
+Write exactly 2 short sentences, total under 42 words.
+Sentence 1 should explain what the project is.
+Sentence 2 should explain what needs to happen next.
+Do not use bullets or a greeting.
+
+Project: {name}
+Description: {description}
+Blockers:
+{blocker_lines}
+Next tasks:
+{task_lines}
+"""
+
+
+def _generate_project_blurb(project: dict) -> str:
+    try:
+        from brain.ollama_client import _call
+
+        raw = _call(
+            _project_blurb_prompt(project),
+            PROJECT_BLURB_MODEL,
+            temperature=0.2,
+            max_tokens=120,
+        )
+    except Exception:
+        raw = ""
+    return _normalize_blurb_text(raw) or _project_blurb_fallback(project)
 
 
 def _merge_unique(items: list[str], limit: int = 4) -> list[str]:
@@ -962,6 +1033,7 @@ def _enrich_project(project: dict) -> dict:
     local_last_commit = _local_git_last_commit(root)
     enriched["local_git"] = local_last_commit is not None
     enriched["local_last_commit"] = local_last_commit
+    enriched["blurb"] = str(enriched.get("blurb", "") or "").strip()
     if local_last_commit and not enriched.get("last_commit"):
         enriched["last_commit"] = local_last_commit
     enriched.update(_derive_health(project, root))
@@ -979,7 +1051,11 @@ def _get_raw_project(name: str) -> dict | None:
     return dict(project) if project else None
 
 
-def get_project(name: str) -> dict | None:
+def get_project(name: str, hydrate_blurb: bool = False) -> dict | None:
+    if hydrate_blurb:
+        hydrated = ensure_project_blurb(name)
+        if hydrated is not None:
+            return hydrated
     projects = load_projects()
     _index, project = _match_project(projects, name)
     return dict(project) if project else None
@@ -996,6 +1072,19 @@ def update_project(name: str, **fields) -> dict | None:
     projects[index] = updated
     _save(projects)
     return get_project(updated.get("name", name))
+
+
+def ensure_project_blurb(name: str) -> dict | None:
+    project = _get_raw_project(name)
+    if not project:
+        return None
+    if str(project.get("blurb", "") or "").strip():
+        return get_project(name)
+    enriched = _enrich_project(project)
+    blurb = _generate_project_blurb(enriched)
+    if not blurb:
+        return get_project(name)
+    return update_project(name, blurb=blurb)
 
 
 def get_projects_for_prompt() -> str:

@@ -32,6 +32,25 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(payload["edges"][0]["type"], "blocked_by")
 
+    def test_dashboard_projects_preserves_blurb_field(self):
+        with patch(
+            "projects.dashboard._load_projects_raw",
+            return_value=[
+                {
+                    "name": "mac-butler",
+                    "status": "active",
+                    "completion": 71,
+                    "description": "Local operator",
+                    "blurb": "Local Mac operator stack. Next up is voice follow-up cleanup.",
+                    "next_tasks": [],
+                    "blockers": [],
+                }
+            ],
+        ):
+            projects = dashboard._dashboard_projects()
+
+        self.assertEqual(projects[0]["blurb"], "Local Mac operator stack. Next up is voice follow-up cleanup.")
+
     def test_tasks_payload_reads_task_file(self):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "tasks.json"

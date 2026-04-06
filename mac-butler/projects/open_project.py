@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 
 try:
-    from .project_store import get_project, mark_error, set_last_opened
+    from .project_store import ensure_project_blurb, get_project, mark_error, set_last_opened
 except ImportError:
-    from project_store import get_project, mark_error, set_last_opened
+    from project_store import ensure_project_blurb, get_project, mark_error, set_last_opened
 
 EDITOR_CHAIN = [
     ("claude", lambda p: f"claude '{p}'"),
@@ -198,7 +198,7 @@ def open_project(name: str) -> dict:
     Falls back down the chain if app not found.
     If all fail, opens in Finder as last resort.
     """
-    project = get_project(name)
+    project = get_project(name, hydrate_blurb=True)
     if not project:
         return {
             "status": "error",
@@ -212,6 +212,10 @@ def open_project(name: str) -> dict:
 
     if result.get("status") == "ok":
         set_last_opened(project["name"])
+        try:
+            ensure_project_blurb(project["name"])
+        except Exception:
+            pass
         return result
 
     mark_error(project["name"], f"Could not open project: {project.get('path', '')}")

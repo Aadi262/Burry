@@ -1067,6 +1067,14 @@ body[data-state="executing"] .panel {
   font-weight: 600;
 }
 
+.project-blurb {
+  margin-top: 6px;
+  max-width: 34ch;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .project-meta {
   color: var(--text-faint);
   font-size: var(--font-body);
