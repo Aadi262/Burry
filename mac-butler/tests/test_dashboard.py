@@ -32,6 +32,15 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(payload["edges"][0]["type"], "blocked_by")
 
+    def test_tasks_payload_reads_task_file(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tasks.json"
+            path.write_text('{"tasks":[{"project":"mac-butler","title":"Ship HUD graph"}]}', encoding="utf-8")
+            with patch.object(dashboard, "TASKS_PATH", path):
+                payload = dashboard._tasks_payload()
+
+        self.assertEqual(payload["tasks"][0]["project"], "mac-butler")
+
     @patch(
         "projects.dashboard.operator_snapshot",
         return_value={
