@@ -30,6 +30,7 @@ from butler_config import (
     VPS_HOSTS,
 )
 from daemon.ambient import start_ambient_daemon
+from daemon.wake_word import start_wake_word_daemon
 from brain.query_analyzer import analyze_query
 from context import build_structured_context
 from context.mac_activity import get_state_for_context, load_state as load_mac_state, start_watcher
@@ -2651,6 +2652,7 @@ def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: 
 def main() -> None:
     _ensure_watcher_started()
     start_ambient_daemon()
+    start_wake_word_daemon()
     _report_brain_backend_status()
     parser = argparse.ArgumentParser(description="Mac Butler")
     parser.add_argument("--test", action="store_true", help="Print-only, no voice or execution")

@@ -3,9 +3,18 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from daemon import bug_hunter, heartbeat
+from daemon import wake_word
 
 
 class DaemonConfigTests(unittest.TestCase):
+    def test_start_wake_word_daemon_returns_none_without_dependencies(self):
+        with patch("daemon.wake_word._load_dependencies", return_value=None):
+            self.assertIsNone(wake_word.start_wake_word_daemon())
+
+    def test_wake_word_score_uses_max_prediction_value(self):
+        score = wake_word._score_from_prediction({"hey_burry": 0.18, "other": [0.3, 0.81]})
+        self.assertEqual(score, 0.81)
+
     @patch("daemon.heartbeat.subprocess.run")
     def test_heartbeat_calendar_lines_format_upcoming_events(self, mock_run):
         mock_run.return_value = MagicMock(
