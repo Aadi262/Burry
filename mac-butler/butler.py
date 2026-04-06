@@ -3034,6 +3034,18 @@ def main() -> None:
     _ensure_watcher_started()
     start_ambient_daemon()
     start_wake_word_daemon()
+    # Start iMessage channel so you can message Burry from iPhone (STEAL 8)
+    try:
+        from channels.imessage_channel import start_imessage_channel
+        start_imessage_channel()
+    except Exception:
+        pass
+    # Load skills at startup (STEAL 4)
+    try:
+        from skills import load_skills
+        load_skills()
+    except Exception:
+        pass
     _report_brain_backend_status()
     parser = argparse.ArgumentParser(description="Mac Butler")
     parser.add_argument("--test", action="store_true", help="Print-only, no voice or execution")
