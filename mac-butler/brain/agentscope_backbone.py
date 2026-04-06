@@ -309,6 +309,30 @@ def _lookup_tool_result(tool_call: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _broadcast_plan_update(plan_notebook) -> None:
+    """Broadcast the current plan notebook state to the HUD."""
+    if plan_notebook is None:
+        return
+    try:
+        steps = []
+        for subtask in getattr(plan_notebook, "subtasks", []):
+            steps.append(
+                {
+                    "text": str(getattr(subtask, "content", subtask)),
+                    "done": getattr(subtask, "state", "") in {"done", "completed", "success"},
+                },
+            )
+        title = getattr(plan_notebook, "title", "Active Plan") or "Active Plan"
+        _ws_broadcast(
+            {
+                "type": "plan_update",
+                "payload": {"title": title, "steps": steps},
+            },
+        )
+    except Exception:
+        pass
+
+
 def _register_burry_hooks(agent, backbone_ref=None) -> None:
     """Register all 5 AgentScope lifecycle hooks on the backbone agent."""
 
@@ -388,6 +412,7 @@ def _register_burry_hooks(agent, backbone_ref=None) -> None:
                         },
                     },
                 )
+            _broadcast_plan_update(getattr(agent_instance, "plan_notebook", None))
         except Exception:
             pass
         return output
@@ -635,8 +660,10 @@ class AgentScopeBackbone:
         self._stream_enabled = False
         self._active_loop: asyncio.AbstractEventLoop | None = None
         self._interrupt_requested = False
+        self.plan_notebook = None
         self.memory = InMemoryMemory()
         self.agent = self._build_agent(model_name, stream=False, intent_name="default")
+        self.plan_notebook = getattr(self.agent, "plan_notebook", None)
 
     def _build_agent(self, model_name: str, *, stream: bool, intent_name: str) -> ReActAgent:
         from memory.long_term import restore_session_state
@@ -673,6 +700,7 @@ class AgentScopeBackbone:
         self._intent_key = intent_key
         self._stream_enabled = stream
         self.agent = _AGENT_CACHE[cache_key]
+        self.plan_notebook = getattr(self.agent, "plan_notebook", None)
         self.memory = getattr(self.agent, "memory", self.memory)
         try:
             self.agent.model.stream = stream
@@ -862,6 +890,8 @@ class AgentScopeBackbone:
             }
             for entry in tool_log
         ]
+        if self.plan_notebook is not None and tool_log:
+            _broadcast_plan_update(self.plan_notebook)
         return {
             "speech": speech,
             "actions": actions,
