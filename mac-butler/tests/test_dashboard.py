@@ -156,7 +156,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("You said:", html)
         self.assertIn("Burry said:", html)
         self.assertIn("Events", html)
-        self.assertIn("Project Truth", html)
+        self.assertIn("Projects", html)
         self.assertIn("project-list", html)
         self.assertIn("events-feed", html)
         self.assertIn("orb-canvas", html)

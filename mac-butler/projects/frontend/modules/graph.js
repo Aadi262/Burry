@@ -1,16 +1,11 @@
-const STATUS_COLORS = {
-  active: "#00d4ff",
-  paused: "#4f8fff",
-  blocked: "#ff2244",
-  done: "#00ff88",
-};
-
-const STATUS_FILLS = {
-  active: "rgba(0, 212, 255, 0.25)",
-  paused: "rgba(79, 143, 255, 0.2)",
-  blocked: "rgba(255, 34, 68, 0.2)",
-  done: "rgba(0, 255, 136, 0.2)",
-};
+function nodeColor(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "active") return { fill: "rgba(0,212,255,0.2)", stroke: "#00d4ff" };
+  if (s === "paused") return { fill: "rgba(79,143,255,0.15)", stroke: "#4f8fff" };
+  if (s === "blocked") return { fill: "rgba(255,34,68,0.15)", stroke: "#ff2244" };
+  if (s === "done") return { fill: "rgba(0,255,136,0.15)", stroke: "#00ff88" };
+  return { fill: "rgba(100,100,200,0.12)", stroke: "#6464c8" };
+}
 
 const EDGE_COLORS = {
   depends_on: "#4f8fff",
@@ -36,11 +31,11 @@ function nodeRadius(project, degree = 0) {
 }
 
 function nodeStroke(project) {
-  return STATUS_COLORS[String(project.status || "").toLowerCase()] || STATUS_COLORS.paused;
+  return nodeColor(project.status).stroke;
 }
 
 function nodeFill(project) {
-  return STATUS_FILLS[String(project.status || "").toLowerCase()] || STATUS_FILLS.paused;
+  return nodeColor(project.status).fill;
 }
 
 function edgeColor(edge) {
@@ -125,6 +120,23 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   let rafId = 0;
   let width = 0;
   let height = 0;
+  let mouseX = 0;
+  let mouseY = 0;
+
+  function positionDetail(mx, my) {
+    const cw = canvas.clientWidth || canvas.offsetWidth || 300;
+    const ch = canvas.clientHeight || canvas.offsetHeight || 200;
+    let left = mx + 16;
+    let top = my - 60;
+    if (left + 220 > cw) left = mx - 236;
+    if (left < 0) left = 8;
+    if (top + 160 > ch) top = my - 160;
+    if (top < 0) top = 8;
+    detail.style.left = `${left}px`;
+    detail.style.top = `${top}px`;
+    detail.style.right = "auto";
+    detail.style.bottom = "auto";
+  }
 
   function ensureSize() {
     const nextWidth = Math.max(1, canvas.clientWidth || canvas.offsetWidth || 1);
@@ -261,7 +273,8 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
     ctx.clearRect(0, 0, width, height);
 
     // Draw edges with arrowheads
-    for (const edge of edges) {
+    for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1) {
+      const edge = edges[edgeIndex];
       const from = nodeByName(edge.from);
       const to = nodeByName(edge.to);
       if (!from || !to) continue;
@@ -280,18 +293,28 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       const endX = to.x - nx * (to.radius + arrowSize);
       const endY = to.y - ny * (to.radius + arrowSize);
 
+      const edgeOpacity = Math.sin(Date.now() / 1200 + edgeIndex) * 0.15 + 0.45;
+      const isDependsOn = String(edge.type || "").toLowerCase() === "depends_on";
+
       // Line
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = edgeOpacity;
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
+      if (isDependsOn) {
+        ctx.setLineDash([6, 4]);
+        ctx.lineDashOffset = -(Date.now() / 80) % 10;
+      } else {
+        ctx.setLineDash([]);
+      }
       ctx.beginPath();
       ctx.moveTo(startX, startY);
       ctx.lineTo(endX, endY);
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Arrowhead
       const angle = Math.atan2(dy, dx);
-      ctx.globalAlpha = 0.8;
+      ctx.globalAlpha = edgeOpacity + 0.2;
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.moveTo(endX + nx * arrowSize, endY + ny * arrowSize);
@@ -334,11 +357,12 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       ctx.stroke();
 
       // Label below node
-      ctx.fillStyle = "rgba(232, 244, 255, 0.9)";
-      ctx.font = "11px 'SF Pro Display', 'Helvetica Neue', sans-serif";
+      const label = node.name.length > 14 ? node.name.slice(0, 13) + "\u2026" : node.name;
+      ctx.font = "11px SF Mono, monospace";
+      ctx.fillStyle = "rgba(232,244,255,0.85)";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillText(node.name, node.x, node.y + node.radius + 6);
+      ctx.fillText(label, node.x, node.y + node.radius + 16);
       ctx.textBaseline = "alphabetic";
     }
   }
@@ -357,22 +381,27 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   }
 
   canvas.addEventListener("mousemove", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = event.clientX - rect.left;
+    mouseY = event.clientY - rect.top;
     hoverNode = hitTest(event.clientX, event.clientY);
     if (!hoverNode) {
       tooltip.classList.remove("is-visible");
-      return;
+    } else {
+      const completion = Number(hoverNode.completion || 0);
+      const nextTask = (hoverNode.next_tasks && hoverNode.next_tasks[0]) || "No next task logged yet.";
+      tooltip.innerHTML = `
+        <strong>${hoverNode.name}</strong>
+        <span>${hoverNode.status || "paused"} · ${completion}%</span>
+        <div>${nextTask}</div>
+      `;
+      tooltip.style.left = `${mouseX + 14}px`;
+      tooltip.style.top = `${mouseY + 14}px`;
+      tooltip.classList.add("is-visible");
     }
-    const completion = Number(hoverNode.completion || 0);
-    const nextTask = (hoverNode.next_tasks && hoverNode.next_tasks[0]) || "No next task logged yet.";
-    tooltip.innerHTML = `
-      <strong>${hoverNode.name}</strong>
-      <span>${hoverNode.status || "paused"} · ${completion}%</span>
-      <div>${nextTask}</div>
-    `;
-    const rect = canvas.getBoundingClientRect();
-    tooltip.style.left = `${event.clientX - rect.left + 14}px`;
-    tooltip.style.top = `${event.clientY - rect.top + 14}px`;
-    tooltip.classList.add("is-visible");
+    if (selectedNode) {
+      positionDetail(mouseX, mouseY);
+    }
   });
 
   canvas.addEventListener("mouseleave", () => {
@@ -385,6 +414,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
     if (!hit) return;
     selectedNode = hit;
     detail.innerHTML = detailMarkup(selectedNode);
+    positionDetail(mouseX, mouseY);
   });
 
   async function refresh() {
