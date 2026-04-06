@@ -15,6 +15,7 @@ from pathlib import Path
 from agents.runner import run_agent
 from butler_config import BUG_HUNTER_ENABLED, BUG_HUNTER_INTERVAL_MINUTES, BUG_HUNTER_MODEL
 from executor.engine import Executor
+from runtime.notify import notify
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -73,6 +74,7 @@ def run_bug_hunt_once() -> dict:
             }
         ]
     )
+    notify("Butler bug hunt", message, subtitle="Blocker found")
     print(f"[BugHunter] {message}")
     return summary
 

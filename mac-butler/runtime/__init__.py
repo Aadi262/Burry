@@ -1,3 +1,4 @@
+from .notify import notify
 from .telemetry import (
     load_runtime_state,
     note_agent_result,
@@ -14,6 +15,7 @@ from .telemetry import (
 
 __all__ = [
     "load_runtime_state",
+    "notify",
     "note_agent_result",
     "note_heard_text",
     "note_intent",

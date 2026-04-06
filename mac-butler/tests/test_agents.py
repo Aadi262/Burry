@@ -16,9 +16,10 @@ from agents.runner import (
 
 
 class AgentTests(unittest.TestCase):
+    @patch("agents.runner.notify")
     @patch("agents.runner.note_agent_result")
     @patch("agents.runner.run_agent")
-    def test_run_agent_async_reports_result_to_runtime(self, mock_run_agent, mock_note_agent):
+    def test_run_agent_async_reports_result_to_runtime(self, mock_run_agent, mock_note_agent, mock_notify):
         mock_run_agent.return_value = {"status": "ok", "result": "All good", "data": {}}
         seen = []
 
@@ -27,6 +28,7 @@ class AgentTests(unittest.TestCase):
 
         self.assertFalse(thread.is_alive())
         mock_note_agent.assert_called_once_with("news", "ok", "All good")
+        mock_notify.assert_called_once()
         self.assertEqual(seen, ["All good"])
 
     @patch("agents.runner._prepare_model_request")

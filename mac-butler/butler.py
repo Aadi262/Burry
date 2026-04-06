@@ -51,6 +51,7 @@ from memory.store import (
 )
 from runtime import (
     load_runtime_state,
+    notify,
     note_heard_text,
     note_intent,
     note_memory_recall,
@@ -1877,6 +1878,7 @@ def _speak_or_print(text: str, test_mode: bool = False) -> None:
         print(f"[Butler would say]: {text}")
     else:
         speak(text)
+        notify("Burry", text[:180], subtitle="Response")
 
 
 def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> None:

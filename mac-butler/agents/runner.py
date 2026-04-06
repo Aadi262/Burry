@@ -28,7 +28,7 @@ from brain.ollama_client import (
 )
 from mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
 from butler_secrets.loader import get_vps_secret
-from runtime import note_agent_result
+from runtime import note_agent_result, notify
 
 ROUTED_MODELS = {
     agent_type: (chain[0] if chain else AGENT_MODELS.get(agent_type, OLLAMA_MODEL))
@@ -888,6 +888,11 @@ def run_agent_async(
                 agent_type,
                 str(result.get("status", "ok") or "ok"),
                 str(result.get("result", "") or ""),
+            )
+            notify(
+                f"Burry {agent_type}",
+                str(result.get("result", "") or result.get("status", "done") or "done")[:180],
+                subtitle="Agent ready",
             )
         except Exception:
             pass
