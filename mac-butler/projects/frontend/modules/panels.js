@@ -218,23 +218,27 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     refs.projectList.innerHTML = ordered.map((project) => {
       const nextAction = (project.next_tasks && project.next_tasks[0]) || (project.blockers && project.blockers[0]) || "No next action logged yet.";
       const blurb = project.blurb || project.description || "";
+      const pct = Number(project.completion || 0);
       return `
         <article class="project-card">
           <div class="project-topline">
-            <div>
+            <div class="project-topline-copy">
               <div class="project-name">${project.name || "Project"}</div>
-              <div class="project-blurb">${blurb}</div>
+              ${blurb ? `<div class="project-blurb">${blurb}</div>` : ""}
             </div>
             <div class="project-status">
               <span class="health-dot ${healthClass(project)}"></span>
               <span>${project.status || "paused"}</span>
             </div>
           </div>
-          <div class="progress-rail">
-            <div class="progress-fill" style="width:${Number(project.completion || 0)}%"></div>
+          <div class="progress-wrap">
+            <div class="progress-rail">
+              <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+            <span class="project-pct">${pct}%</span>
           </div>
-          <div class="project-next">${Number(project.completion || 0)}% complete · ${nextAction}</div>
-          <button class="project-open" type="button" data-project="${project.name || ""}">Open Project</button>
+          <div class="project-next">${nextAction}</div>
+          <button class="project-open" type="button" data-project="${project.name || ""}">OPEN PROJECT</button>
         </article>
       `;
     }).join("");

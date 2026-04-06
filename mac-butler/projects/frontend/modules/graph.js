@@ -5,6 +5,13 @@ const STATUS_COLORS = {
   done: "#00ff88",
 };
 
+const STATUS_FILLS = {
+  active: "rgba(0, 212, 255, 0.25)",
+  paused: "rgba(79, 143, 255, 0.2)",
+  blocked: "rgba(255, 34, 68, 0.2)",
+  done: "rgba(0, 255, 136, 0.2)",
+};
+
 const EDGE_COLORS = {
   depends_on: "#4f8fff",
   blocked_by: "#ff2244",
@@ -25,16 +32,19 @@ function clamp(value, min, max) {
 
 function nodeRadius(project, degree = 0) {
   const taskCount = Array.isArray(project.next_tasks) ? project.next_tasks.length : 0;
-  const blockerCount = Array.isArray(project.blockers) ? project.blockers.length : 0;
-  return 14 + Math.min(12, (taskCount * 2) + blockerCount + (degree * 1.5));
+  return clamp(28 + taskCount * 2 + Math.floor(degree * 0.5), 28, 36);
 }
 
-function nodeColor(project) {
-  return STATUS_COLORS[String(project.status || "").toLowerCase()] || "#4f8fff";
+function nodeStroke(project) {
+  return STATUS_COLORS[String(project.status || "").toLowerCase()] || STATUS_COLORS.paused;
+}
+
+function nodeFill(project) {
+  return STATUS_FILLS[String(project.status || "").toLowerCase()] || STATUS_FILLS.paused;
 }
 
 function edgeColor(edge) {
-  return EDGE_COLORS[String(edge.type || "").toLowerCase()] || "#4f8fff";
+  return EDGE_COLORS[String(edge.type || "").toLowerCase()] || EDGE_COLORS.depends_on;
 }
 
 function detailMarkup(project) {
@@ -178,6 +188,27 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
 
   function applyPhysics() {
     if (!nodes.length) return;
+
+    // No edges: animate toward horizontal row (or vertical on narrow canvas)
+    if (!edges.length) {
+      const isNarrow = height > width * 1.2;
+      nodes.forEach((node, index) => {
+        const targetX = isNarrow
+          ? width / 2
+          : (width / (nodes.length + 1)) * (index + 1);
+        const targetY = isNarrow
+          ? (height / (nodes.length + 1)) * (index + 1)
+          : height / 2;
+        node.vx += (targetX - node.x) * 0.06;
+        node.vy += (targetY - node.y) * 0.06;
+        node.vx *= 0.78;
+        node.vy *= 0.78;
+        node.x = clamp(node.x + node.vx, node.radius + 8, width - node.radius - 8);
+        node.y = clamp(node.y + node.vy, node.radius + 8, height - node.radius - 8);
+      });
+      return;
+    }
+
     const centerX = width / 2;
     const centerY = height / 2;
 
@@ -188,7 +219,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const distance = Math.hypot(dx, dy) || 1;
-        const force = 1800 / (distance * distance);
+        const force = 5000 / (distance * distance);
         const fx = (dx / distance) * force;
         const fy = (dy / distance) * force;
         a.vx -= fx;
@@ -205,7 +236,7 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const distance = Math.hypot(dx, dy) || 1;
-      const target = 120;
+      const target = 150;
       const spring = (distance - target) * 0.002;
       const fx = (dx / distance) * spring;
       const fy = (dy / distance) * spring;
@@ -228,35 +259,87 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   function draw() {
     ensureSize();
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(0, 2, 15, 0.32)";
-    ctx.fillRect(0, 0, width, height);
 
+    // Draw edges with arrowheads
     for (const edge of edges) {
       const from = nodeByName(edge.from);
       const to = nodeByName(edge.to);
       if (!from || !to) continue;
-      ctx.strokeStyle = edgeColor(edge);
-      ctx.globalAlpha = 0.48;
+
+      const color = edgeColor(edge);
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 2) continue;
+
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const arrowSize = 9;
+      const startX = from.x + nx * from.radius;
+      const startY = from.y + ny * from.radius;
+      const endX = to.x - nx * (to.radius + arrowSize);
+      const endY = to.y - ny * (to.radius + arrowSize);
+
+      // Line
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
       ctx.stroke();
+
+      // Arrowhead
+      const angle = Math.atan2(dy, dx);
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(endX + nx * arrowSize, endY + ny * arrowSize);
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle - Math.PI / 5),
+        endY - arrowSize * Math.sin(angle - Math.PI / 5),
+      );
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle + Math.PI / 5),
+        endY - arrowSize * Math.sin(angle + Math.PI / 5),
+      );
+      ctx.closePath();
+      ctx.fill();
       ctx.globalAlpha = 1;
     }
 
+    // Draw nodes
     for (const node of nodes) {
-      ctx.fillStyle = nodeColor(node);
-      ctx.shadowColor = nodeColor(node);
-      ctx.shadowBlur = hoverNode && hoverNode.name === node.name ? 18 : 10;
+      const stroke = nodeStroke(node);
+      const fill = nodeFill(node);
+      const isHover = hoverNode && hoverNode.name === node.name;
+
+      // Glow shadow
+      ctx.shadowColor = stroke;
+      ctx.shadowBlur = isHover ? 26 : 14;
+
+      // Fill circle
+      ctx.fillStyle = fill;
       ctx.beginPath();
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.shadowBlur = 0;
-      ctx.fillStyle = "#e8f4ff";
-      ctx.font = "11px SF Pro Display";
+
+      // Border
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Label below node
+      ctx.fillStyle = "rgba(232, 244, 255, 0.9)";
+      ctx.font = "11px 'SF Pro Display', 'Helvetica Neue', sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(node.name, node.x, node.y + node.radius + 16);
+      ctx.textBaseline = "top";
+      ctx.fillText(node.name, node.x, node.y + node.radius + 6);
+      ctx.textBaseline = "alphabetic";
     }
   }
 
@@ -279,14 +362,16 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
       tooltip.classList.remove("is-visible");
       return;
     }
+    const completion = Number(hoverNode.completion || 0);
+    const nextTask = (hoverNode.next_tasks && hoverNode.next_tasks[0]) || "No next task logged yet.";
     tooltip.innerHTML = `
       <strong>${hoverNode.name}</strong>
-      <span>${hoverNode.status || "paused"}</span>
-      <div>${(hoverNode.next_tasks && hoverNode.next_tasks[0]) || "No next task logged yet."}</div>
+      <span>${hoverNode.status || "paused"} · ${completion}%</span>
+      <div>${nextTask}</div>
     `;
     const rect = canvas.getBoundingClientRect();
-    tooltip.style.left = `${event.clientX - rect.left + 12}px`;
-    tooltip.style.top = `${event.clientY - rect.top + 12}px`;
+    tooltip.style.left = `${event.clientX - rect.left + 14}px`;
+    tooltip.style.top = `${event.clientY - rect.top + 14}px`;
     tooltip.classList.add("is-visible");
   });
 
@@ -337,6 +422,10 @@ export function createProjectGraph({ canvas, tooltip, detail }) {
   ensureSize();
   detail.innerHTML = EMPTY_GRAPH_DETAIL;
   animate();
+
+  if (canvas.parentElement && typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => ensureSize()).observe(canvas.parentElement);
+  }
 
   return {
     destroy() {

@@ -4,6 +4,7 @@ export function createOperatorStream({ bootstrap, onConnectionChange, onOperator
   let operatorSocket = null;
   let operatorStreamRetryTimer = null;
   let operatorConnected = false;
+  let wasConnected = false;
 
   function operatorWsUrls() {
     const candidates = [];
@@ -61,7 +62,9 @@ export function createOperatorStream({ bootstrap, onConnectionChange, onOperator
 
   function updateConnectionStatus(connected) {
     operatorConnected = connected;
-    onConnectionChange(connected);
+    if (connected || wasConnected) {
+      onConnectionChange(connected);
+    }
   }
 
   function scheduleOperatorReconnect() {
@@ -94,6 +97,7 @@ export function createOperatorStream({ bootstrap, onConnectionChange, onOperator
 
     socket.onopen = () => {
       opened = true;
+      wasConnected = true;
       updateConnectionStatus(true);
     };
 

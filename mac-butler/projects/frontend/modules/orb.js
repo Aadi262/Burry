@@ -278,6 +278,9 @@ class BurryOrb {
 
     this._resize();
     window.addEventListener("resize", () => this._resize());
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => this._resize()).observe(canvas.parentElement || document.body);
+    }
     this._animate = this._animate.bind(this);
     requestAnimationFrame(this._animate);
   }
