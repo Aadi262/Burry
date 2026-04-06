@@ -24,6 +24,7 @@ from .mcp_context import get_mcp_context
 from memory.layered import get_memory_index
 from projects import get_projects_for_prompt
 from tasks.task_store import get_tasks_for_prompt, sync_from_todo_md
+from utils import _compress_text
 
 __all__ = [
     "get_git_context",
@@ -41,28 +42,6 @@ _TASK_CACHE_TEXT = ""
 _TASK_CACHE_UPDATED_AT = 0.0
 _TASK_SYNC_THREAD: threading.Thread | None = None
 _TASK_SYNC_INTERVAL_SECONDS = 60
-
-def _compress(raw: str, limit: int = 500) -> str:
-    """Clean context before sending to LLM. Remove noise, keep signal."""
-    lines = []
-    for line in raw.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            lines.append(line)
-            continue
-        words = line.split()
-        if words and len(words[0]) == 7 and all(
-            c in "0123456789abcdef" for c in words[0].lower()
-        ):
-            msg = " ".join(words[1:])[:55]
-            lines.append(f"  commit: {msg}")
-            continue
-        lines.append(line[:75] + "..." if len(line) > 75 else line)
-
-    result = "\n".join(lines)
-    return result[:limit] + "..." if len(result) > limit else result
 
 
 def _get_time_context() -> dict:
@@ -186,16 +165,16 @@ def build_structured_context() -> dict:
     sections.append(f"[TIME]\n  {time_data['period']} ({time_data['time_string']})")
 
     if tasks_text:
-        sections.append(_compress(tasks_text, 180))
+        sections.append(_compress_text(tasks_text, 180))
 
     if projects_text:
-        sections.append(_compress(projects_text, 300))
+        sections.append(_compress_text(projects_text, 300))
 
     if mac_state:
-        sections.append(_compress(mac_state, 200))
+        sections.append(_compress_text(mac_state, 200))
 
     if memory_index:
-        sections.append(_compress(memory_index, 140))
+        sections.append(_compress_text(memory_index, 140))
 
     if editor_data["has_data"]:
         editor_lines = []
@@ -229,7 +208,7 @@ def build_structured_context() -> dict:
     if mcp_text:
         sections.append("[MCP]\n" + mcp_text[:160])
 
-    formatted = _compress("\n\n".join(sections) if sections else "(No context)", limit=650)
+    formatted = _compress_text("\n\n".join(sections) if sections else "(No context)", limit=650)
 
     return {
         "raw": {

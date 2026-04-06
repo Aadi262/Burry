@@ -35,6 +35,7 @@ except ImportError:
     from open_project import open_project
     from project_store import load_projects
     from project_store import _load_raw as _load_projects_raw
+from utils import _clip_text
 
 ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = ROOT.parent
@@ -144,13 +145,6 @@ def dashboard_ws_url() -> str:
 
 def _timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _clip_text(value: str, limit: int = 180) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
 
 
 def _load_json_file(path: Path, fallback):
