@@ -11,6 +11,8 @@ The key function is build_structured_context() which:
 3. Builds a clean labeled block for the LLM
 """
 
+import threading
+import time
 from datetime import datetime
 from .git_context import get_git_context, format_git_context
 from .vscode_context import get_vscode_context, format_vscode_context
@@ -33,6 +35,12 @@ __all__ = [
     "get_mcp_context",
     "build_structured_context",
 ]
+
+_TASK_CACHE_LOCK = threading.Lock()
+_TASK_CACHE_TEXT = ""
+_TASK_CACHE_UPDATED_AT = 0.0
+_TASK_SYNC_THREAD: threading.Thread | None = None
+_TASK_SYNC_INTERVAL_SECONDS = 60
 
 def _compress(raw: str, limit: int = 500) -> str:
     """Clean context before sending to LLM. Remove noise, keep signal."""
@@ -83,6 +91,46 @@ def _get_time_context() -> dict:
     }
 
 
+def _refresh_task_cache() -> None:
+    global _TASK_CACHE_TEXT, _TASK_CACHE_UPDATED_AT
+    try:
+        sync_from_todo_md()
+    except Exception:
+        pass
+    text = get_tasks_for_prompt()
+    with _TASK_CACHE_LOCK:
+        _TASK_CACHE_TEXT = text
+        _TASK_CACHE_UPDATED_AT = time.monotonic()
+
+
+def _task_sync_loop() -> None:
+    while True:
+        time.sleep(_TASK_SYNC_INTERVAL_SECONDS)
+        _refresh_task_cache()
+
+
+def _ensure_task_cache_thread() -> None:
+    global _TASK_SYNC_THREAD
+    with _TASK_CACHE_LOCK:
+        if _TASK_SYNC_THREAD is not None and _TASK_SYNC_THREAD.is_alive():
+            return
+        _TASK_SYNC_THREAD = threading.Thread(
+            target=_task_sync_loop,
+            daemon=True,
+            name="burry-task-sync",
+        )
+        _TASK_SYNC_THREAD.start()
+
+
+def _cached_tasks_for_prompt() -> str:
+    _ensure_task_cache_thread()
+    with _TASK_CACHE_LOCK:
+        cached = _TASK_CACHE_TEXT
+    if cached:
+        return cached
+    return get_tasks_for_prompt()
+
+
 def build_structured_context() -> dict:
     """
     Master context builder. Gathers all sources and assembles a
@@ -99,8 +147,7 @@ def build_structured_context() -> dict:
     git_data = get_git_context()
     editor_data = get_vscode_context()
     app_data = get_app_context()
-    sync_from_todo_md()
-    tasks_text = get_tasks_for_prompt()
+    tasks_text = _cached_tasks_for_prompt()
     projects_text = get_projects_for_prompt()
     obsidian_text = get_obsidian_context()
     vps_text = get_vps_context()

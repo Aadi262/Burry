@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import urllib.parse
 
 import numpy as np
@@ -38,6 +39,8 @@ ROUTED_MODELS.update(AGENT_MODELS)
 ROUTED_MODELS["default"] = OLLAMA_MODEL
 
 _installed_models: set[str] = set()
+_installed_models_checked_at = 0.0
+_INSTALLED_MODELS_TTL_SECONDS = 300
 _LAST_FETCH_DATA: dict = {}
 _SEARXNG_AVAILABLE: bool | None = None
 REDDIT_HEADERS = {"User-Agent": "Butler/1.0"}
@@ -45,11 +48,13 @@ GITHUB_HEADERS = {"User-Agent": "Butler/1.0"}
 
 
 def _get_installed_models() -> set[str]:
-    global _installed_models
-    if _installed_models:
+    global _installed_models, _installed_models_checked_at
+    now = time.monotonic()
+    if _installed_models and (now - _installed_models_checked_at) < _INSTALLED_MODELS_TTL_SECONDS:
         return _installed_models
     try:
         _installed_models = _get_available_models()
+        _installed_models_checked_at = now
         return _installed_models
     except Exception:
         return set()

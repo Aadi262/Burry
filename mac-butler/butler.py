@@ -13,6 +13,7 @@ import os
 import random
 import re
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -51,8 +52,10 @@ from memory.store import (
     update_project_state,
 )
 from runtime import (
+    consume_project_context_hint,
     load_runtime_state,
     notify,
+    note_conversation_turns,
     note_heard_text,
     note_intent,
     note_memory_recall,
@@ -88,6 +91,35 @@ class ConversationContext:
         self.last_spoken = ""
         self.last_intent = ""
         self.last_heard = ""
+        self._restore_from_runtime()
+
+    def _restore_from_runtime(self) -> None:
+        try:
+            turns = list(load_runtime_state().get("turns") or [])
+        except Exception:
+            turns = []
+        for turn in turns[-6:]:
+            if not isinstance(turn, dict):
+                continue
+            heard = " ".join(str(turn.get("heard", "")).split()).strip()
+            intent = " ".join(str(turn.get("intent", "")).split()).strip()
+            spoken = " ".join(str(turn.get("spoken", "")).split()).strip()
+            stamp = " ".join(str(turn.get("time", "")).split()).strip()
+            if not any((heard, intent, spoken)):
+                continue
+            self.turns.append(
+                {
+                    "heard": heard,
+                    "intent": intent,
+                    "spoken": spoken,
+                    "time": stamp,
+                }
+            )
+        if self.turns:
+            latest = self.turns[-1]
+            self.last_spoken = latest.get("spoken", "")
+            self.last_intent = latest.get("intent", "")
+            self.last_heard = latest.get("heard", "")
 
     def add_turn(self, heard: str, intent: str, spoken: str) -> None:
         entry = {
@@ -166,6 +198,8 @@ HELP_TEXT = (
 
 _briefing_done = False
 _SEARCH_CHECKED = False
+_SEARCH_CHECKED_AT = 0.0
+_SEARCH_CHECK_TTL_SECONDS = 120
 _BRAIN_STATUS_CHECKED = False
 _LOW_SIGNAL_STARTUP_PATTERNS = (
     "brave mcp",
@@ -192,10 +226,12 @@ def _check_searxng() -> bool:
 
 
 def _warn_if_search_offline() -> None:
-    global _SEARCH_CHECKED
-    if _SEARCH_CHECKED:
+    global _SEARCH_CHECKED, _SEARCH_CHECKED_AT
+    now = time.monotonic()
+    if _SEARCH_CHECKED and (now - _SEARCH_CHECKED_AT) < _SEARCH_CHECK_TTL_SECONDS:
         return
     _SEARCH_CHECKED = True
+    _SEARCH_CHECKED_AT = now
     if not _check_searxng():
         print("[Search] SearXNG offline — run: bash scripts/start_searxng.sh")
 
@@ -222,6 +258,7 @@ def _clear_pending_dialogue() -> None:
 def reset_conversation_context() -> None:
     with _CONVERSATION_LOCK:
         _SESSION_CONVERSATION.clear()
+        note_conversation_turns([])
 
 
 def _remember_conversation_turn(heard: str, intent_name: str, spoken: str) -> None:
@@ -229,6 +266,7 @@ def _remember_conversation_turn(heard: str, intent_name: str, spoken: str) -> No
         return
     with _CONVERSATION_LOCK:
         _SESSION_CONVERSATION.add_turn(heard, intent_name, spoken)
+        note_conversation_turns(_SESSION_CONVERSATION.turns)
 
 
 def _conversation_context_text() -> str:
@@ -488,9 +526,15 @@ def _filename_from_follow_up(text: str) -> str:
     return candidate
 
 
-def _reply_without_action(text: str, response: str, test_mode: bool = False, intent_name: str = "") -> None:
+def _reply_without_action(
+    text: str,
+    response: str,
+    test_mode: bool = False,
+    intent_name: str = "",
+    learning_meta: dict | None = None,
+) -> None:
     _speak_or_print(response, test_mode=test_mode)
-    _record(text, response, [], intent_name=intent_name or "reply")
+    _record(text, response, [], intent_name=intent_name or "reply", learning_meta=learning_meta)
     state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
@@ -538,11 +582,14 @@ def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
     parts = []
     formatted = str(ctx.get("formatted", "")).strip()
     conversation = _recent_turns_prompt_text()
+    hint = _consume_project_context_block()
 
     if formatted:
         parts.append(formatted)
     if conversation:
         parts.append(conversation)
+    if hint:
+        parts.append(hint)
 
     if user_text:
         parts.append(f"[CURRENT REQUEST]\n  {user_text}")
@@ -576,6 +623,18 @@ def _brain_context_text(ctx: dict, user_text: str | None = None) -> str:
                 parts[1 if snapshot else 0] = _strip_context_section(formatted, "[TASK LIST]")
 
     return "\n\n".join(part for part in parts if part).strip()
+
+
+def _consume_project_context_block() -> str:
+    try:
+        payload = consume_project_context_hint()
+    except Exception:
+        payload = {}
+    project = " ".join(str(payload.get("project", "")).split()).strip()
+    detail = " ".join(str(payload.get("detail", "")).split()).strip()
+    if not project or not detail:
+        return ""
+    return f"[PROJECT MEMORY]\n  {project}: {detail[:1000]}"
 
 
 def _strip_context_section(text: str, header: str) -> str:
@@ -1079,6 +1138,9 @@ def _tool_chat_messages(ctx: dict, user_text: str) -> list[dict]:
         prompt_parts.append(formatted[:800])
     if recent:
         prompt_parts.append(recent)
+    hint = _consume_project_context_block()
+    if hint:
+        prompt_parts.append(hint)
     prompt_parts.append(f"[CURRENT REQUEST]\n  {user_text}")
     return [
         {"role": "system", "content": TOOL_SYSTEM_PROMPT},
@@ -1500,6 +1562,7 @@ def _run_actions_with_response(
     intent_name: str = "",
     test_mode: bool = False,
     model: str | None = None,
+    learning_meta: dict | None = None,
 ) -> tuple[str, list]:
     prepared_actions = []
     for action in actions:
@@ -1612,7 +1675,14 @@ def _run_actions_with_response(
         "",
     )
     if queued_agent_results and not sync_actions and not first_error:
-        _record(text, final_response, actions, results=results, intent_name=intent_name or "action")
+        _record(
+            text,
+            final_response,
+            actions,
+            results=results,
+            intent_name=intent_name or "action",
+            learning_meta=learning_meta,
+        )
         state.transition(State.WAITING)
         return final_response, results
 
@@ -1661,7 +1731,14 @@ def _run_actions_with_response(
     if speaker_thread and speaker_thread.is_alive():
         speaker_thread.join(timeout=10)
 
-    _record(text, final_response, actions, results=results, intent_name=intent_name or "action")
+    _record(
+        text,
+        final_response,
+        actions,
+        results=results,
+        intent_name=intent_name or "action",
+        learning_meta=learning_meta,
+    )
     state.transition(State.WAITING)
     return final_response, results
 
@@ -1893,6 +1970,7 @@ def _record(
     actions: list,
     results: list | None = None,
     intent_name: str = "",
+    learning_meta: dict | None = None,
 ) -> None:
     try:
         _remember_conversation_turn(text, intent_name or "reply", speech)
@@ -1908,8 +1986,29 @@ def _record(
         append_to_index(
             f"{datetime.now().strftime('%m/%d')} command: {text[:80]} -> {speech[:80]}"
         )
-        analyze_and_learn({"actions": actions, "speech": speech})
-        record_project_execution(text, speech, actions, results=results or [])
+        touched = record_project_execution(text, speech, actions, results=results or [])
+        analyze_and_learn(
+            {
+                "text": text,
+                "speech": speech,
+                "actions": actions,
+                "results": results or [],
+                "intent_name": intent_name,
+                "projects": list(touched.keys()),
+                **(learning_meta or {}),
+            }
+        )
+        try:
+            from memory.graph import observe_project_relationships
+
+            observe_project_relationships(
+                text=text,
+                speech=speech,
+                actions=actions,
+                touched_projects=list(touched.keys()),
+            )
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -2097,7 +2196,7 @@ def _handle_meta_intent(intent: Intent, test_mode: bool = False) -> bool:
     return False
 
 
-def handle_command(text: str, test_mode: bool = False, model: str | None = None) -> None:
+def handle_input(text: str, test_mode: bool = False, model: str | None = None) -> None:
     _ensure_watcher_started()
 
     if not text or len(text.strip()) < 2:
@@ -2122,18 +2221,39 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
                 print(f"[Router] follow-up resolved: {effective_text}")
     print(f"[Router] {intent.name} {intent.params} (conf={intent.confidence:.2f})")
     note_intent(intent.name, intent.params, intent.confidence, raw=text)
+    base_learning_meta = {
+        "task_type": intent.name,
+        "original_text": text,
+        "resolved_text": effective_text if " ".join(effective_text.split()).lower() != " ".join(text.split()).lower() else "",
+    }
+    brain_learning_meta = {
+        **base_learning_meta,
+        "model": model or BUTLER_MODELS.get("voice") or OLLAMA_MODEL,
+    }
 
     if _handle_meta_intent(intent, test_mode=test_mode):
         return
 
     if intent.name == "clarify_song":
         _set_pending_dialogue("spotify_song")
-        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode, intent_name=intent.name)
+        _reply_without_action(
+            text,
+            get_quick_response(intent),
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=base_learning_meta,
+        )
         return
 
     if intent.name == "clarify_file":
         _set_pending_dialogue("file_name", editor=intent.params.get("editor", "auto"))
-        _reply_without_action(text, get_quick_response(intent), test_mode=test_mode, intent_name=intent.name)
+        _reply_without_action(
+            text,
+            get_quick_response(intent),
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=base_learning_meta,
+        )
         return
 
     if intent.name == "unknown":
@@ -2150,12 +2270,19 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
                     tool_reply.get("actions", []),
                     results=tool_reply.get("results", []),
                     intent_name="unknown",
+                    learning_meta=brain_learning_meta,
                 )
                 state.transition(State.WAITING if not test_mode else State.IDLE)
                 return
         if not response:
             response = "I didn't catch that. Say open, search, compose mail, or latest news."
-        _reply_without_action(text, response, test_mode=test_mode, intent_name="unknown")
+        _reply_without_action(
+            text,
+            response,
+            test_mode=test_mode,
+            intent_name="unknown",
+            learning_meta=brain_learning_meta,
+        )
         return
 
     _clear_pending_dialogue()
@@ -2172,6 +2299,7 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
             intent_name=intent.name,
             test_mode=test_mode,
             model=model,
+            learning_meta=base_learning_meta,
         )
         return
 
@@ -2187,6 +2315,7 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
                 tool_reply.get("actions", []),
                 results=tool_reply.get("results", []),
                 intent_name=intent.name,
+                learning_meta=brain_learning_meta,
             )
             state.transition(State.WAITING if not test_mode else State.IDLE)
             return
@@ -2200,9 +2329,16 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
                 intent_name=intent.name,
                 test_mode=test_mode,
                 model=model,
+                learning_meta=brain_learning_meta,
             )
             return
-        _reply_without_action(text, speech, test_mode=test_mode, intent_name=intent.name)
+        _reply_without_action(
+            text,
+            speech,
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=brain_learning_meta,
+        )
         return
 
     if intent.name == "question":
@@ -2215,6 +2351,7 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
             tool_reply.get("actions", []),
             results=tool_reply.get("results", []),
             intent_name=intent.name,
+            learning_meta=brain_learning_meta,
         )
         state.transition(State.WAITING if not test_mode else State.IDLE)
         return
@@ -2237,8 +2374,12 @@ def handle_command(text: str, test_mode: bool = False, model: str | None = None)
         tool_reply.get("actions", []),
         results=tool_reply.get("results", []),
         intent_name=intent.name,
+        learning_meta=brain_learning_meta,
     )
     state.transition(State.WAITING if not test_mode else State.IDLE)
+
+
+handle_command = handle_input
 
 
 def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: bool = False) -> None:

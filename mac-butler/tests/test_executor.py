@@ -23,6 +23,35 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(result[0]["status"], "ok")
         self.assertIn("cancelled", result[0]["result"])
 
+    @patch("executor.engine.time.sleep", return_value=None)
+    @patch("executor.engine.sys.stdin")
+    @patch("runtime.clear_confirmation")
+    @patch("runtime.resolve_confirmation")
+    @patch("runtime.load_runtime_state", side_effect=[{"pending_confirmation": {"id": "abc", "status": "pending"}}, {"pending_confirmation": {"id": "abc", "status": "approved"}}])
+    @patch("runtime.request_confirmation", return_value={"id": "abc"})
+    @patch("voice.speak")
+    @patch("executor.engine.subprocess.run", side_effect=RuntimeError("osascript unavailable"))
+    def test_headless_confirmation_waits_for_runtime_flag(
+        self,
+        _mock_run,
+        mock_speak,
+        _mock_request,
+        _mock_load_runtime,
+        _mock_resolve,
+        mock_clear,
+        mock_stdin,
+        _mock_sleep,
+    ):
+        mock_stdin.closed = True
+        mock_stdin.isatty.return_value = False
+        executor = Executor()
+
+        approved = executor._ask_confirmation({"type": "run_command", "cmd": "git push"})
+
+        self.assertTrue(approved)
+        mock_speak.assert_called()
+        mock_clear.assert_called_with("abc")
+
     @patch("executor.app_state.is_app_running", return_value=True)
     @patch("executor.engine.subprocess.run")
     def test_open_terminal_tab_uses_terminal(self, mock_run, _mock_running):

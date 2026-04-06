@@ -12,6 +12,7 @@ import base64
 import json
 import random
 import re
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -23,6 +24,7 @@ except ImportError:
 
 from butler_secrets.loader import get_ollama_secret
 from memory.graph import read_graph
+from runtime.notify import notify
 from utils import _normalize
 from butler_config import (
     AGENT_MODEL_CHAINS,
@@ -46,6 +48,7 @@ MEMORY_WARN_GB = 1.5
 VPS_REQUEST_TIMEOUT = 120
 MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
 _MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
+LLM_THINKING_NOTIFY_SECONDS = 8
 KNOWN_OLLAMA_MODELS = {
     model
     for model in {
@@ -394,6 +397,43 @@ def _dedupe_models(models: list[str]) -> list[str]:
         ordered.append(name)
         seen.add(name)
     return ordered
+
+
+def _retry_model_chain(model: str) -> list[str]:
+    chains = list(BUTLER_MODEL_CHAINS.values()) + list(AGENT_MODEL_CHAINS.values()) + [[OLLAMA_MODEL, OLLAMA_FALLBACK]]
+    normalized = model.split(":")[0]
+    for chain in chains:
+        ordered = _dedupe_models(list(chain) + [OLLAMA_FALLBACK])
+        for index, candidate in enumerate(ordered):
+            if candidate == model or candidate.split(":")[0] == normalized:
+                return [item for item in ordered[index + 1:] if item and item != model]
+    return [item for item in [OLLAMA_FALLBACK] if item and item != model]
+
+
+def _post_with_thinking_notice(
+    url: str,
+    *,
+    json_payload: dict[str, Any],
+    headers: dict[str, str] | None = None,
+    timeout: int | float = 60,
+):
+    timer = threading.Timer(
+        LLM_THINKING_NOTIFY_SECONDS,
+        lambda: notify("Burry", "Still thinking...", subtitle="LLM"),
+    )
+    timer.daemon = True
+    timer.start()
+    try:
+        response = requests.post(
+            url,
+            json=json_payload,
+            headers=headers or {},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return response
+    finally:
+        timer.cancel()
 
 
 def _pick_model_from_chain(candidates: list[str], label: str) -> str:
@@ -903,34 +943,38 @@ def _call_ollama(
         payload["system"] = system
 
     try:
-        response = requests.post(
+        response = _post_with_thinking_notice(
             url,
-            json=payload,
+            json_payload=payload,
             headers=headers,
             timeout=request_timeout,
         )
-        response.raise_for_status()
         return response.json().get("response", "").strip()
     except requests.exceptions.ConnectionError:
         if url != local_url:
             print("[Brain] VPS failed mid-request, retrying local")
-            local_response = requests.post(local_url, json=payload, timeout=60)
-            local_response.raise_for_status()
+            local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=60)
             return local_response.json().get("response", "").strip()
         raise ConnectionError("Ollama not running. Start with: ollama serve")
     except Exception as exc:
-        if resolved_fallback and payload["model"] != resolved_fallback:
-            print(f"[Brain] {payload['model']} failed, trying {resolved_fallback}")
-            payload["model"] = resolved_fallback
-            _prepare_model_request(resolved_fallback)
-            response = requests.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=request_timeout,
-            )
-            response.raise_for_status()
-            return response.json().get("response", "").strip()
+        for retry_model in _dedupe_models(
+            [resolved_fallback] + [_resolve_backend_model(candidate, use_vps_backend) for candidate in _retry_model_chain(model)]
+        ):
+            if not retry_model or retry_model == payload["model"]:
+                continue
+            print(f"[Brain] {payload['model']} failed, trying {retry_model}")
+            payload["model"] = retry_model
+            _prepare_model_request(retry_model)
+            try:
+                response = _post_with_thinking_notice(
+                    url,
+                    json_payload=payload,
+                    headers=headers,
+                    timeout=request_timeout,
+                )
+                return response.json().get("response", "").strip()
+            except Exception:
+                continue
         raise RuntimeError(f"Ollama error: {exc}")
 
 
@@ -981,35 +1025,39 @@ def chat_with_ollama(
         payload["tools"] = tools
 
     try:
-        response = requests.post(
+        response = _post_with_thinking_notice(
             request_url,
-            json=payload,
+            json_payload=payload,
             headers=headers,
             timeout=request_timeout,
         )
-        response.raise_for_status()
         data = response.json()
         return data if isinstance(data, dict) else {}
     except requests.exceptions.ConnectionError:
         if request_url != local_url:
-            local_response = requests.post(local_url, json=payload, timeout=90)
-            local_response.raise_for_status()
+            local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=90)
             data = local_response.json()
             return data if isinstance(data, dict) else {}
         raise ConnectionError("Ollama not running. Start with: ollama serve")
     except Exception as exc:
-        if resolved_fallback and payload["model"] != resolved_fallback:
-            payload["model"] = resolved_fallback
-            _prepare_model_request(resolved_fallback)
-            response = requests.post(
-                request_url,
-                json=payload,
-                headers=headers,
-                timeout=request_timeout,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data if isinstance(data, dict) else {}
+        for retry_model in _dedupe_models(
+            [resolved_fallback] + [_resolve_backend_model(candidate, use_vps_backend) for candidate in _retry_model_chain(model)]
+        ):
+            if not retry_model or retry_model == payload["model"]:
+                continue
+            payload["model"] = retry_model
+            _prepare_model_request(retry_model)
+            try:
+                response = _post_with_thinking_notice(
+                    request_url,
+                    json_payload=payload,
+                    headers=headers,
+                    timeout=request_timeout,
+                )
+                data = response.json()
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                continue
         raise RuntimeError(f"Ollama chat error: {exc}")
 
 

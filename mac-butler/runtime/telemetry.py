@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from utils import _clip_text, _now_iso
 
@@ -51,6 +53,21 @@ def _default_runtime_state() -> dict:
             "matches": [],
             "at": "",
         },
+        "turns": [],
+        "pending_confirmation": {
+            "id": "",
+            "prompt": "",
+            "action": "",
+            "status": "",
+            "requested_at": "",
+            "resolved_at": "",
+            "expires_at": "",
+        },
+        "project_context_hint": {
+            "project": "",
+            "detail": "",
+            "at": "",
+        },
         "ambient_context": [],
         "events": [],
     }
@@ -65,6 +82,11 @@ def _load_unlocked() -> dict:
     default = _default_runtime_state()
     default.update(data if isinstance(data, dict) else {})
     default["events"] = list(default.get("events") or [])[-MAX_EVENTS:]
+    default["turns"] = [
+        turn
+        for turn in list(default.get("turns") or [])[-6:]
+        if isinstance(turn, dict)
+    ]
     default["ambient_context"] = [
         _clip_text(item, limit=140)
         for item in list(default.get("ambient_context") or [])[:3]
@@ -72,6 +94,10 @@ def _load_unlocked() -> dict:
     ]
     if not isinstance(default.get("last_intent"), dict):
         default["last_intent"] = _default_runtime_state()["last_intent"]
+    if not isinstance(default.get("pending_confirmation"), dict):
+        default["pending_confirmation"] = _default_runtime_state()["pending_confirmation"]
+    if not isinstance(default.get("project_context_hint"), dict):
+        default["project_context_hint"] = _default_runtime_state()["project_context_hint"]
     return default
 
 
@@ -181,6 +207,25 @@ def note_spoken_text(text: str) -> None:
         data["last_spoken_text"] = cleaned
         data["last_spoken_at"] = _now_iso()
         _append_event(data, "spoken", f"Said: {cleaned}")
+        _save_unlocked(data)
+
+
+def note_conversation_turns(turns: list[dict]) -> None:
+    cleaned_turns: list[dict] = []
+    for turn in list(turns or [])[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        cleaned_turns.append(
+            {
+                "heard": _clip_text(turn.get("heard", ""), limit=240),
+                "intent": _clip_text(turn.get("intent", ""), limit=80),
+                "spoken": _clip_text(turn.get("spoken", ""), limit=240),
+                "time": _clip_text(turn.get("time", ""), limit=32),
+            }
+        )
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        data["turns"] = cleaned_turns
         _save_unlocked(data)
 
 
@@ -328,3 +373,70 @@ def note_ambient_context(items: list[str] | None = None) -> None:
         data["ambient_context"] = bullets
         _append_event(data, "ambient", "Ambient context refreshed", {"count": len(bullets)})
         _save_unlocked(data)
+
+
+def request_confirmation(prompt: str, action: str = "", timeout_s: int = 30) -> dict:
+    requested_at = _now_iso()
+    payload = {
+        "id": uuid4().hex,
+        "prompt": _clip_text(prompt, limit=220),
+        "action": _clip_text(action, limit=80),
+        "status": "pending",
+        "requested_at": requested_at,
+        "resolved_at": "",
+        "expires_at": (datetime.now() + timedelta(seconds=max(1, timeout_s))).isoformat(timespec="seconds"),
+    }
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        data["pending_confirmation"] = payload
+        _append_event(data, "confirmation", payload["prompt"], {"action": payload["action"], "timeout_s": timeout_s})
+        _save_unlocked(data)
+    return payload
+
+
+def resolve_confirmation(request_id: str, status: str) -> None:
+    decision = str(status or "").strip().lower()
+    if decision not in {"approved", "rejected", "timeout"}:
+        return
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        pending = data.get("pending_confirmation") if isinstance(data.get("pending_confirmation"), dict) else {}
+        if pending.get("id") != request_id:
+            return
+        pending["status"] = decision
+        pending["resolved_at"] = _now_iso()
+        data["pending_confirmation"] = pending
+        _append_event(data, "confirmation", f"Confirmation {decision}.", {"action": pending.get("action", "")})
+        _save_unlocked(data)
+
+
+def clear_confirmation(request_id: str = "") -> None:
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        pending = data.get("pending_confirmation") if isinstance(data.get("pending_confirmation"), dict) else {}
+        if request_id and pending.get("id") not in {"", request_id}:
+            return
+        data["pending_confirmation"] = _default_runtime_state()["pending_confirmation"]
+        _save_unlocked(data)
+
+
+def note_project_context_hint(project: str, detail: str) -> None:
+    payload = {
+        "project": _clip_text(project, limit=80),
+        "detail": _clip_text(detail, limit=1200),
+        "at": _now_iso(),
+    }
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        data["project_context_hint"] = payload
+        _append_event(data, "project_context", f"Loaded project memory for {payload['project']}.")
+        _save_unlocked(data)
+
+
+def consume_project_context_hint() -> dict:
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        payload = data.get("project_context_hint") if isinstance(data.get("project_context_hint"), dict) else {}
+        data["project_context_hint"] = _default_runtime_state()["project_context_hint"]
+        _save_unlocked(data)
+    return payload

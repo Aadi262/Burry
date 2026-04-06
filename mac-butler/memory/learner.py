@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from memory.store import _load, add_pattern
+from utils import _clip_text
 
 
 def analyze_and_learn(session_data: dict) -> None:
@@ -17,7 +18,28 @@ def analyze_and_learn(session_data: dict) -> None:
     After a session, look at what happened and update memory
     with patterns Butler should remember.
     """
+    text = " ".join(str(session_data.get("text", "")).split()).strip()
+    speech = " ".join(str(session_data.get("speech", "")).split()).strip()
+    resolved_text = " ".join(str(session_data.get("resolved_text", "")).split()).strip()
+    intent_name = " ".join(str(session_data.get("intent_name", "")).split()).strip() or "unknown"
+    task_type = " ".join(str(session_data.get("task_type", "")).split()).strip() or intent_name
+    model = " ".join(str(session_data.get("model", "")).split()).strip()
+    results = [result for result in list(session_data.get("results") or []) if isinstance(result, dict)]
     actions = session_data.get("actions", [])
+    success = bool(speech) and not any(str(result.get("status", "")).strip().lower() == "error" for result in results)
+
+    if text and not speech:
+        add_pattern(f"failed_intent: {intent_name} produced no reply for '{_clip_text(text, 72)}'")
+
+    if resolved_text and resolved_text.lower() != text.lower():
+        add_pattern(
+            "corrected_flow: "
+            f"'{_clip_text(text, 56)}' -> '{_clip_text(resolved_text, 56)}'"
+        )
+
+    if model and task_type:
+        outcome = "success" if success else "failure"
+        add_pattern(f"model_performance: {model} on {task_type} -> {outcome}")
 
     opened_apps = [action["app"] for action in actions if action.get("type") == "open_app"]
     if "Cursor" in opened_apps and any(

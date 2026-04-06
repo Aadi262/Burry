@@ -217,11 +217,17 @@ class Executor:
                 {k: v for k, v in action.items() if k not in ("type", "agent")},
             )
         if t == "open_project":
+            from memory.layered import get_project_detail
             from projects import open_project
+            from runtime import note_project_context_hint
 
             result = open_project(action["name"])
             if result.get("status") != "ok":
                 raise RuntimeError(f"could not open project: {action.get('name', '')}")
+            project_name = str(result.get("project_name") or action.get("name", "")).strip()
+            detail = get_project_detail(project_name)
+            if detail:
+                note_project_context_hint(project_name, detail[-1000:])
             return f"opened {result.get('project_name')} in {result.get('editor_used')}"
         if t == "open_dashboard":
             from projects import open_dashboard
@@ -961,10 +967,55 @@ class Executor:
             )
             return "Go ahead" in (result.stdout or "")
         except Exception:
-            if sys.stdin and not sys.stdin.closed and sys.stdin.isatty():
-                response = input(f"[Butler] Run '{desc}'? (y/n): ").strip().lower()
-                return response == "y"
-            return False
+            pass
+
+        if sys.stdin and not sys.stdin.closed and sys.stdin.isatty():
+            response = input(f"[Butler] Run '{desc}'? (y/n): ").strip().lower()
+            return response == "y"
+
+        from runtime import clear_confirmation, load_runtime_state, request_confirmation, resolve_confirmation
+        from voice import speak
+
+        waiting_message = (
+            "I need your confirmation before pushing. Say yes or check the HUD."
+            if "git push" in str(desc).lower()
+            else "I need your confirmation before running that. Say yes or check the HUD."
+        )
+        skip_message = (
+            "Skipping push - no confirmation received."
+            if "git push" in str(desc).lower()
+            else "Skipping that action - no confirmation received."
+        )
+        prompt = f"Confirm action: {desc}"
+        pending = request_confirmation(prompt, action=action.get("type", ""), timeout_s=30)
+        try:
+            speak(waiting_message)
+        except Exception:
+            pass
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            runtime_state = load_runtime_state()
+            current = runtime_state.get("pending_confirmation", {}) if isinstance(runtime_state, dict) else {}
+            if current.get("id") != pending.get("id"):
+                time.sleep(0.25)
+                continue
+            status = str(current.get("status", "")).strip().lower()
+            if status == "approved":
+                clear_confirmation(pending["id"])
+                return True
+            if status == "rejected":
+                clear_confirmation(pending["id"])
+                return False
+            time.sleep(0.25)
+
+        resolve_confirmation(pending["id"], "timeout")
+        try:
+            speak(skip_message)
+        except Exception:
+            pass
+        clear_confirmation(pending["id"])
+        return False
 
     def _safe_home_path(self, path: str) -> str:
         return os.path.expanduser(path)

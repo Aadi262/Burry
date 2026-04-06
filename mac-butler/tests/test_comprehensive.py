@@ -330,6 +330,14 @@ class TestContextEngine(unittest.TestCase):
         except Exception as e:
             self.fail(f"build_structured_context crashed: {e}")
 
+    @patch("context.sync_from_todo_md")
+    def test_build_context_uses_cached_tasks_instead_of_hot_path_sync(self, mock_sync):
+        from context import build_structured_context
+
+        build_structured_context()
+
+        mock_sync.assert_not_called()
+
     def test_returns_formatted_string(self):
         from context import build_structured_context
         ctx = build_structured_context()

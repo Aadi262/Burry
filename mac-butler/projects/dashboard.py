@@ -411,13 +411,13 @@ def _dashboard_payload() -> dict:
 
 def _dispatch_command(text: str) -> None:
     try:
-        from butler import handle_command
+        from butler import handle_input
     except Exception as exc:
         print(f"[dashboard] command dispatch unavailable: {exc}")
         return
 
     try:
-        handle_command(text, test_mode=False)
+        handle_input(text, test_mode=False)
     except Exception as exc:
         print(f"[dashboard] command dispatch failed: {exc}")
 

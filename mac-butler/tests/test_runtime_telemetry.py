@@ -93,6 +93,23 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["ambient_context"][0], "mac-butler blocker: auth recall still fails")
         self.assertEqual(state["events"][-1]["kind"], "ambient")
 
+    def test_conversation_turns_and_project_hint_persist(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            runtime_path = Path(tempdir) / "runtime_state.json"
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path):
+                telemetry.note_conversation_turns(
+                    [
+                        {"heard": "what's next", "intent": "what_next", "spoken": "Fix auth recall.", "time": "2026-04-06T12:00:00"},
+                    ]
+                )
+                telemetry.note_project_context_hint("mac-butler", "Auth recall notes")
+                hint = telemetry.consume_project_context_hint()
+                state = telemetry.load_runtime_state()
+
+        self.assertEqual(state["turns"][0]["intent"], "what_next")
+        self.assertEqual(hint["project"], "mac-butler")
+        self.assertEqual(state["project_context_hint"]["project"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

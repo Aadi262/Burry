@@ -27,8 +27,9 @@ class TriggerTests(unittest.TestCase):
         printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
         self.assertIn("http://127.0.0.1:3333", printed)
 
+    @patch("trigger._write_session_end_summary")
     @patch("butler.reset_conversation_context")
-    @patch("butler.handle_command")
+    @patch("butler.handle_input")
     @patch("voice.stt.listen_for_command", side_effect=["hello"])
     @patch("trigger.note_session_active")
     @patch("trigger._clear_session_flag")
@@ -39,6 +40,7 @@ class TriggerTests(unittest.TestCase):
         _mock_listen,
         mock_handle,
         _mock_reset_context,
+        _mock_summary,
     ):
         original_shutdown = trigger._shutdown_event
         trigger._shutdown_event = threading.Event()

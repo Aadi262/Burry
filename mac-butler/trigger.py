@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import os
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -101,13 +103,88 @@ def _mark_session_started() -> None:
     SESSION_FLAG.write_text("awake", encoding="utf-8")
 
 
+def _parse_summary_bullets(raw: str) -> str:
+    bullets = []
+    for line in str(raw or "").splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        if cleaned[0] in "-*•":
+            cleaned = cleaned[1:].strip()
+        if not cleaned:
+            continue
+        bullets.append(f"- {cleaned}")
+        if len(bullets) >= 3:
+            break
+    return "\n".join(bullets)
+
+
+def _fallback_session_summary(sessions: list[dict]) -> str:
+    bullets = []
+    for session in sessions[:3]:
+        context = " ".join(str(session.get("context", "") or session.get("context_preview", "")).split()).strip()
+        speech = " ".join(str(session.get("speech", "")).split()).strip()
+        if context and speech:
+            bullets.append(f"- {context[:60]} -> {speech[:80]}")
+        elif context:
+            bullets.append(f"- {context[:80]}")
+        elif speech:
+            bullets.append(f"- {speech[:80]}")
+    return "\n".join(bullets[:3])
+
+
+def _write_session_end_summary() -> None:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        from brain.ollama_client import _call
+        from executor.engine import Executor
+        from memory.store import load_recent_sessions
+    except Exception:
+        return
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    sessions = [
+        session
+        for session in load_recent_sessions(12)
+        if str(session.get("timestamp", "")).startswith(today)
+    ]
+    if not sessions:
+        return
+
+    material = "\n".join(
+        f"- {str(session.get('timestamp', ''))[:16]} | "
+        f"{str(session.get('context', '') or session.get('context_preview', '')).strip()} | "
+        f"{str(session.get('speech', '')).strip()}"
+        for session in reversed(sessions[:8])
+    )
+    prompt = f"""Summarize today's Burry session activity into exactly 3 bullet lines.
+Each line must start with "- " and stay under 16 words.
+
+Session log:
+{material}
+"""
+    try:
+        summary = _parse_summary_bullets(_call(prompt, "gemma4:e4b", temperature=0.2, max_tokens=120))
+    except Exception:
+        summary = ""
+    if not summary:
+        summary = _fallback_session_summary(sessions)
+    if not summary:
+        return
+    try:
+        Executor().obsidian_note(today, summary, folder="Daily")
+    except Exception:
+        return
+
+
 def _run_continuous_session() -> None:
     """Listen for commands in a loop — no clap needed between commands.
     Exits when the user says 'sleep' / 'go quiet' (state → IDLE).
     """
     global _session_active
     import time
-    from butler import handle_command, reset_conversation_context
+    from butler import handle_input, reset_conversation_context
     from voice.stt import listen_for_command
 
     print("[Trigger] Continuous session started — just speak, no clap needed between commands")
@@ -137,9 +214,10 @@ def _run_continuous_session() -> None:
             if _shutdown_event.is_set():
                 break
             if text and len(text) > 2:
-                handle_command(text)  # blocking — returns only after TTS is done
+                handle_input(text)  # blocking — returns only after TTS is done
     finally:
         reset_conversation_context()
+        _write_session_end_summary()
         _clear_session_flag()
         with _session_lock:
             _session_active = False
