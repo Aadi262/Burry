@@ -412,6 +412,14 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         for item in list(runtime_state.get("ambient_context") or [])[:3]
         if _clip_text(item, limit=140)
     ]
+    # Append active plan status to ambient context (Phase 10)
+    try:
+        from memory.plan_notebook import get_plan_status
+        plan_status = get_plan_status()
+        if plan_status and plan_status != "No active plan":
+            ambient_context = [f"Plan: {plan_status[:120]}"] + ambient_context[:2]
+    except Exception:
+        pass
     state_name = str(runtime_state.get("state", "idle") or "idle").strip().lower()
     session_active = bool(runtime_state.get("session_active"))
     session_label = "live" if session_active else "standby"
