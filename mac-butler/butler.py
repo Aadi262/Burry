@@ -71,6 +71,7 @@ from runtime import (
 from state import State, state
 from tasks import get_active_tasks
 from voice import listen_continuous, speak
+from runtime.tracing import add_event, trace_command
 
 executor = Executor()
 _WATCHER_LOCK = threading.Lock()
@@ -2778,6 +2779,7 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
     return False
 
 
+@trace_command
 def handle_input(text: str, test_mode: bool = False, model: str | None = None) -> None:
     _ensure_watcher_started()
 
@@ -2804,6 +2806,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         pass
 
     note_heard_text(text)
+    add_event("stt.complete", {"text": text[:100]})
     state.transition(State.THINKING)
     effective_text = text
     intent = _resolve_pending_dialogue(text) or route(text)
@@ -2818,6 +2821,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 intent = rerouted
                 print(f"[Router] follow-up resolved: {effective_text}")
     print(f"[Router] {intent.name} {intent.params} (conf={intent.confidence:.2f})")
+    add_event("intent.resolved", {"intent": intent.name, "confidence": str(round(intent.confidence, 2))})
     note_intent(intent.name, intent.params, intent.confidence, raw=text)
     base_learning_meta = {
         "task_type": intent.name,
