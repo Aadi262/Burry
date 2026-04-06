@@ -1,10 +1,12 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+import butler as butler_module
 from brain.tools import TOOLS
 from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
     _brain_context_text,
+    _build_startup_briefing_prompt,
     _clear_pending_dialogue,
     _conversation_context_text,
     _contextualize_action,
@@ -24,6 +26,7 @@ from butler import (
     _rewrite_speech_with_agent_results,
     _resolve_pending_dialogue,
     _run_actions_with_response,
+    _two_sentence_briefing,
     _tool_chat_response,
     _should_use_brain_for_unknown,
     _startup_session_hint,
@@ -109,6 +112,65 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertTrue(_looks_like_followup_reference("you are integrating that"))
         self.assertTrue(_looks_like_followup_reference("what about it"))
         self.assertFalse(_looks_like_followup_reference("open spotify"))
+
+    def test_reset_conversation_context_resets_startup_briefing_flag(self):
+        butler_module._briefing_done = True
+
+        reset_conversation_context()
+
+        self.assertFalse(butler_module._briefing_done)
+
+    @patch("memory.store.load_recent_sessions")
+    @patch("projects.load_projects")
+    @patch("butler.load_mac_state")
+    def test_startup_briefing_prompt_uses_recent_sessions_and_project_state(
+        self,
+        mock_mac_state,
+        mock_load_projects,
+        mock_load_recent_sessions,
+    ):
+        mock_mac_state.return_value = {"cursor_workspace": "/Users/adityatiwari/Burry/mac-butler"}
+        mock_load_projects.return_value = [
+            {
+                "name": "mac-butler",
+                "path": "/Users/adityatiwari/Burry/mac-butler",
+                "status": "active",
+                "completion": 84,
+                "next_tasks": ["Ship the project dashboard"],
+                "blockers": ["Wake word still needs live verification"],
+            }
+        ]
+        mock_load_recent_sessions.return_value = [
+            {"context_preview": "verify the HUD", "speech": "HUD checks are green"},
+            {"context_preview": "tighten the router", "speech": "Router cache landed"},
+            {"context_preview": "cleanup utils", "speech": "Shared helpers are centralized"},
+        ]
+
+        prompt = _build_startup_briefing_prompt({"raw": {"editor": {"workspace_paths": []}}})
+
+        self.assertIn("verify the HUD -> HUD checks are green", prompt)
+        self.assertIn("mac-butler", prompt)
+        self.assertIn("Ship the project dashboard", prompt)
+        self.assertIn("Wake word still needs live verification", prompt)
+
+    def test_two_sentence_briefing_truncates_to_two_sentences(self):
+        text = "First sentence. Second sentence. Third sentence."
+        self.assertEqual(_two_sentence_briefing(text), "First sentence. Second sentence.")
+
+    @patch("butler._raw_llm", return_value="Things are stable after the cleanup. The current project needs wake word verification next.")
+    @patch("memory.store.load_recent_sessions", return_value=[])
+    @patch("projects.load_projects", return_value=[])
+    @patch("butler.load_mac_state", return_value={"cursor_workspace": ""})
+    def test_startup_briefing_uses_gemma_model(
+        self,
+        _mock_mac_state,
+        _mock_load_projects,
+        _mock_recent_sessions,
+        mock_raw_llm,
+    ):
+        butler_module._generate_startup_briefing({"raw": {"editor": {"workspace_paths": []}}})
+
+        self.assertEqual(mock_raw_llm.call_args.kwargs["model"], "gemma4:e4b")
 
     def test_tool_schema_includes_new_desktop_actions(self):
         names = {tool["function"]["name"] for tool in TOOLS}

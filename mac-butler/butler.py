@@ -223,6 +223,7 @@ _LOW_SIGNAL_STARTUP_PATTERNS = (
     "add observe loop",
     "implement layered memory",
 )
+STARTUP_BRIEFING_MODEL = "gemma4:e4b"
 
 
 def _check_searxng() -> bool:
@@ -267,9 +268,11 @@ def _clear_pending_dialogue() -> None:
 
 
 def reset_conversation_context() -> None:
+    global _briefing_done
     with _CONVERSATION_LOCK:
         _SESSION_CONVERSATION.clear()
         note_conversation_turns([])
+    _briefing_done = False
 
 
 def _remember_conversation_turn(heard: str, intent_name: str, spoken: str) -> None:
@@ -835,6 +838,109 @@ def _startup_session_hint() -> str:
             return f"Last result: {result}."
 
     return ""
+
+
+def _startup_briefing_sessions(limit: int = 3) -> list[str]:
+    try:
+        from memory.store import load_recent_sessions
+    except Exception:
+        return []
+
+    summaries: list[str] = []
+    for session in load_recent_sessions(max(6, limit * 3)):
+        context = " ".join(
+            str(session.get("context", "") or session.get("context_preview", "")).split()
+        ).strip()
+        speech = " ".join(str(session.get("speech", "")).split()).strip()
+        if context.lower().startswith("startup briefing"):
+            continue
+        if context and speech:
+            summaries.append(f"{context[:90]} -> {speech[:110]}")
+        elif context:
+            summaries.append(context[:140])
+        elif speech:
+            summaries.append(speech[:140])
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
+def _startup_project_state(ctx: dict) -> tuple[dict | None, bool]:
+    return _what_next_project(ctx)
+
+
+def _build_startup_briefing_prompt(ctx: dict) -> str:
+    project, in_workspace = _startup_project_state(ctx)
+    sessions = _startup_briefing_sessions(limit=3)
+    session_block = "\n".join(f"- {item}" for item in sessions) or "- No recent session summaries."
+    if project:
+        next_task = " ".join(str((project.get("next_tasks") or ["none"])[0]).split()).strip() or "none"
+        blocker = " ".join(str((project.get("blockers") or ["none"])[0]).split()).strip() or "none"
+        project_block = (
+            f"- name: {project.get('name', 'unknown')}\n"
+            f"- status: {project.get('status', 'unknown')} ({int(project.get('completion', 0) or 0)}% complete)\n"
+            f"- workspace_match: {'yes' if in_workspace else 'no'}\n"
+            f"- next_task: {next_task[:140]}\n"
+            f"- blocker: {blocker[:140]}"
+        )
+    else:
+        project_block = "- No active project state available."
+
+    return f"""You are Burry speaking once at the start of a new session.
+Write exactly 2 short spoken sentences, total under 40 words.
+Sentence 1 should say where things stand from the recent session history.
+Sentence 2 should say what the current project needs next.
+Do not ask a question. Do not greet. Do not use bullets.
+
+Recent session summaries:
+{session_block}
+
+Current project state:
+{project_block}
+"""
+
+
+def _two_sentence_briefing(text: str, max_words: int = 40) -> str:
+    cleaned = " ".join(str(text or "").strip().strip('"').split())
+    if not cleaned:
+        return ""
+
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", cleaned) if part.strip()]
+    if not parts:
+        return ""
+    if len(parts) == 1 and parts[0][-1] not in ".!?":
+        parts[0] = parts[0].rstrip(",;:-") + "."
+    candidate = " ".join(parts[:2])
+    words = candidate.split()
+    if len(words) > max_words:
+        clipped = " ".join(words[:max_words]).rstrip(",;:-")
+        if clipped and clipped[-1] not in ".!?":
+            clipped += "."
+        candidate = clipped
+    return candidate
+
+
+def _startup_briefing_fallback(ctx: dict) -> str:
+    project, _in_workspace = _startup_project_state(ctx)
+    if not project:
+        return "No strong project signal yet. Say what should I work on when you're ready."
+
+    name = str(project.get("name", "your project")).strip() or "your project"
+    next_task = _spoken_task((project.get("next_tasks") or ["review the current status file"])[0], 8)
+    blocker = _clip_words(str((project.get("blockers") or [""])[0]).strip(), 7)
+    first = f"{name} is still the main thread."
+    if blocker:
+        second = f"Next up is {next_task}, with {blocker} still in the way."
+    else:
+        second = f"Next up is {next_task}."
+    return _two_sentence_briefing(f"{first} {second}", max_words=40)
+
+
+def _generate_startup_briefing(ctx: dict) -> str:
+    prompt = _build_startup_briefing_prompt(ctx)
+    raw = _raw_llm(prompt, model=STARTUP_BRIEFING_MODEL, max_tokens=120, temperature=0.2)
+    speech = _two_sentence_briefing(raw, max_words=40)
+    return speech or _startup_briefing_fallback(ctx)
 
 
 def _what_next_project(ctx: dict) -> tuple[dict | None, bool]:
@@ -2514,33 +2620,15 @@ def run_startup_briefing(test_mode: bool = False, model: str | None = None) -> N
 
     state.transition(State.THINKING)
     ctx = build_structured_context()
-    _warn_if_search_offline()
-    plan = _deterministic_project_plan(ctx, startup=True)
-    if not plan:
-        context_text = _brain_context_text(ctx, "startup briefing")
-        plan = _plan_with_brain(context_text, model=model)
-    speech = _normalize_response(plan.get("speech", ""), max_words=35)
-    if not speech:
-        speech = "Back on mac-butler. Want to jump in?"
-    if DAILY_INTEL_ENABLED:
-        intel_line = _startup_intelligence_line()
-        if intel_line:
-            speech = _normalize_response(f"{speech} {intel_line}", max_words=55)
-
-    actions = [action for action in plan.get("actions", []) if isinstance(action, dict)]
-    if actions:
-        _run_actions_with_response(
-            text="startup briefing",
-            response=speech,
-            actions=actions,
-            intent_name="briefing",
-            test_mode=test_mode,
-            model=model,
-        )
-        return
-
+    speech = _generate_startup_briefing(ctx)
     _speak_or_print(speech, test_mode=test_mode)
-    _record("startup briefing", speech, [], intent_name="briefing")
+    _record(
+        "startup briefing",
+        speech,
+        [],
+        intent_name="briefing",
+        learning_meta={"task_type": "briefing", "model": STARTUP_BRIEFING_MODEL},
+    )
     state.transition(State.WAITING if not test_mode else State.IDLE)
 
 
