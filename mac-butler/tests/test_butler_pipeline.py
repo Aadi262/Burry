@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
@@ -8,6 +8,7 @@ from butler import (
     _conversation_context_text,
     _contextualize_action,
     _deterministic_project_plan,
+    _execute_tool_call,
     _extract_news_topic,
     _direct_agent_plan_for_text,
     _looks_like_followup_reference,
@@ -288,6 +289,32 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIn("USER: open mac-butler", text)
         self.assertIn("BURRY: Running the test suite.", text)
         self.assertLess(text.index("[RECENT CONVERSATION]"), text.index("[CURRENT REQUEST]"))
+
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_tool_started")
+    @patch("butler.speak")
+    @patch("butler._raw_llm", return_value="3 tests passed, 1 failed in auth.py.")
+    @patch("butler.executor.run")
+    def test_run_shell_speaks_short_summary_for_multiline_output(
+        self,
+        mock_run,
+        _mock_llm,
+        mock_speak,
+        _mock_started,
+        _mock_finished,
+    ):
+        mock_run.return_value = [
+            {
+                "action": "run_command",
+                "status": "ok",
+                "result": "test_auth.py ... ok\ntest_api.py ... FAIL\n1 failed, 3 passed\n",
+            }
+        ]
+
+        result = _execute_tool_call("run_shell", {"command": "pytest"}, {"formatted": ""})
+
+        self.assertEqual(result["results"][0]["status"], "ok")
+        mock_speak.assert_called_once_with("3 tests passed, 1 failed in auth.py.")
 
     @patch("butler.note_tool_finished")
     @patch("butler.note_memory_recall")

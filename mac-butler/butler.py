@@ -1313,6 +1313,27 @@ def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: st
         action = {"type": "run_command", "cmd": command, "cwd": cwd}
         results = executor.run([action])
         result = results[0] if results else {"action": "run_command", "status": "error", "error": "No result"}
+        result_text = str(result.get("result", "") or result.get("error", "")).strip()
+        output_lines = [line for line in result_text.splitlines() if line.strip()]
+        if len(output_lines) > 2:
+            try:
+                shell_summary = _normalize_response(
+                    _raw_llm(
+                        f"Summarize this shell output in under 15 words:\n{result_text[:1200]}",
+                        model="gemma4:e4b",
+                        max_tokens=40,
+                        temperature=0.2,
+                    ),
+                    max_words=15,
+                    single_sentence=True,
+                )
+            except Exception:
+                shell_summary = ""
+            if shell_summary:
+                try:
+                    speak(shell_summary)
+                except Exception:
+                    pass
         note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
         return {
             "tool": name,
