@@ -756,9 +756,9 @@ class BurryOrb {
   }
 }
 
-export function createOrbSystem({ networkCanvas, orbCanvas }) {
+export function createOrbSystem({ networkCanvas, orbCanvas, enableBackground = false }) {
   return {
-    background: new NeuralBackground(networkCanvas),
+    background: enableBackground && networkCanvas ? new NeuralBackground(networkCanvas) : null,
     orb: new BurryOrb(orbCanvas),
   };
 }

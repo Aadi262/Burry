@@ -80,7 +80,7 @@ body[data-state="speaking"] {
   height: 100vh;
   z-index: 0;
   display: block;
-  opacity: 0.95;
+  opacity: 0;
 }
 
 .hud-shell {
@@ -260,8 +260,8 @@ body[data-state="speaking"] {
 }
 
 .center-column {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 55fr 45fr;
   gap: 18px;
 }
 
@@ -646,6 +646,95 @@ body[data-state="speaking"] {
   gap: 12px;
   padding: 16px 18px 18px;
   max-height: 380px;
+}
+
+.graph-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.graph-stage {
+  position: relative;
+  min-height: 0;
+  border-radius: 20px;
+  border: 1px solid rgba(13, 39, 68, 0.76);
+  background: rgba(0, 2, 15, 0.64);
+  overflow: hidden;
+}
+
+#project-graph-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  display: block;
+}
+
+.graph-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: 220px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  border-radius: 14px;
+  border: 1px solid rgba(13, 39, 68, 0.9);
+  background: rgba(1, 13, 31, 0.96);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.graph-tooltip.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.graph-tooltip strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.graph-tooltip span {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.graph-detail {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  max-width: 260px;
+  z-index: 2;
+}
+
+.graph-detail-card {
+  display: grid;
+  gap: 6px;
+  border-radius: 18px;
+  border: 1px solid rgba(13, 39, 68, 0.9);
+  background: rgba(1, 13, 31, 0.94);
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.graph-detail-card strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.graph-detail-card span,
+.graph-detail-card em {
+  color: var(--text-dim);
 }
 
 .orb-summary {
