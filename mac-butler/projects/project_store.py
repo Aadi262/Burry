@@ -780,27 +780,16 @@ def _project_memory_state(project_name: str) -> dict[str, Any]:
 
 
 def _local_live_status(url: str) -> dict[str, Any]:
-    target = str(url or "").strip()
-    if not target:
-        return {"checked": False, "reachable": None, "status_code": None}
-
-    parsed = urlparse(target)
-    if parsed.hostname not in {"localhost", "127.0.0.1"}:
-        return {"checked": False, "reachable": None, "status_code": None}
-
-    request = Request(target, headers={"User-Agent": "Butler Project OS"})
+    if not url:
+        return {"live": False, "status": "unknown", "checked": False, "reachable": None, "status_code": None}
     try:
-        with urlopen(request, timeout=1.5) as response:
-            code = getattr(response, "status", None) or response.getcode()
-            return {
-                "checked": True,
-                "reachable": 200 <= int(code) < 400,
-                "status_code": int(code),
-            }
-    except HTTPError as exc:
-        return {"checked": True, "reachable": False, "status_code": int(exc.code)}
-    except (URLError, ValueError):
-        return {"checked": True, "reachable": False, "status_code": None}
+        from urllib.request import Request as _Request, urlopen as _urlopen
+        request = _Request(url, headers={"User-Agent": "Burry/1.0"})
+        with _urlopen(request, timeout=1.5) as response:
+            ok = response.status == 200
+            return {"live": ok, "status": "ok", "checked": True, "reachable": ok, "status_code": response.status}
+    except Exception:
+        return {"live": False, "status": "unknown", "checked": True, "reachable": False, "status_code": None}
 
 
 def _derive_health(project: dict, root: Path) -> dict[str, Any]:
