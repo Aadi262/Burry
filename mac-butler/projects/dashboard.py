@@ -537,6 +537,17 @@ def _ws_message(message_type: str, payload: dict | list) -> str:
     )
 
 
+def broadcast_ws_event(payload: dict) -> None:
+    """Send a JSON payload to all connected WebSocket dashboard clients."""
+    if _WS_LOOP is None or not _WS_LOOP.is_running():
+        return
+    try:
+        message = json.dumps(payload, separators=(",", ":"))
+    except Exception:
+        return
+    asyncio.run_coroutine_threadsafe(_ws_broadcast(message), _WS_LOOP)
+
+
 async def _ws_handler(websocket) -> None:
     path = getattr(getattr(websocket, "request", None), "path", "/ws")
     if path != "/ws":

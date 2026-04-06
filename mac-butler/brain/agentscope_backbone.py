@@ -36,6 +36,7 @@ _BACKBONE: "AgentScopeBackbone | None" = None
 _PERSISTENT_LOOP: asyncio.AbstractEventLoop | None = None
 _PERSISTENT_LOOP_THREAD: threading.Thread | None = None
 _TURN_TOOL_LOG: ContextVar[list[dict[str, Any]] | None] = ContextVar("agentscope_turn_tool_log", default=None)
+_TURN_TOOL_RESULTS: ContextVar[dict[str, dict[str, Any]] | None] = ContextVar("agentscope_turn_tool_results", default=None)
 _TURN_MEMORY_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("agentscope_turn_memory_context", default=None)
 _AGENT_SCOPE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent_skills"
 _INTENT_TOOLKIT_CACHE: dict[str, AgentScopeToolkit] = {}
@@ -96,6 +97,16 @@ _SPECIALIST_TOOLS: dict[str, set[str]] = {
 def _ollama_agent_host() -> str:
     # The official Ollama Python client on this machine needs an explicit IPv4 host.
     return str(OLLAMA_LOCAL_URL or "http://127.0.0.1:11434").replace("localhost", "127.0.0.1")
+
+
+def _ws_broadcast(payload: dict) -> None:
+    """Broadcast a HUD event to all connected dashboard WebSocket clients."""
+    try:
+        from projects.dashboard import broadcast_ws_event
+
+        broadcast_ws_event(payload)
+    except Exception:
+        pass
 
 
 def ensure_agentscope_initialized() -> None:
@@ -260,36 +271,155 @@ def _register_mcp_tools(
             print(f"[MCP] Failed to load {server_name}: {exc}")
 
 
-def _make_post_reply_hook(ctx: dict | None = None):
-    def on_post_reply(output_msg, _agent):
-        """Write the final assistant reply into long-term working memory."""
-        try:
-            from memory.long_term import add_to_working_memory
+def _tool_call_payload(kwargs: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(kwargs or {})
+    tool_call = payload.get("tool_call") or payload.get("tool_use") or {}
+    return tool_call if isinstance(tool_call, dict) else {}
 
-            active_ctx = ctx or _TURN_MEMORY_CONTEXT.get() or {}
-            heard = " ".join(
-                str(active_ctx.get("last_heard") or active_ctx.get("heard") or "").split()
-            ).strip()
-            spoken = (
+
+def _tool_result_key(tool_call: dict[str, Any]) -> str:
+    call_id = str(tool_call.get("id", "")).strip()
+    if call_id:
+        return call_id
+    tool_name = str(tool_call.get("name", "")).strip() or "unknown_tool"
+    return tool_name
+
+
+def _remember_tool_result(entry: dict[str, Any]) -> None:
+    tool_results = _TURN_TOOL_RESULTS.get()
+    if tool_results is None:
+        return
+    key = str(entry.get("call_id") or entry.get("tool") or "").strip()
+    if key:
+        tool_results[key] = entry
+
+
+def _lookup_tool_result(tool_call: dict[str, Any]) -> dict[str, Any]:
+    tool_results = _TURN_TOOL_RESULTS.get() or {}
+    key = _tool_result_key(tool_call)
+    entry = tool_results.get(key)
+    if entry:
+        return entry
+
+    tool_name = str(tool_call.get("name", "")).strip()
+    if tool_name:
+        for candidate in reversed(list(tool_results.values())):
+            if str(candidate.get("tool", "")).strip() == tool_name:
+                return candidate
+    return {}
+
+
+def _register_burry_hooks(agent, backbone_ref=None) -> None:
+    """Register all 5 AgentScope lifecycle hooks on the backbone agent."""
+
+    def pre_reply_hook(agent_instance, kwargs):
+        """Inject compressed memory before reply and mark the HUD as thinking."""
+        try:
+            compressed = get_compressed_context(max_tokens=1800)
+            if compressed:
+                current = getattr(agent_instance, "_sys_prompt", "") or ""
+                if "[MEMORY]" not in current:
+                    agent_instance._sys_prompt = current + f"\n\n[MEMORY]\n{compressed}"
+        except Exception:
+            pass
+        _ws_broadcast({"type": "agent_thinking"})
+        return kwargs
+
+    def post_reply_hook(agent_instance, kwargs, output_msg):
+        """Write the final reply to memory and broadcast it to the HUD."""
+        try:
+            speech = (
                 output_msg.get_text_content()
                 if hasattr(output_msg, "get_text_content")
                 else str(output_msg or "")
             )
-            spoken = " ".join(str(spoken).split()).strip()
-            if heard and spoken:
-                add_to_working_memory(heard, spoken)
+            speech = " ".join(str(speech).split()).strip()
+            if speech:
+                _ws_broadcast({"type": "agent_reply", "payload": {"speech": speech}})
+                try:
+                    ctx = _TURN_MEMORY_CONTEXT.get() or {}
+                    heard = str(ctx.get("last_heard", "")).strip()
+                    if heard:
+                        from memory.long_term import add_to_working_memory
+
+                        add_to_working_memory(heard, speech)
+                except Exception:
+                    pass
         except Exception:
             pass
         return output_msg
 
-    return on_post_reply
+    def pre_acting_hook(agent_instance, kwargs):
+        """Broadcast tool start events before the tool executes."""
+        try:
+            tool_call = _tool_call_payload(kwargs)
+            tool_name = str(tool_call.get("name", "")).strip()
+            tool_input = tool_call.get("input", {})
+            if tool_name:
+                _ws_broadcast(
+                    {
+                        "type": "tool_start",
+                        "payload": {
+                            "tool": tool_name,
+                            "input": str(tool_input)[:200],
+                        },
+                    },
+                )
+        except Exception:
+            pass
+        return kwargs
+
+    def post_acting_hook(agent_instance, kwargs, output):
+        """Broadcast tool completion events after the tool finishes."""
+        try:
+            tool_call = _tool_call_payload(kwargs)
+            tool_name = str(tool_call.get("name", "")).strip()
+            entry = _lookup_tool_result(tool_call)
+            status = str(entry.get("status") or "ok").strip() or "ok"
+            result_text = str(entry.get("result") or output or "")[:300]
+            if tool_name:
+                _ws_broadcast(
+                    {
+                        "type": "tool_end",
+                        "payload": {
+                            "tool": tool_name,
+                            "status": status,
+                            "result": result_text,
+                        },
+                    },
+                )
+        except Exception:
+            pass
+        return output
+
+    def pre_reasoning_hook(agent_instance, kwargs):
+        """Broadcast reasoning start to the HUD."""
+        _ws_broadcast({"type": "agent_thinking"})
+        return kwargs
+
+    if getattr(agent, "_burry_hooks_registered", False):
+        return
+
+    try:
+        agent.register_instance_hook("pre_reply", "burry-pre-reply", pre_reply_hook)
+        agent.register_instance_hook("post_reply", "burry-post-reply", post_reply_hook)
+        agent.register_instance_hook("pre_acting", "burry-pre-acting", pre_acting_hook)
+        agent.register_instance_hook("post_acting", "burry-post-acting", post_acting_hook)
+        agent.register_instance_hook("pre_reasoning", "burry-pre-reasoning", pre_reasoning_hook)
+        agent._burry_hooks_registered = True  # type: ignore[attr-defined]
+        if backbone_ref is not None:
+            setattr(agent, "_burry_backbone_ref", backbone_ref)
+        print("[Backbone] All 5 AgentScope lifecycle hooks registered")
+    except Exception as exc:
+        print(f"[Backbone] Hook registration failed: {exc}")
 
 
 async def _tool_logging_middleware(kwargs: dict, next_handler):
-    tool_call = kwargs.get("tool_call", {}) or {}
+    tool_call = _tool_call_payload(kwargs)
     tool_name = str(tool_call.get("name", "")).strip() or "unknown_tool"
     tool_input = dict(tool_call.get("input", {}) or {})
     entry = {
+        "call_id": _tool_result_key(tool_call),
         "tool": tool_name,
         "input": tool_input,
         "status": "ok",
@@ -306,12 +436,14 @@ async def _tool_logging_middleware(kwargs: dict, next_handler):
         entry["status"] = "error"
         entry["result"] = str(exc)
         note_tool_finished(tool_name, "error", str(exc)[:200])
+        _remember_tool_result(entry)
         tool_log = _TURN_TOOL_LOG.get()
         if tool_log is not None:
             tool_log.append(entry)
         raise
     else:
         note_tool_finished(tool_name, entry["status"], entry["result"][:200])
+        _remember_tool_result(entry)
         tool_log = _TURN_TOOL_LOG.get()
         if tool_log is not None:
             tool_log.append(entry)
@@ -468,13 +600,6 @@ def create_react_agent(
         compression_config=_compression_config(model_name, intent_name),
     )
     agent.set_console_output_enabled(False)
-    if not getattr(agent, "_burry_post_reply_hook_registered", False):
-        agent.register_instance_hook(
-            "post_reply",
-            "burry-memory-writeback",
-            _make_post_reply_hook(),
-        )
-        agent._burry_post_reply_hook_registered = True  # type: ignore[attr-defined]
     return agent
 
 
@@ -516,6 +641,7 @@ class AgentScopeBackbone:
     def _build_agent(self, model_name: str, *, stream: bool, intent_name: str) -> ReActAgent:
         from memory.long_term import restore_session_state
 
+        plan_notebook = PlanNotebook(max_subtasks=8) if _use_plan_notebook(intent_name) else None
         agent = create_react_agent(
             name="Burry",
             system_prompt="You are Burry, a macOS operator agent.",
@@ -523,13 +649,14 @@ class AgentScopeBackbone:
             intent_name=intent_name,
             toolkit=get_tools_for_intent(intent_name),
             memory=self.memory,
-            plan_notebook=PlanNotebook(max_subtasks=8) if _use_plan_notebook(intent_name) else None,
+            plan_notebook=plan_notebook,
             parallel_tool_calls=_intent_tool_key(intent_name) in PARALLEL_TOOL_INTENTS,
             max_iters=6,
             stream=stream,
         )
         restore_session_state(agent)
         agent.set_msg_queue_enabled(stream)
+        _register_burry_hooks(agent, backbone_ref=self)
         return agent
 
     def _ensure_model(self, model_name: str | None, *, stream: bool, intent_name: str) -> None:
@@ -626,6 +753,7 @@ class AgentScopeBackbone:
                 on_sentence(sentence)
             except Exception:
                 continue
+            _ws_broadcast({"type": "agent_chunk", "payload": {"text": f"{sentence} "}})
 
     def interrupt(self, new_command: str) -> bool:
         loop = self._active_loop
@@ -646,7 +774,6 @@ class AgentScopeBackbone:
 
     def _system_prompt(self, ctx: dict, system_prompt: str) -> str:
         formatted = str(ctx.get("formatted", "") or "").strip()
-        compressed = get_compressed_context(max_tokens=1800)
         parts = [
             system_prompt.strip(),
             "Control-plane rules:",
@@ -657,8 +784,6 @@ class AgentScopeBackbone:
         ]
         if formatted:
             parts.extend(["[CURRENT WORKSPACE CONTEXT]", formatted[:3000]])
-        if compressed:
-            parts.extend(["[COMPRESSED MEMORY CONTEXT]", compressed[:1800]])
         return "\n\n".join(part for part in parts if part)
 
     async def run_turn(
@@ -687,6 +812,8 @@ class AgentScopeBackbone:
 
         tool_log: list[dict[str, Any]] = []
         token = _TURN_TOOL_LOG.set(tool_log)
+        tool_results: dict[str, dict[str, Any]] = {}
+        tool_results_token = _TURN_TOOL_RESULTS.set(tool_results)
         memory_ctx = dict(ctx or {})
         if text and not memory_ctx.get("last_heard"):
             memory_ctx["last_heard"] = text
@@ -721,6 +848,7 @@ class AgentScopeBackbone:
             self.agent.set_msg_queue_enabled(False)
             self._active_loop = None
             _TURN_MEMORY_CONTEXT.reset(memory_token)
+            _TURN_TOOL_RESULTS.reset(tool_results_token)
             _TURN_TOOL_LOG.reset(token)
 
         interrupted = bool(getattr(reply, "metadata", {}) and reply.metadata.get("_is_interrupted"))
