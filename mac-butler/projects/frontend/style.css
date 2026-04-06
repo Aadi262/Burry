@@ -303,6 +303,11 @@ body[data-state="speaking"] {
   transition: border-color 0.4s ease, box-shadow 0.4s ease;
 }
 
+.rail-left > .panel {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 body[data-state="thinking"] .panel {
   border-color: rgba(255, 170, 0, 0.35);
 }
