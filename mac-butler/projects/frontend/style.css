@@ -299,6 +299,7 @@ body[data-state="speaking"] {
 }
 
 .panel {
+  --panel-pulse-color: transparent;
   padding: 18px;
   transition: border-color 0.4s ease, box-shadow 0.4s ease;
 }
@@ -308,15 +309,24 @@ body[data-state="speaking"] {
   overflow-y: auto;
 }
 
+body[data-state="thinking"] .panel,
+body[data-state="speaking"] .panel,
+body[data-state="listening"] .panel {
+  animation: panel-state-pulse 2.8s ease-in-out infinite;
+}
+
 body[data-state="thinking"] .panel {
+  --panel-pulse-color: rgba(255, 170, 0, 0.18);
   border-color: rgba(255, 170, 0, 0.35);
 }
 
 body[data-state="speaking"] .panel {
+  --panel-pulse-color: rgba(232, 244, 255, 0.2);
   border-color: rgba(232, 244, 255, 0.25);
 }
 
 body[data-state="listening"] .panel {
+  --panel-pulse-color: rgba(0, 212, 255, 0.22);
   border-color: rgba(0, 212, 255, 0.35);
 }
 
@@ -1267,6 +1277,16 @@ body[data-state="executing"] .panel {
   50% {
     opacity: 1;
     transform: scaleY(1.08);
+  }
+}
+
+@keyframes panel-state-pulse {
+  0%,
+  100% {
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(0, 212, 255, 0.03), 0 0 0 var(--panel-pulse-color);
+  }
+  50% {
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(0, 212, 255, 0.03), 0 0 24px var(--panel-pulse-color);
   }
 }
 
