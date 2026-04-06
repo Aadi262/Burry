@@ -16,6 +16,49 @@ function healthClass(project) {
   return "offline";
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined || value === "") return "--";
+  return `${value}%`;
+}
+
+function formatUptime(value) {
+  const totalSeconds = Number(value || 0);
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "offline";
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function vpsChip(data) {
+  if (!data || String(data.status || "").toLowerCase() === "offline") {
+    return {
+      detail: "CPU -- · Memory -- · Disk -- · Uptime offline",
+      name: "VPS",
+      status: "offline",
+      tone: "offline",
+    };
+  }
+  const metrics = [Number(data.cpu || 0), Number(data.memory || 0), Number(data.disk || 0)];
+  let tone = "healthy";
+  let status = "healthy";
+  if (metrics.some((value) => value > 95)) {
+    tone = "danger";
+    status = "critical";
+  } else if (metrics.some((value) => value > 80)) {
+    tone = "warning";
+    status = "warning";
+  }
+  return {
+    detail: `CPU ${formatPercent(data.cpu)} · Memory ${formatPercent(data.memory)} · Disk ${formatPercent(data.disk)} · Uptime ${formatUptime(data.uptime)}`,
+    name: "VPS",
+    status,
+    tone,
+  };
+}
+
 export function normalizeMode(data) {
   if (Array.isArray(data.active_tools) && data.active_tools.length) return "executing";
   const state = String(data.state || "").toLowerCase();
@@ -58,6 +101,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
 
   function renderRuntime(data) {
     const chips = [...(Array.isArray(data.systems) ? data.systems : []), ...(Array.isArray(data.mcp) ? data.mcp : [])];
+    chips.push(vpsChip(state.vps));
     refs.systemChips.innerHTML = chips.map((item) => `
       <div class="runtime-chip tone-${item.tone || "degraded"}">
         <div>
@@ -210,6 +254,10 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     renderProjects,
     renderTasks,
     renderTranscript,
+    setVpsStatus(payload) {
+      state.vps = payload || null;
+      renderRuntime(state.operator || {});
+    },
     setButlerState,
     setFocus,
   };

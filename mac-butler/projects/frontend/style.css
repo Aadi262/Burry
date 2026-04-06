@@ -476,12 +476,34 @@ body[data-state="executing"] .panel {
   border-color: rgba(0, 212, 255, 0.18);
 }
 
+.tone-warning {
+  background: rgba(255, 170, 0, 0.06);
+  border-color: rgba(255, 170, 0, 0.2);
+}
+
+.tone-warning em {
+  color: var(--amber);
+  background: rgba(255, 170, 0, 0.1);
+  border-color: rgba(255, 170, 0, 0.22);
+}
+
 .tone-offline {
   background: rgba(255, 34, 68, 0.06);
   border-color: rgba(255, 34, 68, 0.18);
 }
 
 .tone-offline em {
+  color: var(--danger);
+  background: rgba(255, 34, 68, 0.08);
+  border-color: rgba(255, 34, 68, 0.18);
+}
+
+.tone-danger {
+  background: rgba(255, 34, 68, 0.06);
+  border-color: rgba(255, 34, 68, 0.18);
+}
+
+.tone-danger em {
   color: var(--danger);
   background: rgba(255, 34, 68, 0.08);
   border-color: rgba(255, 34, 68, 0.18);

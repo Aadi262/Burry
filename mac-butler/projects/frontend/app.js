@@ -14,6 +14,7 @@ const state = {
   optimisticEntries: [],
   projects: bootstrap.projects || [],
   focusKind: "state",
+  vps: null,
 };
 
 const refs = {
@@ -96,12 +97,23 @@ const commands = createCommandController({
   currentPillNote: () => panels.pillNote(state.operator, panels.normalizeMode(state.operator)),
 });
 
+async function refreshVps() {
+  try {
+    const response = await fetch("/api/vps");
+    if (!response.ok) return;
+    panels.setVpsStatus(await response.json());
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 window.setButlerState = panels.setButlerState;
 
 panels.renderProjects(state.projects);
 panels.renderOperator(state.operator);
 graph.setProjects(state.projects);
 graph.refresh();
+refreshVps();
 commands.setupEventHandlers({
   setFocus: panels.setFocus,
   modeButtons: [refs.modeMood, refs.modeSession, refs.modeState],
@@ -113,6 +125,7 @@ stream.connectOperatorStream();
 window.setInterval(stream.refreshProjects, 8000);
 window.setInterval(macActivity.refresh, 10000);
 window.setInterval(graph.refresh, 60000);
+window.setInterval(refreshVps, 30000);
 window.addEventListener("beforeunload", () => {
   stream.cleanup();
   commands.cleanup();
