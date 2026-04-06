@@ -23,6 +23,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["frontmost_app"], "Cursor")
         self.assertEqual(payload["open_apps"], ["Cursor", "Spotify"])
 
+    def test_graph_payload_reads_dependency_file(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "graph.json"
+            path.write_text('{"edges":[{"from":"mac-butler","to":"email-infra","type":"blocked_by"}]}', encoding="utf-8")
+            with patch.object(dashboard, "GRAPH_PATH", path):
+                payload = dashboard._graph_payload()
+
+        self.assertEqual(payload["edges"][0]["type"], "blocked_by")
+
     @patch(
         "projects.dashboard.operator_snapshot",
         return_value={
