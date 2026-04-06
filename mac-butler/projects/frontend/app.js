@@ -46,6 +46,9 @@ const refs = {
   commandForm: document.getElementById("command-form"),
   commandInput: document.getElementById("command-input"),
   micButton: document.getElementById("mic-button"),
+  agentTraceFeed: document.getElementById("agent-trace-feed"),
+  toolExecRow: document.getElementById("tool-exec-row"),
+  planStepsFeed: document.getElementById("plan-steps-feed"),
   eventsFeed: document.getElementById("events-feed"),
   projectList: document.getElementById("project-list"),
 };
@@ -73,6 +76,8 @@ const panels = createPanels({
 
 const stream = createOperatorStream({
   bootstrap,
+  refs,
+  setButlerState: panels.setButlerState,
   onConnectionChange: (connected) => {
     refs.offlineBanner.hidden = connected;
   },

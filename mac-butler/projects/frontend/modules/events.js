@@ -26,14 +26,21 @@ export function telemetryEntries(data) {
 }
 
 function eventKindClass(kind) {
-  const normalized = String(kind || "event").toLowerCase();
-  if (["heard", "ambient"].includes(normalized)) return "faint";
-  if (normalized === "intent") return "accent";
-  if (normalized === "tool") return "cobalt";
-  if (normalized === "state") return "amber";
-  if (normalized === "memory") return "violet";
-  if (normalized === "agent") return "success";
-  return "default";
+  const k = String(kind || "").toLowerCase();
+  if (k === "state") return "amber";
+  if (k === "intent") return "cobalt";
+  if (k === "heard") return "faint";
+  if (k === "ambient") return "faint";
+  if (k === "tool_start") return "amber";
+  if (k === "tool_end") return "success";
+  if (k === "tool_call") return "cobalt";
+  if (k === "tool_result") return "success";
+  if (k === "tool") return "cobalt";
+  if (k === "memory") return "violet";
+  if (k === "agent") return "success";
+  if (k === "plan") return "violet";
+  if (k === "error") return "danger";
+  return "faint";
 }
 
 function eventKey(event) {
@@ -77,19 +84,26 @@ export function createEventsPanel({ container }) {
 
   function render(data) {
     latestData = data || {};
-    const items = (Array.isArray(data.events) ? data.events : []).slice(-18);
+    const items = Array.isArray(data.events) ? data.events : [];
+    const MAX_EVENTS = 24;
+    const displayItems = items.length > MAX_EVENTS ? items.slice(-MAX_EVENTS) : items;
+    const truncated = items.length - displayItems.length;
     const signature = items.map(eventKey).join("||");
     const shouldStickBottom =
       !container.childElementCount
       || container.scrollHeight - container.scrollTop - container.clientHeight < 40;
 
-    if (!items.length) {
+    if (!displayItems.length) {
       container.innerHTML = "<div class=\"events-empty\">Runtime events will appear here as Burry listens, routes, remembers, and executes.</div>";
       lastSignature = "";
       return;
     }
 
-    container.innerHTML = items.map((event) => eventMarkup(event, expandedKey)).join("");
+    const truncatedRow = truncated > 0
+      ? `<div class="events-truncated">↑ ${truncated} older events not shown</div>`
+      : "";
+
+    container.innerHTML = truncatedRow + displayItems.map((event) => eventMarkup(event, expandedKey)).join("");
     if (shouldStickBottom) {
       container.scrollTop = container.scrollHeight;
     }

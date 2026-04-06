@@ -111,6 +111,27 @@
       </main>
 
       <aside class="rail rail-right" id="rail-right">
+        <section class="panel agent-trace-panel">
+          <div class="panel-label">Agent Trace</div>
+          <div class="agent-trace-feed" id="agent-trace-feed">
+            <span class="trace-idle">Waiting for agent activity...</span>
+          </div>
+        </section>
+
+        <section class="panel tool-exec-panel">
+          <div class="panel-label">Live Execution</div>
+          <div class="tool-exec-row" id="tool-exec-row">
+            <span class="tool-exec-idle">No active tool call.</span>
+          </div>
+        </section>
+
+        <section class="panel plan-steps-panel">
+          <div class="panel-label">Active Plan</div>
+          <div class="plan-steps-feed" id="plan-steps-feed">
+            <span class="plan-empty">No active plan.</span>
+          </div>
+        </section>
+
         <section class="panel events-panel">
           <div class="panel-label">Events</div>
           <div class="events-feed" id="events-feed"></div>

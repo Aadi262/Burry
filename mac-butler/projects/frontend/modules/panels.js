@@ -3,6 +3,36 @@ import { basenamePath } from "./mac-activity.js";
 const FOCUS_STORAGE_KEY = "burry.focusKind";
 const VALID_FOCUS_KINDS = new Set(["mood", "session", "state"]);
 
+export const TOOL_MAP = {
+  browse_web: { label: "Browsing Web", icon: "🌐" },
+  web_search_summarize: { label: "Searching", icon: "🔍" },
+  browse_and_act: { label: "Browser Agent", icon: "🤖" },
+  recall_memory: { label: "Memory Read", icon: "💾" },
+  deep_research: { label: "Deep Research", icon: "📚" },
+  plan_and_execute: { label: "Planning", icon: "📋" },
+  open_project: { label: "Opening Project", icon: "📂" },
+  run_shell: { label: "Shell", icon: "⚙️" },
+  git_commit: { label: "Git Commit", icon: "📌" },
+  send_email: { label: "Email", icon: "📧" },
+  send_imessage: { label: "iMessage", icon: "💬" },
+  take_screenshot_and_describe: { label: "Seeing Screen", icon: "👁" },
+  search_knowledge_base: { label: "Knowledge Base", icon: "🗂" },
+  spotify_control: { label: "Spotify", icon: "🎵" },
+  ssh_vps: { label: "VPS Shell", icon: "🖥" },
+  focus_app: { label: "Focus App", icon: "🎯" },
+  minimize_app: { label: "Minimize", icon: "➖" },
+  volume_up: { label: "Volume Up", icon: "🔊" },
+  volume_down: { label: "Volume Down", icon: "🔉" },
+  volume_mute: { label: "Mute", icon: "🔇" },
+  lock_screen: { label: "Lock Screen", icon: "🔒" },
+  clipboard_read: { label: "Clipboard Read", icon: "📋" },
+  clipboard_write: { label: "Clipboard Write", icon: "✏️" },
+  dark_mode_toggle: { label: "Dark Mode", icon: "🌙" },
+  set_reminder: { label: "Reminder", icon: "⏰" },
+  index_file: { label: "Indexing File", icon: "📑" },
+  obsidian_note: { label: "Obsidian Note", icon: "📝" },
+};
+
 function collapseWhitespace(value) {
   return String(value || "").split(/\s+/).filter(Boolean).join(" ").trim();
 }
@@ -14,10 +44,7 @@ function normalizeFocusKind(value) {
 
 function toolPresentation(name) {
   const normalized = String(name || "").trim().toLowerCase();
-  if (normalized === "browse_web") return { label: "Browsing", icon: "🌐" };
-  if (normalized === "recall_memory") return { label: "Reading", icon: "💾" };
-  if (normalized === "take_screenshot_and_describe") return { label: "Seeing", icon: "👁" };
-  return { label: "Executing", icon: "⚡" };
+  return TOOL_MAP[normalized] || { label: normalized || "Executing", icon: "⚡" };
 }
 
 function healthClass(project) {
