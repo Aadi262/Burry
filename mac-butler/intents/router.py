@@ -7,6 +7,7 @@ Deterministic intent router. No LLM. Handles common commands instantly.
 from __future__ import annotations
 
 import re
+import time
 import urllib.parse
 
 from contact_utils import normalize_email
@@ -60,6 +61,9 @@ PROJECT_MAP = {
     "developer": "~/Developer",
     "burry": "~/Burry",
 }
+_PROJECT_MAP_CACHE: dict | None = None
+_PROJECT_MAP_CACHE_AT = 0.0
+_PROJECT_MAP_CACHE_TTL_SECONDS = 30.0
 
 MUSIC_MODES = {
     "focus": "focus",
@@ -496,9 +500,15 @@ def _match_from_map(target: str, mapping: dict) -> tuple[str | None, object | No
 
 
 def get_project_map() -> dict:
+    global _PROJECT_MAP_CACHE, _PROJECT_MAP_CACHE_AT
+
+    now = time.monotonic()
+    if _PROJECT_MAP_CACHE is not None and now - _PROJECT_MAP_CACHE_AT < _PROJECT_MAP_CACHE_TTL_SECONDS:
+        return dict(_PROJECT_MAP_CACHE)
+
     mapping = dict(PROJECT_MAP)
     try:
-        from projects import load_projects
+        from projects.project_store import load_projects
 
         for project in load_projects():
             path = project.get("path")
@@ -511,6 +521,8 @@ def get_project_map() -> dict:
                     mapping[_normalize_spaces(str(name).lower())] = path
     except Exception:
         pass
+    _PROJECT_MAP_CACHE = dict(mapping)
+    _PROJECT_MAP_CACHE_AT = now
     return mapping
 
 
