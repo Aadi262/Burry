@@ -3046,6 +3046,14 @@ def main() -> None:
         load_skills()
     except Exception:
         pass
+    # Load configured MCP servers into toolkit (Phase 2)
+    try:
+        from brain.mcp_client import load_configured_mcp_servers
+        from brain.toolkit import get_toolkit
+        import brain.tools_registry  # noqa
+        load_configured_mcp_servers(get_toolkit())
+    except Exception:
+        pass
     _report_brain_backend_status()
     parser = argparse.ArgumentParser(description="Mac Butler")
     parser.add_argument("--test", action="store_true", help="Print-only, no voice or execution")
