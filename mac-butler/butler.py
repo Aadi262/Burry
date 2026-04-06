@@ -1113,6 +1113,9 @@ TOOL_SYSTEM_PROMPT = """You are Burry, Aditya's Mac operator.
 Use tools when they will materially improve the answer or complete the action.
 Tool policy:
 - use open_project when the user wants to open or work on a named project
+- use focus_app, minimize_app, or hide_app for Mac window management
+- use chrome_open_tab, chrome_close_tab, or chrome_focus_tab for Chrome tab actions
+- use send_email for Mail.app sends and send_whatsapp for desktop WhatsApp messages
 - use run_shell for tests, git, server checks, and safe shell commands
 - use browse_web for latest information, search, or reading a page
 - use recall_memory for questions about past decisions, prior work, or session history
@@ -1434,6 +1437,121 @@ Diff:
             "actions": [action],
             "results": results,
             "payload": {"app": app, "mode": mode, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "focus_app":
+        app = " ".join(str(args.get("app", "")).split()).strip()
+        note_tool_started(name, app or "focusing app")
+        action = {"type": "focus_app", "app": app}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "focus_app", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "minimize_app":
+        app = " ".join(str(args.get("app", "")).split()).strip()
+        note_tool_started(name, app or "minimizing app")
+        action = {"type": "minimize_app", "app": app}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "minimize_app", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "hide_app":
+        app = " ".join(str(args.get("app", "")).split()).strip()
+        note_tool_started(name, app or "hiding app")
+        action = {"type": "hide_app", "app": app}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "hide_app", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "chrome_open_tab":
+        url = " ".join(str(args.get("url", "")).split()).strip()
+        note_tool_started(name, url or "opening chrome tab")
+        action = {"type": "chrome_open_tab", "url": url}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "chrome_open_tab", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"url": url, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "chrome_close_tab":
+        tab_title = " ".join(str(args.get("tab_title", "")).split()).strip()
+        note_tool_started(name, tab_title or "closing chrome tab")
+        action = {"type": "chrome_close_tab", "tab_title": tab_title}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "chrome_close_tab", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"tab_title": tab_title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "chrome_focus_tab":
+        tab_title = " ".join(str(args.get("tab_title", "")).split()).strip()
+        note_tool_started(name, tab_title or "focusing chrome tab")
+        action = {"type": "chrome_focus_tab", "tab_title": tab_title}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "chrome_focus_tab", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"tab_title": tab_title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "send_email":
+        to = " ".join(str(args.get("to", "")).split()).strip()
+        subject = " ".join(str(args.get("subject", "")).split()).strip()
+        body = str(args.get("body", "")).strip()
+        note_tool_started(name, to or "sending email")
+        action = {"type": "send_email", "to": to, "subject": subject, "body": body}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "send_email", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"to": to, "subject": subject, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
+        }
+
+    if name == "send_whatsapp":
+        contact = " ".join(str(args.get("contact", "")).split()).strip()
+        message = " ".join(str(args.get("message", "")).split()).strip()
+        note_tool_started(name, contact or "sending WhatsApp")
+        action = {"type": "send_whatsapp", "contact": contact, "message": message}
+        results = executor.run([action])
+        result = results[0] if results else {"action": "send_whatsapp", "status": "error", "error": "No result"}
+        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+        return {
+            "tool": name,
+            "actions": [action],
+            "results": results,
+            "payload": {"contact": contact, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
         }
 
     if name == "spotify_control":

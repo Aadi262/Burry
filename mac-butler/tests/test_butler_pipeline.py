@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from brain.tools import TOOLS
 from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
     _brain_context_text,
@@ -108,6 +109,21 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertTrue(_looks_like_followup_reference("you are integrating that"))
         self.assertTrue(_looks_like_followup_reference("what about it"))
         self.assertFalse(_looks_like_followup_reference("open spotify"))
+
+    def test_tool_schema_includes_new_desktop_actions(self):
+        names = {tool["function"]["name"] for tool in TOOLS}
+        self.assertTrue(
+            {
+                "focus_app",
+                "minimize_app",
+                "hide_app",
+                "chrome_open_tab",
+                "chrome_close_tab",
+                "chrome_focus_tab",
+                "send_email",
+                "send_whatsapp",
+            }.issubset(names)
+        )
 
     @patch("butler._raw_llm", return_value="latest news in iran war")
     def test_resolve_followup_text_uses_session_conversation(self, _mock_llm):
@@ -315,6 +331,35 @@ class ButlerPipelineTests(unittest.TestCase):
 
         self.assertEqual(result["results"][0]["status"], "ok")
         mock_speak.assert_called_once_with("3 tests passed, 1 failed in auth.py.")
+
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_tool_started")
+    @patch("butler.executor.run")
+    def test_execute_tool_call_wires_focus_app(self, mock_run, _mock_started, _mock_finished):
+        mock_run.return_value = [{"action": "focus_app", "status": "ok", "result": "Focused Cursor"}]
+
+        result = _execute_tool_call("focus_app", {"app": "Cursor"}, {"formatted": ""})
+
+        self.assertEqual(result["actions"][0]["type"], "focus_app")
+        self.assertEqual(result["payload"]["app"], "Cursor")
+        self.assertEqual(result["results"][0]["result"], "Focused Cursor")
+
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_tool_started")
+    @patch("butler.executor.run")
+    def test_execute_tool_call_wires_send_email(self, mock_run, _mock_started, _mock_finished):
+        mock_run.return_value = [{"action": "send_email", "status": "ok", "result": "Email sent to john@example.com"}]
+
+        result = _execute_tool_call(
+            "send_email",
+            {"to": "john@example.com", "subject": "Meeting", "body": "See you at 3."},
+            {"formatted": ""},
+        )
+
+        self.assertEqual(result["actions"][0]["type"], "send_email")
+        self.assertEqual(result["payload"]["to"], "john@example.com")
+        self.assertEqual(result["payload"]["subject"], "Meeting")
+        self.assertEqual(result["results"][0]["result"], "Email sent to john@example.com")
 
     @patch("butler.note_tool_finished")
     @patch("butler.note_memory_recall")

@@ -121,6 +121,31 @@ class Executor:
     def __init__(self):
         self.results = []
 
+    @staticmethod
+    def _applescript_string(value: str) -> str:
+        return json.dumps(str(value or ""))
+
+    @staticmethod
+    def _normalize_browser_url(url: str) -> str:
+        cleaned = str(url or "").strip()
+        if not cleaned:
+            return "chrome://newtab"
+        if cleaned.startswith(("http://", "https://", "chrome://")):
+            return cleaned
+        return f"https://{cleaned}"
+
+    def _run_osascript(self, script: str, timeout: int = 5) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            message = " ".join((result.stderr or result.stdout or "AppleScript failed").split()).strip()
+            raise RuntimeError(message or "AppleScript failed")
+        return result
+
     def run(self, actions: list) -> list:
         self.results = []
         for action in actions:
@@ -207,6 +232,22 @@ class Executor:
             return self.ssh_command(action["host"], action["cmd"])
         if t == "open_url":
             return self.open_url(action["url"])
+        if t == "focus_app":
+            return self.focus_app(action["app"])
+        if t == "minimize_app":
+            return self.minimize_app(action["app"])
+        if t == "hide_app":
+            return self.hide_app(action["app"])
+        if t == "chrome_open_tab":
+            return self.chrome_open_tab(action["url"])
+        if t == "chrome_close_tab":
+            return self.chrome_close_tab(action["tab_title"])
+        if t == "chrome_focus_tab":
+            return self.chrome_focus_tab(action["tab_title"])
+        if t == "send_email":
+            return self.send_email(action["to"], action["subject"], action["body"])
+        if t == "send_whatsapp":
+            return self.send_whatsapp(action["contact"], action["message"])
         if t == "notify":
             return self.notify(action["title"], action["message"])
         if t == "remind_in":
@@ -549,6 +590,118 @@ class Executor:
         script = f'tell application "{app_name}" to quit'
         subprocess.run(["osascript", "-e", script], timeout=5)
         return f"quit {app_name}"
+
+    def focus_app(self, app_name: str) -> str:
+        script = f"tell application {self._applescript_string(app_name)} to activate"
+        self._run_osascript(script, timeout=5)
+        return f"Focused {app_name}"
+
+    def minimize_app(self, app_name: str) -> str:
+        script = (
+            'tell application "System Events"\n'
+            f"    tell process {self._applescript_string(app_name)}\n"
+            "        set miniaturized of window 1 to true\n"
+            "    end tell\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return f"Minimized {app_name}"
+
+    def hide_app(self, app_name: str) -> str:
+        script = (
+            'tell application "System Events"\n'
+            f"    set visible of process {self._applescript_string(app_name)} to false\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return f"Hidden {app_name}"
+
+    def chrome_open_tab(self, url: str) -> str:
+        target = self._normalize_browser_url(url)
+        script = (
+            'tell application "Google Chrome"\n'
+            "    activate\n"
+            "    if (count of windows) = 0 then make new window\n"
+            "    tell window 1\n"
+            f"        make new tab with properties {{URL:{self._applescript_string(target)}}}\n"
+            "    end tell\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return f"Opened tab {target}"
+
+    def chrome_close_tab(self, tab_title: str) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    repeat with w in windows\n"
+            "        repeat with t in tabs of w\n"
+            f"            if title of t contains {self._applescript_string(tab_title)} then\n"
+            "                close t\n"
+            "                return\n"
+            "            end if\n"
+            "        end repeat\n"
+            "    end repeat\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return f"Closed tab containing {tab_title}"
+
+    def chrome_focus_tab(self, tab_title: str) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    activate\n"
+            "    repeat with w in windows\n"
+            "        set tab_index to 0\n"
+            "        repeat with t in tabs of w\n"
+            "            set tab_index to tab_index + 1\n"
+            f"            if title of t contains {self._applescript_string(tab_title)} then\n"
+            "                set active tab index of w to tab_index\n"
+            "                return\n"
+            "            end if\n"
+            "        end repeat\n"
+            "    end repeat\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return f"Focused tab containing {tab_title}"
+
+    def send_email(self, to: str, subject: str, body: str) -> str:
+        script = (
+            'tell application "Mail"\n'
+            "    set newMsg to make new outgoing message with properties {"
+            f"subject:{self._applescript_string(subject)}, "
+            f"content:{self._applescript_string(body)}, "
+            "visible:true}\n"
+            "    tell newMsg\n"
+            f"        make new to recipient with properties {{address:{self._applescript_string(to)}}}\n"
+            "        send\n"
+            "    end tell\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=10)
+        return f"Email sent to {to}"
+
+    def send_whatsapp(self, contact: str, message: str) -> str:
+        script = (
+            'tell application "WhatsApp"\n'
+            "    activate\n"
+            "end tell\n"
+            "delay 1\n"
+            'tell application "System Events"\n'
+            '    tell process "WhatsApp"\n'
+            '        keystroke "f" using command down\n'
+            "        delay 0.5\n"
+            f"        keystroke {self._applescript_string(contact)}\n"
+            "        delay 1\n"
+            "        key code 36\n"
+            "        delay 0.5\n"
+            f"        keystroke {self._applescript_string(message)}\n"
+            "        key code 36\n"
+            "    end tell\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=15)
+        return f"WhatsApp message sent to {contact}"
 
     # ─────────────────────────────────────────────────────
     # SPOTIFY

@@ -101,6 +101,109 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "focus_app",
+            "description": "Focus an already installed macOS application by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {"app": {"type": "string"}},
+                "required": ["app"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "minimize_app",
+            "description": "Minimize the front window of a macOS application.",
+            "parameters": {
+                "type": "object",
+                "properties": {"app": {"type": "string"}},
+                "required": ["app"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "hide_app",
+            "description": "Hide a macOS application without quitting it.",
+            "parameters": {
+                "type": "object",
+                "properties": {"app": {"type": "string"}},
+                "required": ["app"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "chrome_open_tab",
+            "description": "Open a new Google Chrome tab at a URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "chrome_close_tab",
+            "description": "Close the first Google Chrome tab whose title contains the given text.",
+            "parameters": {
+                "type": "object",
+                "properties": {"tab_title": {"type": "string"}},
+                "required": ["tab_title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "chrome_focus_tab",
+            "description": "Focus the first Google Chrome tab whose title contains the given text.",
+            "parameters": {
+                "type": "object",
+                "properties": {"tab_title": {"type": "string"}},
+                "required": ["tab_title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Send an email using the macOS Mail app.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+                "required": ["to", "subject", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_whatsapp",
+            "description": "Send a WhatsApp message using the macOS desktop app.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+                "required": ["contact", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "spotify_control",
             "description": "Control Spotify playback or report the current track.",
             "parameters": {

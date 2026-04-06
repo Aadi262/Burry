@@ -96,6 +96,72 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn("Google Chrome", script)
         self.assertIn("https://example.com", script)
 
+    @patch("executor.engine.subprocess.run")
+    def test_focus_app_uses_applescript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().focus_app("Cursor")
+        self.assertEqual(result, "Focused Cursor")
+        self.assertIn('tell application "Cursor" to activate', mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_minimize_app_uses_system_events(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().minimize_app("Google Chrome")
+        self.assertEqual(result, "Minimized Google Chrome")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell process "Google Chrome"', script)
+        self.assertIn("set miniaturized of window 1 to true", script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_hide_app_uses_system_events(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().hide_app("Cursor")
+        self.assertEqual(result, "Hidden Cursor")
+        self.assertIn('set visible of process "Cursor" to false', mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_chrome_open_tab_uses_applescript(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().chrome_open_tab("https://github.com/Aadi262/Burry")
+        self.assertIn("Opened tab", result)
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('make new tab with properties {URL:"https://github.com/Aadi262/Burry"}', script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_chrome_close_tab_uses_title_filter(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().chrome_close_tab("AI Trade Bot")
+        self.assertEqual(result, "Closed tab containing AI Trade Bot")
+        self.assertIn('if title of t contains "AI Trade Bot"', mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_chrome_focus_tab_uses_title_filter(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().chrome_focus_tab("AI SDR")
+        self.assertEqual(result, "Focused tab containing AI SDR")
+        self.assertIn('if title of t contains "AI SDR"', mock_run.call_args.args[0][2])
+        self.assertIn("set active tab index of w to tab_index", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_send_email_uses_mail_app(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().send_email("john@example.com", "Meeting", "See you at 3.")
+        self.assertEqual(result, "Email sent to john@example.com")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "Mail"', script)
+        self.assertIn('subject:"Meeting"', script)
+        self.assertIn('address:"john@example.com"', script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_send_whatsapp_uses_keyboard_simulation(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().send_whatsapp("Rushil", "I'll be late")
+        self.assertEqual(result, "WhatsApp message sent to Rushil")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "WhatsApp"', script)
+        self.assertIn('keystroke "Rushil"', script)
+        self.assertIn('keystroke "I\'ll be late"', script)
+
     @patch.object(Executor, "browser_new_tab", return_value="opened new browser tab: https://www.google.com/search?q=gemma")
     def test_browser_search_uses_google_query(self, mock_new_tab):
         result = Executor().browser_search("gemma")
