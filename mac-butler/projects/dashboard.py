@@ -37,11 +37,13 @@ except ImportError:
     from project_store import _load_raw as _load_projects_raw
 
 ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = ROOT.parent
 DASHBOARD_PATH = ROOT / "dashboard.html"
 FRONTEND_ROOT = ROOT / "frontend"
 FRONTEND_INDEX_PATH = FRONTEND_ROOT / "index.html"
 FRONTEND_STYLE_PATH = FRONTEND_ROOT / "style.css"
 FRONTEND_APP_PATH = FRONTEND_ROOT / "app.js"
+MAC_STATE_PATH = PROJECT_ROOT / "memory" / "mac_state.json"
 NATIVE_SHELL_PATH = ROOT / "native_shell.py"
 HUD_PID_PATH = Path("/tmp/burry_hud.pid")
 HUD_LOG_PATH = Path("/tmp/burry_hud.log")
@@ -141,6 +143,18 @@ def _clip_text(value: str, limit: int = 180) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
+
+
+def _load_json_file(path: Path, fallback):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return fallback
+    return payload if isinstance(payload, type(fallback)) else fallback
+
+
+def _mac_activity_payload() -> dict:
+    return _load_json_file(MAC_STATE_PATH, {})
 
 
 def _status_tone(status: str) -> str:
@@ -711,6 +725,9 @@ def serve_dashboard():
                             time.sleep(STREAM_INTERVAL_SECONDS)
                     if parsed.path == "/api/projects":
                         self._send_json(_dashboard_projects())
+                        return
+                    if parsed.path == "/api/mac-activity":
+                        self._send_json(_mac_activity_payload())
                         return
                     if parsed.path == "/api/status":
                         self._send_json(_dashboard_payload())

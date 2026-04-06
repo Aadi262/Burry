@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from projects import dashboard
@@ -11,6 +13,16 @@ from projects.dashboard import (
 
 
 class DashboardTests(unittest.TestCase):
+    def test_mac_activity_payload_reads_memory_file(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "mac_state.json"
+            path.write_text('{"frontmost_app":"Cursor","open_apps":["Cursor","Spotify"]}', encoding="utf-8")
+            with patch.object(dashboard, "MAC_STATE_PATH", path):
+                payload = dashboard._mac_activity_payload()
+
+        self.assertEqual(payload["frontmost_app"], "Cursor")
+        self.assertEqual(payload["open_apps"], ["Cursor", "Spotify"])
+
     @patch(
         "projects.dashboard.operator_snapshot",
         return_value={
