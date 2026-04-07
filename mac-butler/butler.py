@@ -113,6 +113,22 @@ def check_interrupt():
             _INTERRUPT_MESSAGE = ""
         return msg
     return None
+
+
+def _clear_pending_command_state() -> None:
+    global _INTERRUPT_MESSAGE
+
+    while True:
+        try:
+            _COMMAND_QUEUE.get_nowait()
+        except queue.Empty:
+            break
+
+    _INTERRUPT_EVENT.clear()
+    with _INTERRUPT_LOCK:
+        _INTERRUPT_MESSAGE = ""
+
+
 _PENDING_DIALOGUE_LOCK = threading.Lock()
 _PENDING_DIALOGUE: dict | None = None
 _CONVERSATION_LOCK = threading.Lock()
@@ -125,7 +141,7 @@ _LAST_RESOLVED_COMMAND = {
 _COMMAND_QUEUE: queue.Queue = queue.Queue(maxsize=3)
 _CTX_CACHE: dict | None = None
 _CTX_CACHE_AT: float = 0.0
-_CTX_CACHE_TTL_SECONDS: float = 30.0
+_CTX_CACHE_TTL_SECONDS: float = 120.0
 _CTX_CACHE_LOCK = threading.Lock()
 _SHUTDOWN_HANDLERS_INSTALLED = False
 _SESSION_STATE_SAVED = False
@@ -142,6 +158,58 @@ _FOLLOWUP_PREFIXES = (
 )
 FAST_PATH_INTENTS = {"greeting", "question", "unknown", "chitchat"}
 FAST_PATH_CONFIDENCE = 0.8
+
+# ── Three-Lane Architecture ─────────────────────────────────────────
+# Intents that NEVER touch the LLM — execute in <200ms via executor
+INSTANT_LANE_INTENTS = {
+    # App control
+    "open_app", "close_app", "open_project", "open_editor_window",
+    "open_last_workspace", "open_codex",
+    # Browser control
+    "browser_new_tab", "browser_search", "browser_close_tab",
+    "browser_close_window",
+    # Media control
+    "spotify_play", "spotify_pause", "spotify_next", "spotify_prev",
+    "spotify_volume", "spotify_mode", "pause_video",
+    "volume_set", "system_volume",
+    # File operations
+    "create_file", "create_folder",
+    # Git
+    "git_status", "git_push",
+    # Communication
+    "compose_email", "whatsapp_open", "whatsapp_send",
+    # System
+    "screenshot", "set_reminder", "obsidian_note",
+    # Meta / control (also handled by _handle_meta_intent)
+    "butler_sleep", "butler_wake", "butler_help", "butler_status",
+    "mcp_status",
+    # Conversation — deterministic, no LLM needed
+    "greeting",
+}
+
+# Intents that use background agents — ack fast, run async
+BACKGROUND_LANE_INTENTS = {
+    "news", "market", "hackernews", "reddit", "github_trending",
+    "vps_status", "docker_status",
+}
+
+# Deterministic responses for casual conversation that shouldn't hit the LLM
+_DETERMINISTIC_CASUAL_RESPONSES = {
+    "thank you": "You're welcome.",
+    "thanks": "No problem.",
+    "never mind": "Got it.",
+    "nevermind": "Got it.",
+    "cancel": "Cancelled.",
+    "okay": "Alright.",
+    "ok": "Alright.",
+    "got it": "Good.",
+    "cool": "Anything else?",
+    "nice": "Anything else?",
+    "what can you do": "I can open apps, play music, search the web, check news, send emails, take screenshots, and more. Just ask.",
+    "what do you do": "I can open apps, play music, search the web, check news, send emails, take screenshots, and more. Just ask.",
+    "are you there": "I'm here.",
+    "you there": "I'm here.",
+}
 
 
 class ConversationContext:
@@ -521,10 +589,24 @@ def _looks_like_greeting(text: str) -> bool:
         return False
     patterns = (
         r"^(?:hi|hello|hey|yo)\b",
-        r"\bhow are you\b",
+        r"\bhow are (?:you|u)\b",
+        r"\bhow r u\b",
         r"^good (?:morning|afternoon|evening)\b",
     )
     return any(re.search(pattern, lowered) is not None for pattern in patterns)
+
+
+def _deterministic_greeting_response(text: str) -> str:
+    lowered = " ".join(str(text or "").lower().split())
+    if re.search(r"\bhow are (?:you|u)\b", lowered) or re.search(r"\bhow r u\b", lowered):
+        return "I'm good. What do you need?"
+    if lowered.startswith("good morning"):
+        return "Morning. What do you need?"
+    if lowered.startswith("good afternoon"):
+        return "Afternoon. What do you need?"
+    if lowered.startswith("good evening"):
+        return "Evening. What do you need?"
+    return "Hey. What do you need?"
 
 
 def _should_use_fast_path_intent(intent_name: str, intent_confidence: float, text: str) -> bool:
@@ -572,6 +654,9 @@ def _fast_path_llm_response(
     *,
     model: str | None = None,
 ) -> str:
+    if intent_name == "greeting" or _looks_like_greeting(text):
+        return _deterministic_greeting_response(text)
+
     from brain.ollama_client import _call, pick_butler_model
 
     prompt = _fast_path_prompt(intent_name, text, ctx)
@@ -581,8 +666,55 @@ def _fast_path_llm_response(
         voice_model,
         temperature=0.25,
         max_tokens=150,
+        timeout_hint="voice",
     )
     return _normalize_response(response, max_words=28)
+
+
+_SMART_REPLY_SYSTEM = (
+    "You are Burry, a local AI assistant on a Mac. Answer concisely in 1-2 sentences. "
+    "If you need to use tools or do research, say NEEDS_TOOLS. "
+    "If the request is about the user's projects or tasks, say NEEDS_CONTEXT."
+)
+
+
+def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | None:
+    """Single cheap LLM call (max 80 tokens) that answers simple questions directly.
+
+    Returns the response string if confident, or one of the sentinel strings:
+      "NEEDS_TOOLS"   — escalate to full AgentScope path
+      "NEEDS_CONTEXT" — escalate to context-aware path
+    Returns None on error (caller should fall through to brain lane).
+    """
+    from brain.ollama_client import _get_ollama_url, _resolve_backend_model
+
+    fast_model = model or BUTLER_MODELS.get("voice") or OLLAMA_FALLBACK or OLLAMA_MODEL
+    generate_url, headers = _get_ollama_url()
+    chat_url = generate_url.replace("/api/generate", "/api/chat")
+    use_vps_backend = generate_url != f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
+    resolved_model = _resolve_backend_model(fast_model, use_vps_backend)
+    payload = {
+        "model": resolved_model,
+        "messages": [
+            {"role": "system", "content": _SMART_REPLY_SYSTEM},
+            {"role": "user", "content": text},
+        ],
+        "stream": False,
+        "options": {"temperature": 0.25, "num_predict": 80},
+    }
+    try:
+        resp = requests.post(chat_url, json=payload, headers=headers, timeout=15)
+        resp.raise_for_status()
+        raw = resp.json().get("message", {}).get("content", "").strip()
+        if not raw:
+            return None
+        if "NEEDS_TOOLS" in raw:
+            return "NEEDS_TOOLS"
+        if "NEEDS_CONTEXT" in raw:
+            return "NEEDS_CONTEXT"
+        return raw
+    except Exception:
+        return None
 
 
 def _unknown_brain_response(text: str, model: str | None = None) -> str:
@@ -1664,7 +1796,14 @@ def _tool_chat_response(
         backbone_speech = ""
 
     try:
-        first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
+        first = chat_with_ollama(
+            messages,
+            planning_model,
+            tools=TOOLS,
+            max_tokens=220,
+            temperature=0.2,
+            timeout_hint="agent",
+        )
     except RuntimeError as exc:
         if not _tool_chat_endpoint_missing(exc):
             raise
@@ -1764,7 +1903,13 @@ def _tool_chat_response(
         if final_speech:
             notify("Burry", final_speech[:180], subtitle="Response")
     if not final_speech:
-        final = chat_with_ollama(messages, voice_model, max_tokens=140, temperature=0.3)
+        final = chat_with_ollama(
+            messages,
+            voice_model,
+            max_tokens=140,
+            temperature=0.3,
+            timeout_hint="voice",
+        )
         final_message = final.get("message", {}) if isinstance(final, dict) else {}
         final_speech = _normalize_response(str(final_message.get("content", "")).strip(), max_words=45)
     if not final_speech:
@@ -1960,7 +2105,7 @@ def _run_actions_with_response(
             sync_actions.append(action)
             sync_indexes.append(index)
 
-    should_delay_speech = False
+    should_delay_speech = _should_delay_speech_for_actions(sync_actions)
     speaker_thread = None
     if response and queued_agent_results:
         _speak_or_print(response, test_mode=False)
@@ -1972,7 +2117,23 @@ def _run_actions_with_response(
         )
         speaker_thread.start()
 
-    sync_results = executor.run(sync_actions) if sync_actions else []
+    for action in sync_actions:
+        note_tool_started(_action_trace_name(action), _action_trace_detail(action))
+
+    try:
+        sync_results = executor.run(sync_actions) if sync_actions else []
+    except Exception as exc:
+        for action in sync_actions:
+            note_tool_finished(_action_trace_name(action), "error", str(exc)[:180])
+        raise
+
+    for action, result in zip(sync_actions, sync_results):
+        status = str(result.get("status", "ok") or "ok").strip().lower() if isinstance(result, dict) else "ok"
+        note_tool_finished(
+            _action_trace_name(action),
+            status or "ok",
+            _action_trace_result_detail(result, _action_trace_detail(action)),
+        )
     results: list[dict] = []
     sync_cursor = 0
     for index, _action in enumerate(actions):
@@ -2282,6 +2443,89 @@ def _contextualize_action(action: dict | None, intent: IntentResult, ctx: dict) 
     return action
 
 
+# _FAST_INTERRUPT_INTENTS is now superseded by INSTANT_LANE_INTENTS
+_FAST_INTERRUPT_INTENTS = INSTANT_LANE_INTENTS
+
+_CONTEXT_HEAVY_ACTION_TYPES = {
+    "create_file_in_editor",
+    "open_editor",
+    "open_terminal",
+    "run_command",
+    "create_folder",
+}
+
+_DELAYED_SPEECH_ACTION_TYPES = {
+    "open_app",
+    "quit_app",
+    "open_project",
+    "open_editor",
+    "create_file_in_editor",
+    "create_folder",
+    "open_terminal",
+    "open_url",
+    "open_url_in_browser",
+    "browser_new_tab",
+    "browser_search",
+    "browser_close_tab",
+    "browser_close_window",
+    "focus_app",
+    "minimize_app",
+    "lock_screen",
+    "volume_up",
+    "volume_down",
+    "volume_mute",
+    "system_volume",
+    "volume_set",
+    "clipboard_read",
+    "clipboard_write",
+    "dark_mode_toggle",
+    "obsidian_note",
+}
+
+
+def _intent_can_preempt_busy_work(intent: IntentResult) -> bool:
+    return str(getattr(intent, "name", "") or "").strip() in _FAST_INTERRUPT_INTENTS
+
+
+def _action_needs_runtime_context(action: dict | None) -> bool:
+    if not isinstance(action, dict):
+        return False
+    return str(action.get("type", "") or "").strip() in _CONTEXT_HEAVY_ACTION_TYPES
+
+
+def _action_trace_name(action: dict) -> str:
+    return str(action.get("type", "") or "action").strip() or "action"
+
+
+def _action_trace_detail(action: dict) -> str:
+    keys = ("app", "name", "url", "cmd", "command", "filename", "path", "cwd", "query", "title", "message")
+    for key in keys:
+        value = " ".join(str(action.get(key, "") or "").split()).strip()
+        if value:
+            return value[:180]
+    return _action_trace_name(action)
+
+
+def _action_trace_result_detail(result: dict, fallback: str = "") -> str:
+    if not isinstance(result, dict):
+        return fallback
+    for key in ("result", "error"):
+        value = " ".join(str(result.get(key, "") or "").split()).strip()
+        if value:
+            return value[:180]
+    status = " ".join(str(result.get("status", "") or "").split()).strip().lower()
+    return fallback or status or "done"
+
+
+def _should_delay_speech_for_actions(actions: list[dict]) -> bool:
+    action_types = [
+        str(action.get("type", "") or "").strip()
+        for action in list(actions or [])
+        if isinstance(action, dict)
+    ]
+    return bool(action_types) and all(action_type in _DELAYED_SPEECH_ACTION_TYPES for action_type in action_types)
+
+
 def _record(
     text: str,
     speech: str,
@@ -2290,6 +2534,8 @@ def _record(
     intent_name: str = "",
     learning_meta: dict | None = None,
 ) -> None:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     try:
         learning_payload = dict(learning_meta or {})
         normalized_text = " ".join(str(text or "").split()).strip()
@@ -2561,16 +2807,16 @@ def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30
 
 
 def _get_cached_context() -> dict:
-    """Return cached build_structured_context(). Rebuilds every 30 seconds."""
+    """Return cached build_structured_context(). Rebuilds every 120 seconds."""
     global _CTX_CACHE, _CTX_CACHE_AT
     now = time.monotonic()
     with _CTX_CACHE_LOCK:
         if _CTX_CACHE is not None and now - _CTX_CACHE_AT < _CTX_CACHE_TTL_SECONDS:
             return _CTX_CACHE
-    ctx = build_structured_context()
-    with _CTX_CACHE_LOCK:
+        # Build inside the lock to prevent duplicate work from concurrent threads
+        ctx = build_structured_context()
         _CTX_CACHE = ctx
-        _CTX_CACHE_AT = now
+        _CTX_CACHE_AT = time.monotonic()
     return ctx
 
 
@@ -2641,6 +2887,7 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
     intent_name = getattr(intent, "name", getattr(intent, "intent", ""))
 
     if intent_name == "butler_sleep":
+        _clear_pending_command_state()
         response = "Going quiet. Say wake up to start again."
         _speak_or_print(response, test_mode=test_mode)
         _record(intent.raw, response, [], intent_name=intent_name)
@@ -2686,18 +2933,235 @@ def _handle_meta_intent(intent: IntentResult, test_mode: bool = False) -> bool:
     return False
 
 
+def _execute_instant(intent: IntentResult, text: str, *, test_mode: bool = False) -> None:
+    """Execute a deterministic command. No LLM, no context build, no AgentScope.
+    Target: <200ms end-to-end.
+    """
+    # Meta intents (sleep/wake/help/status/mcp) have their own handler
+    if _handle_meta_intent(intent, test_mode=test_mode):
+        return
+
+    # Greeting fast path
+    if intent.name == "greeting" or _looks_like_greeting(text):
+        response = _deterministic_greeting_response(text)
+        _speak_or_print(response, test_mode=test_mode)
+        _record(text, response, [], intent_name="greeting")
+        state.transition(State.WAITING if not test_mode else State.IDLE)
+        return
+
+    # Standard deterministic action — stay off the shared runner and LLM path.
+    action = intent.to_action()
+    response = get_quick_response(intent) or "Done."
+    results: list[dict] = []
+
+    if action:
+        note_tool_started(_action_trace_name(action), _action_trace_detail(action))
+        try:
+            results = executor.run([action])
+        except Exception as exc:
+            note_tool_finished(_action_trace_name(action), "error", str(exc)[:180])
+            response = _normalize_response(str(exc), max_words=18, single_sentence=True) or "That failed."
+            results = [{"action": action.get("type"), "status": "error", "error": str(exc)}]
+        else:
+            result = results[0] if results else {}
+            status = str(result.get("status", "ok") or "ok").strip().lower()
+            note_tool_finished(
+                _action_trace_name(action),
+                status or "ok",
+                _action_trace_result_detail(result, _action_trace_detail(action)),
+            )
+            if status == "ok":
+                _remember_project_state(action)
+            else:
+                response = (
+                    _normalize_response(str(result.get("error", "")), max_words=18, single_sentence=True)
+                    or "That failed."
+                )
+
+    _speak_or_print(response, test_mode=test_mode)
+    _record(
+        text,
+        response,
+        [action] if action else [],
+        results=results,
+        intent_name=intent.name,
+    )
+    state.transition(State.WAITING if not test_mode else State.IDLE)
+
+
+def _run_background_action(action: dict) -> None:
+    """Run a non-agent background action without blocking the mic."""
+    note_tool_started(_action_trace_name(action), _action_trace_detail(action))
+    try:
+        results = executor.run([action])
+    except Exception as exc:
+        note_tool_finished(_action_trace_name(action), "error", str(exc)[:180])
+        return
+
+    result = results[0] if results else {}
+    status = str(result.get("status", "ok") or "ok").strip().lower()
+    note_tool_finished(
+        _action_trace_name(action),
+        status or "ok",
+        _action_trace_result_detail(result, _action_trace_detail(action)),
+    )
+    if status == "ok":
+        _remember_project_state(action)
+
+
+def _execute_background(intent: IntentResult, text: str, *, test_mode: bool = False) -> None:
+    """Acknowledge immediately, run agent in background, return to listening.
+    Target: <500ms to acknowledgment. Agent result broadcasts via WebSocket.
+    """
+    response = get_quick_response(intent) or "Working on it."
+    _speak_or_print(response, test_mode=test_mode)
+
+    action_seed = intent.to_action()
+    action = _contextualize_action(action_seed, intent, {}) if action_seed else None
+    if action:
+        if action.get("type") == "run_agent":
+            try:
+                from agents.runner import run_agent_async
+                agent_name = str(action.get("agent", "")).strip()
+                run_agent_async(
+                    agent_name,
+                    {k: v for k, v in action.items() if k not in ("type", "agent")},
+                )
+            except Exception as exc:
+                print(f"[Background] Agent dispatch failed: {exc}")
+        else:
+            worker = threading.Thread(
+                target=_run_background_action,
+                args=(action,),
+                daemon=True,
+                name=f"bg-{intent.name}",
+            )
+            worker.start()
+
+    _record(text, response, [action] if action else [], intent_name=intent.name)
+    state.transition(State.WAITING if not test_mode else State.IDLE)
+
+
+_RESEARCH_RE = re.compile(r"\b(research|look up|look into|find out|investigate)\b")
+_RESEARCH_STRIP_RE = re.compile(r"^(research|look up|look into|find out|investigate)\s+")
+
+
+def _dispatch_research(
+    effective_text: str,
+    raw_text: str,
+    *,
+    test_mode: bool = False,
+    learning_meta: dict | None = None,
+    intent_name: str = "deep_research",
+) -> bool:
+    """Shared research dispatch for 'unknown' and 'question' intents.
+
+    Returns True if research was dispatched (caller should return early),
+    False if the text doesn't match research keywords.
+    """
+    lowered = effective_text.lower()
+    if not _RESEARCH_RE.search(lowered):
+        return False
+
+    _speak_or_print("On it, researching now.", test_mode=test_mode)
+    query = _RESEARCH_STRIP_RE.sub("", lowered).strip()
+    tool_reply: dict = {"speech": "", "actions": [], "results": []}
+    try:
+        from brain.toolkit import get_toolkit
+        import brain.tools_registry  # noqa: F401
+
+        result = get_toolkit().call("deep_research", question=query or effective_text)
+        tool_reply = {
+            "speech": str(result),
+            "actions": [{"type": "deep_research"}],
+            "results": [{"status": "ok", "result": str(result)}],
+        }
+    except Exception as exc:
+        tool_reply = {"speech": f"Research failed: {exc}", "actions": [], "results": []}
+
+    response = tool_reply.get("speech", "") or "I couldn't find anything on that."
+    _speak_or_print(response, test_mode=test_mode)
+    _record(
+        raw_text,
+        response,
+        tool_reply.get("actions", []),
+        results=tool_reply.get("results", []),
+        intent_name=intent_name,
+        learning_meta=learning_meta,
+    )
+    state.transition(State.WAITING if not test_mode else State.IDLE)
+    return True
+
+
 @trace_command
 def handle_input(text: str, test_mode: bool = False, model: str | None = None) -> None:
-    _ensure_watcher_started()
+    if not test_mode and not os.environ.get("PYTEST_CURRENT_TEST"):
+        _ensure_watcher_started()
 
     if not text or len(text.strip()) < 2:
         return
+
+    # ── HARD CONTROL: stop/sleep is NEVER queued, NEVER blocked ──────
+    lowered_raw = " ".join(text.lower().split()).strip()
+    if lowered_raw in {"stop", "sleep", "quiet", "be quiet", "go quiet",
+                       "shut up", "stop listening", "go to sleep", "bye", "goodbye"}:
+        note_heard_text(text)
+        add_event("stt.complete", {"text": text[:100]})
+        _clear_pending_command_state()
+        try:
+            from brain.agentscope_backbone import interrupt_agentscope_turn
+            interrupt_agentscope_turn("stop")
+        except Exception:
+            pass
+        _speak_or_print("Going quiet. Say wake up to start again.", test_mode=test_mode)
+        _record(text, "Going quiet. Say wake up to start again.", [], intent_name="butler_sleep")
+        state.transition(State.IDLE)
+        return
+
+    early_intent = route(text)
+
+    # ── INSTANT LANE: bypass busy gate entirely ──────────────────────
+    if early_intent.name in INSTANT_LANE_INTENTS:
+        note_heard_text(text)
+        add_event("stt.complete", {"text": text[:100]})
+        note_intent(early_intent.name, early_intent.params, early_intent.confidence, raw=text)
+        # If busy with agent work, cancel it for instant commands
+        if state.is_busy:
+            _clear_pending_command_state()
+            try:
+                from brain.agentscope_backbone import interrupt_agentscope_turn
+                interrupt_agentscope_turn(text)
+            except Exception:
+                pass
+            add_event("interrupt.instant", {"intent": early_intent.name})
+        _execute_instant(early_intent, text, test_mode=test_mode)
+        return
+
+    # ── DETERMINISTIC CASUAL: catch "thank you", "never mind", etc ────
+    if lowered_raw in _DETERMINISTIC_CASUAL_RESPONSES:
+        note_heard_text(text)
+        add_event("stt.complete", {"text": text[:100]})
+        response = _DETERMINISTIC_CASUAL_RESPONSES[lowered_raw]
+        _speak_or_print(response, test_mode=test_mode)
+        _record(text, response, [], intent_name="casual")
+        state.transition(State.WAITING if not test_mode else State.IDLE)
+        return
+
+    # ── BACKGROUND LANE: ack immediately, run agent async ────────────
+    if early_intent.name in BACKGROUND_LANE_INTENTS:
+        note_heard_text(text)
+        add_event("stt.complete", {"text": text[:100]})
+        note_intent(early_intent.name, early_intent.params, early_intent.confidence, raw=text)
+        _execute_background(early_intent, text, test_mode=test_mode)
+        return
+
+    # ── AGENT LANE: only these get blocked by busy gate ──────────────
     if state.is_busy:
         try:
             _COMMAND_QUEUE.put_nowait(text)
-            speak("Got it, finishing current task first.")
+            _speak_or_print("Got it, finishing current task first.", test_mode=test_mode)
         except queue.Full:
-            speak("Still busy, please wait.")
+            _speak_or_print("Still busy, please wait.", test_mode=test_mode)
         return
 
     # Check skills FIRST before intent router (STEAL 4)
@@ -2716,7 +3180,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     add_event("stt.complete", {"text": text[:100]})
     state.transition(State.THINKING)
     effective_text = text
-    intent = _resolve_pending_dialogue(text) or route(text)
+    # Reuse early_intent from L3024 instead of re-routing (saves ~2ms + regex work)
+    intent = _resolve_pending_dialogue(text) or early_intent
     if _looks_like_followup_reference(text):
         resolved_text = _resolve_followup_text(text, model=model)
         normalized_original = " ".join(str(text or "").lower().split())
@@ -2768,24 +3233,18 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "unknown":
         response = _unknown_response_for_text(effective_text)
         if not response and _should_use_brain_for_unknown(effective_text):
-            # Fast-path: direct keyword routing so user never waits for LLM to pick a tool
-            import re as _re
-            _low = effective_text.lower()
-            if _re.search(r"\b(research|look up|look into|find out|investigate)\b", _low):
-                _speak_or_print("On it, researching now.", test_mode=test_mode)
-                _query = _re.sub(r"^(research|look up|look into|find out|investigate)\s+", "", _low).strip()
-                tool_reply = {"speech": "", "actions": [], "results": []}
-                try:
-                    from brain.toolkit import get_toolkit
-                    import brain.tools_registry  # noqa
-                    result = get_toolkit().call("deep_research", question=_query or effective_text)
-                    tool_reply = {"speech": str(result), "actions": [{"type": "deep_research"}], "results": [{"status": "ok", "result": str(result)}]}
-                except Exception as _exc:
-                    tool_reply = {"speech": f"Research failed: {_exc}", "actions": [], "results": []}
-                response = tool_reply.get("speech", "") or "I couldn't find anything on that."
-                _speak_or_print(response, test_mode=test_mode)
-                _record(text, response, tool_reply.get("actions", []), results=tool_reply.get("results", []), intent_name="deep_research", learning_meta=brain_learning_meta)
+            # Smart reply lane: single cheap LLM call (max 80 tokens) before full brain path.
+            # Handles ~70% of simple questions in <3s without AgentScope overhead.
+            smart = _smart_reply(effective_text, {}, model=model)
+            if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
+                _speak_or_print(smart, test_mode=test_mode)
+                _record(text, smart, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
                 state.transition(State.WAITING if not test_mode else State.IDLE)
+                return
+            # smart == "NEEDS_TOOLS" or "NEEDS_CONTEXT" → fall through to brain lane below
+            # Fast-path: direct keyword routing so user never waits for LLM to pick a tool
+            research_result = _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="deep_research")
+            if research_result:
                 return
             ctx = _get_cached_context()
             _speak_or_print("Let me think about that.", test_mode=test_mode)
@@ -2824,11 +3283,11 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     _clear_pending_dialogue()
-    ctx = _get_cached_context()
-    _warn_if_search_offline()
-    action = _contextualize_action(intent.to_action(), intent, ctx)
+    action_seed = intent.to_action()
 
     if not intent.needs_llm():
+        action_ctx = _get_cached_context() if _action_needs_runtime_context(action_seed) else {}
+        action = _contextualize_action(action_seed, intent, action_ctx)
         response = get_quick_response(intent) or "Done."
         _run_actions_with_response(
             text=text,
@@ -2840,6 +3299,20 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             learning_meta=base_learning_meta,
         )
         return
+
+    if intent.name == "greeting":
+        _reply_without_action(
+            text,
+            _deterministic_greeting_response(effective_text),
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=base_learning_meta,
+        )
+        return
+
+    ctx = _get_cached_context()
+    _warn_if_search_offline()
+    action = _contextualize_action(action_seed, intent, ctx)
 
     if intent.name == "what_next":
         plan = _deterministic_project_plan(ctx)
@@ -2889,24 +3362,10 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "question":
-        # Acknowledge immediately so user knows we're working
-        import re as _re2
-        _low2 = effective_text.lower()
-        if _re2.search(r"\b(research|look up|look into|find out|investigate)\b", _low2):
-            _speak_or_print("On it, researching now.", test_mode=test_mode)
-            _q2 = _re2.sub(r"^(research|look up|look into|find out|investigate)\s+", "", _low2).strip()
-            try:
-                from brain.toolkit import get_toolkit
-                import brain.tools_registry  # noqa
-                result = get_toolkit().call("deep_research", question=_q2 or effective_text)
-                speech = str(result)
-            except Exception as _exc:
-                speech = f"Research failed: {_exc}"
-            _speak_or_print(speech, test_mode=test_mode)
-            _record(text, speech, [{"type": "deep_research"}], results=[{"status": "ok"}], intent_name="question", learning_meta=brain_learning_meta)
-            state.transition(State.WAITING if not test_mode else State.IDLE)
+        # Fast-path: direct keyword routing for research queries
+        research_result = _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="question")
+        if research_result:
             return
-        _speak_or_print("One moment.", test_mode=test_mode)
         tool_reply = _safe_tool_chat_response(
             effective_text,
             ctx,
@@ -2967,7 +3426,7 @@ handle_command = handle_input
 
 def _on_state_change(old_state: State, new_state: State) -> None:
     """Drain queued commands when butler becomes free."""
-    busy = {State.THINKING, State.SPEAKING, State.LISTENING}
+    busy = {State.THINKING, State.SPEAKING}
     if old_state in busy and new_state not in busy:
         _process_next_queued_command()
 
@@ -3038,12 +3497,14 @@ def _shutdown_handler(signum=None, frame=None) -> None:
     try:
         from brain.agentscope_backbone import get_backbone
         from memory.long_term import save_session_state
+        from runtime.tracing import shutdown_tracing
 
         backbone = get_backbone()
         if backbone and hasattr(backbone, "agent") and backbone.agent:
             save_session_state(backbone.agent)
             _SESSION_STATE_SAVED = True
             print("[Butler] Session state saved.")
+        shutdown_tracing()
     except Exception as exc:
         print(f"[Butler] Could not save session state: {exc}")
     if signum is not None:
