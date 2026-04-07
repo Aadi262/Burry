@@ -100,6 +100,20 @@ def _ollama_agent_host() -> str:
 
 
 def _ws_broadcast(payload: dict) -> None:
+    """Fire and forget so WS fan-out never blocks the voice pipeline."""
+    try:
+        thread = threading.Thread(
+            target=_ws_broadcast_inner,
+            args=(payload,),
+            daemon=True,
+            name="burry-ws-broadcast",
+        )
+        thread.start()
+    except Exception:
+        pass
+
+
+def _ws_broadcast_inner(payload: dict) -> None:
     """Broadcast a HUD event to all connected dashboard WebSocket clients."""
     try:
         from projects.dashboard import broadcast_ws_event
@@ -346,15 +360,7 @@ def _register_burry_hooks(agent, backbone_ref=None) -> None:
     """Register all 5 AgentScope lifecycle hooks on the backbone agent."""
 
     def pre_reply_hook(agent_instance, kwargs):
-        """Inject compressed memory before reply and mark the HUD as thinking."""
-        try:
-            compressed = get_compressed_context(max_tokens=1800)
-            if compressed:
-                current = getattr(agent_instance, "_sys_prompt", "") or ""
-                if "[MEMORY]" not in current:
-                    agent_instance._sys_prompt = current + f"\n\n[MEMORY]\n{compressed}"
-        except Exception:
-            pass
+        """Only broadcast the thinking event; hooks must never call the LLM."""
         _ws_broadcast({"type": "agent_thinking"})
         return kwargs
 
