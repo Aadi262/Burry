@@ -2570,6 +2570,23 @@ def _record(
                 }
             )
 
+        # ── MEMORY BUS: non-blocking batched write (Phase 2) ─────────
+        try:
+            from memory.bus import record as _bus_record
+            _bus_outcome = "success" if speech and not any(
+                str(r.get("status", "")).lower() == "error"
+                for r in (results or []) if isinstance(r, dict)
+            ) else "failure"
+            _bus_record({
+                "text": text,
+                "intent": intent_name or "unknown",
+                "speech": speech,
+                "model": (learning_meta or {}).get("model", ""),
+                "outcome": _bus_outcome,
+            })
+        except Exception:
+            pass
+
         _remember_conversation_turn(text, intent_name or "reply", speech)
         # Add to three-tier long-term memory (Phase 6)
         try:
