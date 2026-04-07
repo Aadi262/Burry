@@ -6,6 +6,7 @@ Stores: command history, what worked, project state, learned patterns.
 Updates automatically after each session.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -16,6 +17,11 @@ from pathlib import Path
 import requests
 
 from butler_config import EMBED_MODEL, OLLAMA_LOCAL_URL
+
+# In-process embedding cache — avoids repeated Ollama HTTP calls for the same text.
+# This prevents the LLM from being partially evicted from VRAM on every recall_memory call.
+_EMBED_CACHE: dict[str, list[float]] = {}
+_EMBED_CACHE_MAX = 500
 from utils import _clip_text, _now_iso
 
 MEMORY_PATH = Path(__file__).parent / "butler_memory.json"
@@ -68,6 +74,10 @@ def _embed_text(text: str) -> list[float]:
     cleaned = " ".join(str(text or "").split()).strip()
     if not cleaned:
         return []
+    # Check in-process cache before hitting Ollama (B2: avoid VRAM eviction on every recall)
+    cache_key = hashlib.md5(cleaned[:1600].encode()).hexdigest()
+    if cache_key in _EMBED_CACHE:
+        return _EMBED_CACHE[cache_key]
     try:
         response = requests.post(
             f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/embeddings",
@@ -77,7 +87,12 @@ def _embed_text(text: str) -> list[float]:
         response.raise_for_status()
         embedding = response.json().get("embedding", [])
         if isinstance(embedding, list):
-            return [float(value) for value in embedding]
+            result = [float(value) for value in embedding]
+            # Evict oldest entry if at capacity, then store
+            if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+                _EMBED_CACHE.pop(next(iter(_EMBED_CACHE)))
+            _EMBED_CACHE[cache_key] = result
+            return result
     except Exception:
         return []
     return []
