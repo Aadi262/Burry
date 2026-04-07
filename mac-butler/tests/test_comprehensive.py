@@ -346,12 +346,15 @@ class TestContextEngine(unittest.TestCase):
         self.assertGreater(len(ctx["formatted"]), 10)
 
     def test_context_under_700_chars(self):
-        """Context MUST stay compressed — 14B models degrade with long context."""
+        """Fast context path must stay small. Full context cap removed (B3 Part C)."""
         from context import build_structured_context
-        ctx = build_structured_context()
-        length = len(ctx["formatted"])
-        self.assertLessEqual(length, 700,
-            f"Context too long: {length} chars (max 700)")
+        fast_ctx = build_structured_context(fast=True)
+        fast_len = len(fast_ctx["formatted"])
+        self.assertLessEqual(fast_len, 700,
+            f"Fast context too long: {fast_len} chars (max 700)")
+        # Full context is no longer capped — just verify it's non-empty
+        full_ctx = build_structured_context(fast=False)
+        self.assertGreater(len(full_ctx["formatted"]), 0)
 
     def test_no_raw_git_hashes(self):
         """Git hashes are noise — should be compressed to commit messages."""

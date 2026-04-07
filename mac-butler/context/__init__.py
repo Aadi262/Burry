@@ -110,10 +110,15 @@ def _cached_tasks_for_prompt() -> str:
     return get_tasks_for_prompt()
 
 
-def build_structured_context() -> dict:
+def build_structured_context(fast: bool = False) -> dict:
     """
     Master context builder. Gathers all sources and assembles a
     structured context dict + formatted string for the LLM.
+
+    Args:
+        fast: When True (B3), only gather 3 lightweight sources: app, time, memory_index.
+              Skips git, VSCode, Obsidian, VPS, MCP. Used by the smart reply lane.
+              When False (default), gathers all 10 sources for the full brain path.
 
     Returns:
         {
@@ -122,6 +127,25 @@ def build_structured_context() -> dict:
             "priority": "coding" | "tasks" | "mixed",
         }
     """
+    time_data = _get_time_context()
+
+    if fast:
+        # Fast path: 3 sources only — no subprocesses, no network, no disk-heavy reads
+        app_data = get_app_context()
+        mac_state = get_state_for_context()
+        memory_index = get_memory_index()
+        sections = [f"[TIME]\n  {time_data['period']} ({time_data['time_string']})"]
+        if mac_state:
+            sections.append(_compress_text(mac_state, 200))
+        if memory_index:
+            sections.append(_compress_text(memory_index, 140))
+        formatted = "\n\n".join(sections) if sections else "(No context)"
+        return {
+            "raw": {"app": app_data, "time": time_data},
+            "formatted": formatted,
+            "priority": "mixed",
+        }
+
     # Gather all raw data
     git_data = get_git_context()
     editor_data = get_vscode_context()
@@ -133,7 +157,6 @@ def build_structured_context() -> dict:
     mcp_text = get_mcp_context()
     mac_state = get_state_for_context()
     memory_index = get_memory_index()
-    time_data = _get_time_context()
 
     # Determine context priority
     has_code_activity = git_data["has_activity"] or editor_data["has_data"]
@@ -208,7 +231,8 @@ def build_structured_context() -> dict:
     if mcp_text:
         sections.append("[MCP]\n" + mcp_text[:160])
 
-    formatted = _compress_text("\n\n".join(sections) if sections else "(No context)", limit=650)
+    # B3 Part C: removed 650-char cap — gather less (fast path) or truncate less (full path)
+    formatted = "\n\n".join(sections) if sections else "(No context)"
 
     return {
         "raw": {

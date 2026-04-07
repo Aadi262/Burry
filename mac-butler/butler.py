@@ -2846,6 +2846,13 @@ def _get_cached_context() -> dict:
     return ctx
 
 
+def _get_fast_context() -> dict:
+    """B3: Return a fast 3-source context (app + time + memory) for the smart reply lane.
+    No git, VSCode, Obsidian, VPS, MCP — no subprocesses or network calls.
+    """
+    return build_structured_context(fast=True)
+
+
 def _get_structured_context() -> dict:
     return _get_cached_context()
 
@@ -3267,9 +3274,9 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 _record(text, smart, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
                 state.transition(State.WAITING if not test_mode else State.IDLE)
                 return
-            # Step 2: NEEDS_CONTEXT → inject fast context and retry once.
+            # Step 2: NEEDS_CONTEXT → inject fast context (B3: 3 sources, no network) and retry once.
             if smart == "NEEDS_CONTEXT":
-                ctx = _get_cached_context()
+                ctx = _get_fast_context()
                 smart2 = _smart_reply(effective_text, ctx, model=model)
                 if smart2 and smart2 not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
                     _speak_or_print(smart2, test_mode=test_mode)
