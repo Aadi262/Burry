@@ -5,11 +5,46 @@ Import this module once to register everything into the Toolkit.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
+from butler_config import VPS_HOSTS
 from brain.toolkit import tool
 from executor.engine import Executor
 
 _executor = Executor()
+
+
+def _project_cwd(project: str) -> str | None:
+    name = " ".join(str(project or "").split()).strip()
+    if not name:
+        return None
+    try:
+        from projects import get_project
+
+        item = get_project(name, hydrate_blurb=True)
+    except Exception:
+        item = None
+    path = str((item or {}).get("path", "")).strip()
+    return path or None
+
+
+def _minutes_from_time_spec(value: str) -> int:
+    text = " ".join(str(value or "").lower().split()).strip()
+    if not text:
+        return 30
+    digits = "".join(ch for ch in text if ch.isdigit())
+    amount = int(digits) if digits else 30
+    if "day" in text:
+        return max(amount, 1) * 24 * 60
+    if "hour" in text or text.endswith("hr") or text.endswith("hrs"):
+        return max(amount, 1) * 60
+    return max(amount, 1)
+
+
+def _default_vps_host() -> str:
+    if VPS_HOSTS:
+        return str(VPS_HOSTS[0].get("host", "")).strip()
+    return ""
 
 
 @tool
@@ -43,7 +78,7 @@ def hide_app(app: str) -> str:
 @tool
 def run_shell(command: str, project: str = "") -> str:
     """Run a shell command in a project directory."""
-    result = _executor.run([{"type": "run_shell", "command": command, "project": project}])
+    result = _executor.run([{"type": "run_command", "cmd": command, "cwd": _project_cwd(project)}])
     return result[0].get("result", "") if result else ""
 
 
@@ -93,21 +128,40 @@ def spotify_control(action: str, query: str = "") -> str:
 @tool
 def git_commit(project: str = "", message_hint: str = "") -> str:
     """Generate a commit message from staged changes, confirm, and commit."""
-    result = _executor.run([{"type": "git_commit", "project": project, "message_hint": message_hint}])
-    return result[0].get("result", "committed") if result else "committed"
+    cwd = _project_cwd(project) or "~/Burry/mac-butler"
+    expanded_cwd = str(Path(cwd).expanduser())
+    diff = subprocess.run(
+        ["git", "diff", "--cached"],
+        cwd=expanded_cwd,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    staged_diff = str(diff.stdout or "").strip()
+    if not staged_diff:
+        return "No staged changes to commit"
+    message = " ".join(str(message_hint or "").split()).strip() or "Update staged changes"
+    commit = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=expanded_cwd,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return " ".join((commit.stdout or commit.stderr or message).split()).strip() or message
 
 
 @tool
 def set_reminder(time: str, message: str) -> str:
     """Create a macOS reminder at a time offset like '30 minutes' or '2 hours'."""
-    result = _executor.run([{"type": "remind_in", "time": time, "message": message}])
+    result = _executor.run([{"type": "remind_in", "minutes": _minutes_from_time_spec(time), "message": message}])
     return result[0].get("result", "reminder set") if result else "reminder set"
 
 
 @tool
 def ssh_vps(command: str) -> str:
     """Run a shell command on the configured VPS over SSH."""
-    result = _executor.run([{"type": "ssh_command", "cmd": command}])
+    result = _executor.run([{"type": "ssh_command", "host": _default_vps_host(), "cmd": command}])
     return result[0].get("result", "") if result else ""
 
 

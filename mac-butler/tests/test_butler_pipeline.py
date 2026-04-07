@@ -7,11 +7,11 @@ from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
     _brain_context_text,
     _build_startup_briefing_prompt,
+    _call_tool_with_toolkit,
     _clear_pending_dialogue,
     _conversation_context_text,
     _contextualize_action,
     _deterministic_project_plan,
-    _execute_tool_call,
     _extract_news_topic,
     _direct_agent_plan_for_text,
     _looks_like_followup_reference,
@@ -368,60 +368,63 @@ class ButlerPipelineTests(unittest.TestCase):
         self.assertIn("BURRY: Running the test suite.", text)
         self.assertLess(text.index("[RECENT CONVERSATION]"), text.index("[CURRENT REQUEST]"))
 
+    @patch("brain.toolkit.get_toolkit")
     @patch("butler.note_tool_finished")
     @patch("butler.note_tool_started")
-    @patch("butler.speak")
-    @patch("butler._raw_llm", return_value="3 tests passed, 1 failed in auth.py.")
-    @patch("butler.executor.run")
-    def test_run_shell_speaks_short_summary_for_multiline_output(
+    def test_call_tool_with_toolkit_routes_run_shell(
         self,
-        mock_run,
-        _mock_llm,
-        mock_speak,
-        _mock_started,
-        _mock_finished,
+        mock_started,
+        mock_finished,
+        mock_get_toolkit,
     ):
-        mock_run.return_value = [
-            {
-                "action": "run_command",
-                "status": "ok",
-                "result": "test_auth.py ... ok\ntest_api.py ... FAIL\n1 failed, 3 passed\n",
-            }
-        ]
+        mock_toolkit = MagicMock()
+        mock_toolkit.call.return_value = "test_auth.py ... ok\ntest_api.py ... FAIL\n1 failed, 3 passed\n"
+        mock_get_toolkit.return_value = mock_toolkit
 
-        result = _execute_tool_call("run_shell", {"command": "pytest"}, {"formatted": ""})
+        result = _call_tool_with_toolkit("run_shell", {"command": "pytest"})
 
         self.assertEqual(result["results"][0]["status"], "ok")
-        mock_speak.assert_called_once_with("3 tests passed, 1 failed in auth.py.")
+        self.assertEqual(result["actions"][0]["type"], "run_shell")
+        self.assertEqual(result["payload"]["args"]["command"], "pytest")
+        mock_toolkit.call.assert_called_once_with("run_shell", command="pytest")
+        mock_started.assert_called_once()
+        mock_finished.assert_called_once()
 
+    @patch("brain.toolkit.get_toolkit")
     @patch("butler.note_tool_finished")
     @patch("butler.note_tool_started")
-    @patch("butler.executor.run")
-    def test_execute_tool_call_wires_focus_app(self, mock_run, _mock_started, _mock_finished):
-        mock_run.return_value = [{"action": "focus_app", "status": "ok", "result": "Focused Cursor"}]
+    def test_call_tool_with_toolkit_wires_focus_app(self, mock_started, mock_finished, mock_get_toolkit):
+        mock_toolkit = MagicMock()
+        mock_toolkit.call.return_value = "Focused Cursor"
+        mock_get_toolkit.return_value = mock_toolkit
 
-        result = _execute_tool_call("focus_app", {"app": "Cursor"}, {"formatted": ""})
+        result = _call_tool_with_toolkit("focus_app", {"app": "Cursor"})
 
         self.assertEqual(result["actions"][0]["type"], "focus_app")
-        self.assertEqual(result["payload"]["app"], "Cursor")
+        self.assertEqual(result["payload"]["args"]["app"], "Cursor")
         self.assertEqual(result["results"][0]["result"], "Focused Cursor")
+        mock_started.assert_called_once()
+        mock_finished.assert_called_once()
 
+    @patch("brain.toolkit.get_toolkit")
     @patch("butler.note_tool_finished")
     @patch("butler.note_tool_started")
-    @patch("butler.executor.run")
-    def test_execute_tool_call_wires_send_email(self, mock_run, _mock_started, _mock_finished):
-        mock_run.return_value = [{"action": "send_email", "status": "ok", "result": "Email sent to john@example.com"}]
+    def test_call_tool_with_toolkit_wires_send_email(self, mock_started, mock_finished, mock_get_toolkit):
+        mock_toolkit = MagicMock()
+        mock_toolkit.call.return_value = "Email sent to john@example.com"
+        mock_get_toolkit.return_value = mock_toolkit
 
-        result = _execute_tool_call(
+        result = _call_tool_with_toolkit(
             "send_email",
             {"to": "john@example.com", "subject": "Meeting", "body": "See you at 3."},
-            {"formatted": ""},
         )
 
         self.assertEqual(result["actions"][0]["type"], "send_email")
-        self.assertEqual(result["payload"]["to"], "john@example.com")
-        self.assertEqual(result["payload"]["subject"], "Meeting")
+        self.assertEqual(result["payload"]["args"]["to"], "john@example.com")
+        self.assertEqual(result["payload"]["args"]["subject"], "Meeting")
         self.assertEqual(result["results"][0]["result"], "Email sent to john@example.com")
+        mock_started.assert_called_once()
+        mock_finished.assert_called_once()
 
     @patch("butler.note_tool_finished")
     @patch("butler.note_memory_recall")

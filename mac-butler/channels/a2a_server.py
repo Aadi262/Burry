@@ -103,13 +103,13 @@ def start_agentscope_a2a(agent=None) -> bool:
             agent = getattr(backbone, "agent", None)
         if agent is None:
             return False
-        service = AgentService(agent=agent, host="localhost", port=8080)
+        service = AgentService(agent=agent, host="localhost", port=3335)
         threading.Thread(
             target=service.run,
             daemon=True,
             name="burry-a2a-agentscope",
         ).start()
-        print("[A2A] AgentScope native A2A at http://localhost:8080")
+        print("[A2A] AgentScope native A2A at http://localhost:3335")
         return True
     except (ImportError, Exception) as exc:
         print(f"[A2A] AgentScope A2A not available: {exc}")

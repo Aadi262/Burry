@@ -1454,21 +1454,21 @@ def _looks_like_memory_question(text: str) -> bool:
 def _fallback_tool_outcome(text: str, ctx: dict) -> dict | None:
     lowered = " ".join(str(text or "").lower().split())
     if _looks_like_memory_question(lowered):
-        return _execute_tool_call("recall_memory", {"query": text}, ctx, user_text=text)
+        return _call_tool_with_toolkit("recall_memory", {"query": text})
 
     if any(phrase in lowered for phrase in ("what am i looking at", "what's on my screen", "describe this screen", "describe my screen")):
-        return _execute_tool_call("take_screenshot_and_describe", {"question": text}, ctx, user_text=text)
+        return _call_tool_with_toolkit("take_screenshot_and_describe", {"question": text})
 
     if "github" in lowered and "latest commit" in lowered:
-        return _execute_tool_call("browse_and_act", {"task": text}, ctx, user_text=text)
+        return _call_tool_with_toolkit("browse_and_act", {"task": text})
 
     decision = analyze_query(text, conversation=_conversation_context_text())
     action = str(decision.get("action", "") or "").strip().lower()
     url = str(decision.get("url", "") or "").strip()
     if action == "fetch" and url:
-        return _execute_tool_call("browse_web", {"url": url, "query": text}, ctx, user_text=text)
+        return _call_tool_with_toolkit("browse_web", {"url": url, "query": text})
     if action in {"search", "news", "fetch"}:
-        return _execute_tool_call("browse_web", {"query": text, "url": url}, ctx, user_text=text)
+        return _call_tool_with_toolkit("browse_web", {"query": text, "url": url})
     return None
 
 
@@ -1520,489 +1520,83 @@ def _fallback_tool_response(text: str, ctx: dict) -> dict | None:
     }
 
 
-def _execute_tool_call(tool_name: str, arguments: dict, ctx: dict, user_text: str = "") -> dict:
+def _toolkit_result_text(result) -> str:
+    if isinstance(result, dict):
+        preferred = " ".join(str(result.get("result", "") or result.get("speech", "")).split()).strip()
+        if preferred:
+            return preferred
+        return json.dumps(_clip_tool_payload(result), ensure_ascii=True)
+    if isinstance(result, list):
+        return json.dumps(_clip_tool_payload(result), ensure_ascii=True)
+    return " ".join(str(result or "").split()).strip()
+
+
+def _call_tool_with_toolkit(tool_name: str, arguments: dict) -> dict:
     from brain.toolkit import get_toolkit
-    import brain.tools_registry  # noqa — triggers all @tool decorations
+    import brain.tools_registry  # noqa: F401
 
     name = str(tool_name or "").strip()
     args = dict(arguments or {})
     toolkit = get_toolkit()
+    note_tool_started(name or "unknown", str(args)[:120])
+    try:
+        result = toolkit.call(name, **args)
+        result_text = _toolkit_result_text(result)
+        payload_result = result if isinstance(result, dict) else (result_text or "Done.")
+        payload: dict[str, object] = {
+            "tool": name,
+            "args": {key: _clip_tool_payload(value, limit=220) for key, value in args.items()},
+            "status": "ok",
+            "result": _clip_tool_payload(payload_result),
+        }
+        if name == "recall_memory":
+            from memory.store import semantic_search
 
-    # Legacy path: keep old dispatch for any tools not yet in registry
-    _name = name
-    _args = args
-
-    if name == "open_project":
-        project_name = " ".join(str(args.get("name", "")).split()).strip()
-        note_tool_started(name, project_name or "opening project")
-        action = {"type": "open_project", "name": project_name}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "open_project", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+            matches = semantic_search(str(args.get("query", "")).strip(), n=3)
+            note_memory_recall(str(args.get("query", "")).strip(), matches)
+            payload["matches"] = _clip_tool_payload(matches)
+        note_tool_finished(name, "ok", result_text[:200] or "Done.")
         return {
             "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {
-                "project": project_name,
-                "status": result.get("status", "ok"),
-                "result": _clip_tool_payload(result.get("result", "") or result.get("error", "")),
-            },
+            "actions": [{"type": name, **args}],
+            "results": [{"action": name, "status": "ok", "result": result_text or "Done."}],
+            "payload": payload,
+            "speech": result_text or "Done.",
         }
-
-    if name == "run_shell":
-        command = " ".join(str(args.get("command", "")).split()).strip()
-        project_name = " ".join(str(args.get("project", "")).split()).strip()
-        note_tool_started(name, command or project_name or "running shell command")
-        cwd = _project_path_for_name(project_name) or _first_workspace_path(ctx) or "~/Burry"
-        action = {"type": "run_command", "cmd": command, "cwd": cwd}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "run_command", "status": "error", "error": "No result"}
-        result_text = str(result.get("result", "") or result.get("error", "")).strip()
-        output_lines = [line for line in result_text.splitlines() if line.strip()]
-        if len(output_lines) > 2:
-            try:
-                shell_summary = _normalize_response(
-                    _raw_llm(
-                        f"Summarize this shell output in under 15 words:\n{result_text[:1200]}",
-                        model="gemma4:e4b",
-                        max_tokens=40,
-                        temperature=0.2,
-                    ),
-                    max_words=15,
-                    single_sentence=True,
-                )
-            except Exception:
-                shell_summary = ""
-            if shell_summary:
-                try:
-                    speak(shell_summary)
-                except Exception:
-                    pass
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
+    except Exception as exc:
+        note_tool_finished(name or "unknown", "error", str(exc))
         return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {
-                "command": command,
-                "cwd": cwd,
-                "status": result.get("status", "ok"),
-                "result": _clip_tool_payload(result.get("result", "") or result.get("error", "")),
-            },
+            "tool": name or "unknown",
+            "actions": [],
+            "results": [{"action": name or "unknown", "status": "error", "error": str(exc)}],
+            "payload": {"tool": name or "unknown", "status": "error", "error": _clip_tool_payload(str(exc), limit=220)},
+            "speech": f"I had trouble with {name or 'that'}.",
         }
 
-    if name == "git_commit":
-        project_name = " ".join(str(args.get("project", "")).split()).strip()
-        message_hint = " ".join(str(args.get("message_hint", "")).split()).strip()
-        cwd = _project_path_for_name(project_name) or _first_workspace_path(ctx) or "~/Burry/mac-butler"
-        expanded_cwd = os.path.expanduser(cwd)
-        note_tool_started(name, project_name or expanded_cwd or "generating commit message")
-        diff = subprocess.run(
-            ["git", "diff", "--cached"],
-            cwd=expanded_cwd,
-            capture_output=True,
-            text=True,
-            timeout=20,
+
+def _safe_tool_chat_response(
+    text: str,
+    ctx: dict,
+    *,
+    model: str | None = None,
+    intent_name: str = "",
+    intent_confidence: float = 0.0,
+    stream_speech: bool = False,
+    test_mode: bool = False,
+) -> dict:
+    try:
+        return _tool_chat_response(
+            text,
+            ctx,
+            model=model,
+            intent_name=intent_name,
+            intent_confidence=intent_confidence,
+            stream_speech=stream_speech,
         )
-        staged_diff = str(diff.stdout or "").strip()
-        if not staged_diff:
-            note_tool_finished(name, "ok", "No staged changes to commit")
-            return {
-                "tool": name,
-                "actions": [{"type": "git_commit", "cwd": expanded_cwd}],
-                "results": [{"action": "git_commit", "status": "ok", "result": "No staged changes to commit"}],
-                "payload": {"cwd": expanded_cwd, "message": "", "status": "ok", "result": "No staged changes to commit"},
-            }
-
-        prompt = f"""Write a concise git commit message for these staged changes.
-Use imperative mood. No quotes. Under 12 words.
-Hint: {message_hint or "none"}
-
-Diff:
-{staged_diff[:6000]}
-"""
-        suggestion = _normalize_response(
-            _raw_llm(prompt, model=BUTLER_MODELS.get("voice") or "gemma4:e4b", max_tokens=40, temperature=0.2),
-            max_words=12,
-            single_sentence=True,
-        ).strip(" .")
-        if not suggestion:
-            suggestion = message_hint or "Update staged changes"
-
-        try:
-            speak(f"I suggest commit message: {suggestion}. Confirm in the HUD if you want me to commit.")
-        except Exception:
-            pass
-        if not _wait_for_runtime_confirmation(f"Confirm git commit: {suggestion}", "git_commit", timeout_s=30):
-            note_tool_finished(name, "ok", "Commit skipped - no confirmation")
-            return {
-                "tool": name,
-                "actions": [{"type": "git_commit", "cwd": expanded_cwd, "message": suggestion}],
-                "results": [{"action": "git_commit", "status": "ok", "result": "Commit skipped - no confirmation"}],
-                "payload": {"cwd": expanded_cwd, "message": suggestion, "status": "ok", "result": "Commit skipped - no confirmation"},
-            }
-
-        commit = subprocess.run(
-            ["git", "commit", "-m", suggestion],
-            cwd=expanded_cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        commit_result = " ".join((commit.stdout or commit.stderr or "").split()).strip()
-        status = "ok" if commit.returncode == 0 else "error"
-        note_tool_finished(name, status, commit_result or suggestion)
-        return {
-            "tool": name,
-            "actions": [{"type": "git_commit", "cwd": expanded_cwd, "message": suggestion}],
-            "results": [{"action": "git_commit", "status": status, "result": commit_result or suggestion}],
-            "payload": {"cwd": expanded_cwd, "message": suggestion, "status": status, "result": _clip_tool_payload(commit_result or suggestion)},
-        }
-
-    if name == "open_app":
-        app = " ".join(str(args.get("app", "")).split()).strip()
-        mode = " ".join(str(args.get("mode", "smart")).split()).strip() or "smart"
-        note_tool_started(name, app or "opening app")
-        action = {"type": "open_app", "app": app, "mode": mode}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "open_app", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"app": app, "mode": mode, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "focus_app":
-        app = " ".join(str(args.get("app", "")).split()).strip()
-        note_tool_started(name, app or "focusing app")
-        action = {"type": "focus_app", "app": app}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "focus_app", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "minimize_app":
-        app = " ".join(str(args.get("app", "")).split()).strip()
-        note_tool_started(name, app or "minimizing app")
-        action = {"type": "minimize_app", "app": app}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "minimize_app", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "hide_app":
-        app = " ".join(str(args.get("app", "")).split()).strip()
-        note_tool_started(name, app or "hiding app")
-        action = {"type": "hide_app", "app": app}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "hide_app", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"app": app, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "chrome_open_tab":
-        url = " ".join(str(args.get("url", "")).split()).strip()
-        note_tool_started(name, url or "opening chrome tab")
-        action = {"type": "chrome_open_tab", "url": url}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "chrome_open_tab", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"url": url, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "chrome_close_tab":
-        tab_title = " ".join(str(args.get("tab_title", "")).split()).strip()
-        note_tool_started(name, tab_title or "closing chrome tab")
-        action = {"type": "chrome_close_tab", "tab_title": tab_title}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "chrome_close_tab", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"tab_title": tab_title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "chrome_focus_tab":
-        tab_title = " ".join(str(args.get("tab_title", "")).split()).strip()
-        note_tool_started(name, tab_title or "focusing chrome tab")
-        action = {"type": "chrome_focus_tab", "tab_title": tab_title}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "chrome_focus_tab", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"tab_title": tab_title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "send_email":
-        to = " ".join(str(args.get("to", "")).split()).strip()
-        subject = " ".join(str(args.get("subject", "")).split()).strip()
-        body = str(args.get("body", "")).strip()
-        note_tool_started(name, to or "sending email")
-        action = {"type": "send_email", "to": to, "subject": subject, "body": body}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "send_email", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"to": to, "subject": subject, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "send_whatsapp":
-        contact = " ".join(str(args.get("contact", "")).split()).strip()
-        message = " ".join(str(args.get("message", "")).split()).strip()
-        note_tool_started(name, contact or "sending WhatsApp")
-        action = {"type": "send_whatsapp", "contact": contact, "message": message}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "send_whatsapp", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"contact": contact, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "spotify_control":
-        action_name = " ".join(str(args.get("action", "")).split()).strip().lower()
-        query = " ".join(str(args.get("query", "")).split()).strip()
-        note_tool_started(name, action_name or query or "spotify control")
-        if action_name == "play" and query:
-            action = {"type": "search_and_play", "query": query}
-        elif action_name == "play":
-            action = {"type": "play_music", "mode": "focus"}
-        elif action_name == "pause":
-            action = {"type": "spotify_pause"}
-        elif action_name == "next":
-            action = {"type": "spotify_next"}
-        elif action_name == "prev":
-            action = {"type": "spotify_prev"}
-        elif action_name == "volume_up":
-            action = {"type": "spotify_volume", "direction": "up", "amount": 15}
-        elif action_name == "volume_down":
-            action = {"type": "spotify_volume", "direction": "down", "amount": 15}
-        else:
-            action = {"type": "spotify_now_playing"}
-        results = executor.run([action])
-        result = results[0] if results else {"action": action.get("type", "spotify_control"), "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"action": action_name, "query": query, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "set_reminder":
-        time_spec = " ".join(str(args.get("time", "")).split()).strip()
-        message = " ".join(str(args.get("message", "")).split()).strip() or "Butler reminder"
-        minutes = _minutes_from_time_spec(time_spec)
-        note_tool_started(name, f"{minutes} minutes")
-        action = {"type": "remind_in", "minutes": minutes, "message": message}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "remind_in", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"minutes": minutes, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "ssh_vps":
-        command = " ".join(str(args.get("command", "")).split()).strip()
-        host = _default_vps_host()
-        note_tool_started(name, command or host or "running vps command")
-        action = {"type": "ssh_command", "host": host, "cmd": command}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "ssh_command", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"host": host, "command": command, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "obsidian_note":
-        title = " ".join(str(args.get("title", "")).split()).strip() or "Quick note"
-        content = str(args.get("content", "")).strip()
-        note_tool_started(name, title)
-        action = {"type": "obsidian_note", "title": title, "content": content, "folder": "Daily"}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "obsidian_note", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"title": title, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "send_notification":
-        title = " ".join(str(args.get("title", "")).split()).strip() or "Burry"
-        message = " ".join(str(args.get("message", "")).split()).strip()
-        note_tool_started(name, title)
-        action = {"type": "notify", "title": title, "message": message}
-        results = executor.run([action])
-        result = results[0] if results else {"action": "notify", "status": "error", "error": "No result"}
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", "") or result.get("error", ""))
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": results,
-            "payload": {"title": title, "message": message, "status": result.get("status", "ok"), "result": _clip_tool_payload(result.get("result", "") or result.get("error", ""))},
-        }
-
-    if name == "web_search_summarize":
-        from browser.agent import BrowsingAgent
-        from brain.ollama_client import pick_butler_model
-
-        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
-        note_tool_started(name, query or "web search")
-        browser = BrowsingAgent(model=pick_butler_model("voice"))
-        result = browser.search(query, question=user_text or query)
-        summary = _normalize_response(str(result.get("result", "")).strip(), max_words=40) or "I couldn't get a useful web summary right now."
-        note_tool_finished(name, result.get("status", "ok"), summary)
-        return {
-            "tool": name,
-            "actions": [{"type": "browse_web", "mode": "search", "query": query}],
-            "results": [{"action": "web_search_summarize", "status": result.get("status", "ok"), "result": summary}],
-            "payload": {"query": query, "status": result.get("status", "ok"), "result": _clip_tool_payload(summary), "data": _clip_tool_payload(result.get("data", {}))},
-        }
-
-    if name == "browse_web":
-        from browser.agent import BrowsingAgent
-        from brain.ollama_client import pick_butler_model
-
-        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
-        url = " ".join(str(args.get("url", "")).split()).strip()
-        note_tool_started(name, url or query or "browsing web")
-        browser = BrowsingAgent(model=pick_butler_model("voice"))
-        if url:
-            action = {"type": "browse_web", "mode": "fetch", "query": query or f"Read {url}", "url": url}
-            result = browser.fetch(url, query or f"Read {url}")
-        else:
-            action = {"type": "browse_web", "mode": "search", "query": query}
-            result = browser.search(query, question=user_text or query)
-        note_tool_finished(name, result.get("status", "ok"), result.get("result", ""))
-        result_row = {
-            "action": "browse_web",
-            "status": result.get("status", "ok"),
-            "result": str(result.get("result", "") or ""),
-        }
-        return {
-            "tool": name,
-            "actions": [action],
-            "results": [result_row],
-            "payload": {
-                "mode": action.get("mode", "search"),
-                "status": result.get("status", "ok"),
-                "result": _clip_tool_payload(result.get("result", "")),
-                "data": _clip_tool_payload(result.get("data", {})),
-            },
-        }
-
-    if name == "recall_memory":
-        from memory.store import semantic_search
-
-        query = " ".join(str(args.get("query", "")).split()).strip() or user_text
-        note_tool_started(name, query or "recalling memory")
-        matches = semantic_search(query, n=5)
-        items = [
-            {
-                "timestamp": str(item.get("timestamp", ""))[:16],
-                "context": _clip_tool_payload(item.get("context", item.get("context_preview", "")), limit=120),
-                "speech": _clip_tool_payload(item.get("speech", ""), limit=140),
-                "score": item.get("score", 0.0),
-            }
-            for item in matches
-        ]
-        note_memory_recall(query, items)
-        note_tool_finished(name, "ok", f"Found {len(items)} memory matches")
-        return {
-            "tool": name,
-            "actions": [{"type": "recall_memory", "query": query}],
-            "results": [{"action": "recall_memory", "status": "ok", "result": f"{len(items)} matches"}],
-            "payload": {"query": query, "matches": items},
-        }
-
-    if name == "take_screenshot_and_describe":
-        from agents.vision import describe_screen
-
-        question = " ".join(str(args.get("question", "")).split()).strip() or "What is on the screen right now?"
-        note_tool_started(name, question)
-        answer = describe_screen(question)
-        note_tool_finished(name, "ok", answer)
-        return {
-            "tool": name,
-            "actions": [{"type": "take_screenshot_and_describe", "question": question}],
-            "results": [{"action": "take_screenshot_and_describe", "status": "ok", "result": answer}],
-            "payload": {"question": question, "result": _clip_tool_payload(answer, limit=220)},
-        }
-
-    # Generic toolkit fallback for tools that do not need bespoke payload shaping.
-    if name in toolkit._tools:
-        note_tool_started(name, str(args)[:120])
-        try:
-            result = toolkit.call(name, **args)
-            result_text = str(result)
-            note_tool_finished(name, "ok", result_text[:200])
-            return {
-                "tool": name,
-                "actions": [{"type": name, **args}],
-                "results": [{"action": name, "status": "ok", "result": result_text}],
-                "payload": {
-                    **{key: _clip_tool_payload(value, limit=220) for key, value in args.items()},
-                    "status": "ok",
-                    "result": _clip_tool_payload(result_text),
-                },
-                "speech": result_text,
-            }
-        except Exception as exc:
-            note_tool_finished(name, "error", str(exc))
-            return {
-                "tool": name,
-                "actions": [],
-                "results": [{"action": name, "status": "error", "error": str(exc)}],
-                "payload": {"status": "error", "error": _clip_tool_payload(str(exc), limit=220)},
-                "speech": f"I had trouble with {name}.",
-            }
-
-    note_tool_finished(name or "unknown", "error", "Unknown tool")
-    return {
-        "tool": name or "unknown",
-        "actions": [],
-        "results": [{"action": name or "unknown", "status": "error", "error": "Unknown tool"}],
-        "payload": {"error": f"Unknown tool: {name or 'unknown'}"},
-    }
+    except Exception:
+        fallback = "I had trouble with that, try again."
+        _speak_or_print(fallback, test_mode=test_mode)
+        return {"speech": fallback, "actions": [], "results": [], "spoken": True}
 
 
 def _tool_chat_response(
@@ -2020,6 +1614,7 @@ def _tool_chat_response(
     planning_model = pick_butler_model("planning", override=model)
     voice_model = pick_butler_model("voice", override=model)
     messages = _tool_chat_messages(ctx, text)
+    backbone_speech = ""
 
     if _should_use_fast_path_intent(intent_name, intent_confidence, text):
         try:
@@ -2054,15 +1649,19 @@ def _tool_chat_response(
         if backbone_meta.get("interrupted") and not speech:
             speech = "Switching to your new request."
         if speech or actions or results or backbone_meta.get("interrupted"):
-            return {
-                "speech": speech,
-                "actions": actions,
-                "results": results,
-                "metadata": backbone_meta,
-                "spoken": bool(backbone_meta.get("spoken")),
-            }
+            if speech and not actions and not results and not backbone_meta.get("interrupted") and _looks_like_memory_question(text):
+                backbone_speech = speech
+            else:
+                return {
+                    "speech": speech,
+                    "actions": actions,
+                    "results": results,
+                    "metadata": backbone_meta,
+                    "spoken": bool(backbone_meta.get("spoken")),
+                }
     except Exception as exc:
         print(f"[AgentScope] Backbone fallback: {exc}")
+        backbone_speech = ""
 
     try:
         first = chat_with_ollama(messages, planning_model, tools=TOOLS, max_tokens=220, temperature=0.2)
@@ -2071,7 +1670,7 @@ def _tool_chat_response(
             raise
         outcome = _fallback_tool_outcome(text, ctx)
         if not outcome:
-            speech = _unknown_brain_response(text, model=model)
+            speech = backbone_speech or _unknown_brain_response(text, model=model)
             return {"speech": speech, "actions": [], "results": []}
         speech = _fallback_tool_speech(text, outcome)
         return {
@@ -2106,7 +1705,7 @@ def _tool_chat_response(
             if streamed:
                 notify("Burry", streamed[:180], subtitle="Response")
                 return {"speech": streamed, "actions": [], "results": [], "spoken": True}
-        speech = _normalize_response(assistant_content, max_words=45)
+        speech = _normalize_response(assistant_content or backbone_speech, max_words=45)
         return {"speech": speech, "actions": [], "results": []}
 
     messages.append(
@@ -2134,7 +1733,7 @@ def _tool_chat_response(
         function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
         tool_name = str(function.get("name", "")).strip()
         arguments = _parse_tool_arguments(function.get("arguments", {}))
-        outcome = _execute_tool_call(tool_name, arguments, ctx, user_text=text)
+        outcome = _call_tool_with_toolkit(tool_name, arguments)
         last_outcome = outcome
         executed_actions.extend(outcome.get("actions", []))
         executed_results.extend(outcome.get("results", []))
@@ -3190,13 +2789,14 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 return
             ctx = _get_cached_context()
             _speak_or_print("Let me think about that.", test_mode=test_mode)
-            tool_reply = _tool_chat_response(
+            tool_reply = _safe_tool_chat_response(
                 effective_text,
                 ctx,
                 model=model,
                 intent_name=intent.name,
                 intent_confidence=intent.confidence,
                 stream_speech=not test_mode,
+                test_mode=test_mode,
             )
             response = tool_reply.get("speech", "") or _unknown_brain_response(effective_text, model=model)
             if response:
@@ -3244,13 +2844,14 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "what_next":
         plan = _deterministic_project_plan(ctx)
         if not plan:
-            tool_reply = _tool_chat_response(
+            tool_reply = _safe_tool_chat_response(
                 effective_text,
                 ctx,
                 model=model,
                 intent_name=intent.name,
                 intent_confidence=intent.confidence,
                 stream_speech=not test_mode,
+                test_mode=test_mode,
             )
             speech = tool_reply.get("speech", "") or "Back on mac-butler. Want to jump in?"
             if not tool_reply.get("spoken"):
@@ -3306,13 +2907,14 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             state.transition(State.WAITING if not test_mode else State.IDLE)
             return
         _speak_or_print("One moment.", test_mode=test_mode)
-        tool_reply = _tool_chat_response(
+        tool_reply = _safe_tool_chat_response(
             effective_text,
             ctx,
             model=model,
             intent_name=intent.name,
             intent_confidence=intent.confidence,
             stream_speech=not test_mode,
+            test_mode=test_mode,
         )
         speech = tool_reply.get("speech", "") or "I don't know yet. Ask again in a shorter way."
         if not tool_reply.get("spoken"):
@@ -3328,13 +2930,14 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         state.transition(State.WAITING if not test_mode else State.IDLE)
         return
 
-    tool_reply = _tool_chat_response(
+    tool_reply = _safe_tool_chat_response(
         effective_text,
         ctx,
         model=model,
         intent_name=intent.name,
         intent_confidence=intent.confidence,
         stream_speech=not test_mode,
+        test_mode=test_mode,
     )
     response = tool_reply.get("speech", "")
     if not response:
