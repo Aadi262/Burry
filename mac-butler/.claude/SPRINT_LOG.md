@@ -28,6 +28,11 @@ Commits: 5c97615 → 4211471
 - Session persistence (save_session_state on SIGTERM)
 - RL episode wrapper (record_episode_with_agentscope_feedback)
 - A2A server with AgentScope native fallback
+- Butler tool dispatch consolidated to Toolkit-only execution
+- _tool_chat_response() hardened with broad fallback for Ollama/tool failures
+- Native A2A port moved from 8080 to 3335
+- Native HUD made the default startup path
+- Browser HUD fallback made opt-in only
 
 ### Broken and fixed
 - _compression_config returned None → moved dead code into function
@@ -38,6 +43,9 @@ Commits: 5c97615 → 4211471
 - TIMING REGRESSION 7.9s→61.9s → pre_reply_hook was calling LLM
   Fix: hooks must ONLY do WS broadcast, never call LLM
   Fix: _ws_broadcast must be non-blocking (background thread)
+- HUD startup created duplicate windows during live testing
+  Cause: retrying launcher without verifying existing GUI/process state
+  Fix: single-instance startup rule, no retry without ps/port/user verification
 
 ### Package gaps (Apr 2026)
 - agentscope.agents → no BrowserAgent/DeepResearchAgent
@@ -52,3 +60,25 @@ Commits: 5c97615 → 4211471
 - agentscope.server when agentscope-runtime installs
 - SearXNG local instance for web search
 - Email multi-turn flow still fragile
+
+## Sprint: Performance + Memory Bus (Apr 8 2026)
+
+### Done
+- Audited Phase 0: all 6 quick wins already implemented (double route, TTL=120, poll=500ms, embed dim=768, no model unload, _dispatch_research)
+- Phase 1: _smart_reply(text, ctx) — single 80-token LLM call before AgentScope path
+  Timing: 15.5s → 6.35s for greeting/question commands
+  Flow: Instant lane → Smart reply (→ NEEDS_TOOLS/NEEDS_CONTEXT escalate) → Brain lane
+- Phase 2: memory/bus.py — batched async event log
+  record(event): non-blocking queue, background flush every 2s to memory/event_log.json
+  recall(query): keyword + optional semantic recall via nomic-embed-text
+  _record() in butler.py now calls bus.record() first; 9 sync writes preserved but off hot path
+- Tests: 419 passing, 0 failures after both phases
+
+### Broken and fixed
+- Timing went 15.5s→6.35s (Phase 1) and held ~7-9s (Phase 2, Ollama variance)
+- Memory bus flush is background-only; no blocking on command hot path
+
+### Remaining
+- Phase 3: butler.py split into pipeline/ directory (3579 lines)
+- Phase 4: Frontend fully event-driven (stop polling runtime_state.json)
+- Phase 5: Audit 18 silent except: pass blocks

@@ -672,10 +672,11 @@ def _fast_path_llm_response(
 
 
 _SMART_REPLY_SYSTEM = (
-    "You are Burry, a local AI assistant on a Mac. Answer concisely in 1-2 sentences. "
-    "If you need to use tools or do research, say NEEDS_TOOLS. "
-    "If the request is about the user's projects or tasks, say NEEDS_CONTEXT."
+    "You are Burry, a local Mac AI assistant. Answer in 1-2 sentences maximum. "
+    "If you need tools or research say exactly NEEDS_TOOLS. "
+    "If you need project or task context say exactly NEEDS_CONTEXT."
 )
+_SMART_REPLY_MODEL = "gemma4:e4b"
 
 
 def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | None:
@@ -683,24 +684,32 @@ def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | Non
 
     Returns the response string if confident, or one of the sentinel strings:
       "NEEDS_TOOLS"   — escalate to full AgentScope path
-      "NEEDS_CONTEXT" — escalate to context-aware path
+      "NEEDS_CONTEXT" — re-call with context injected, then escalate if still unsure
     Returns None on error (caller should fall through to brain lane).
     """
     from brain.ollama_client import _get_ollama_url, _resolve_backend_model
 
-    fast_model = model or BUTLER_MODELS.get("voice") or OLLAMA_FALLBACK or OLLAMA_MODEL
+    fast_model = model or _SMART_REPLY_MODEL
     generate_url, headers = _get_ollama_url()
     chat_url = generate_url.replace("/api/generate", "/api/chat")
     use_vps_backend = generate_url != f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
     resolved_model = _resolve_backend_model(fast_model, use_vps_backend)
+
+    messages = [{"role": "system", "content": _SMART_REPLY_SYSTEM}]
+    if ctx:
+        formatted = ctx.get("formatted", "")
+        if formatted:
+            messages.append({
+                "role": "system",
+                "content": f"Current context:\n{formatted[:600]}",
+            })
+    messages.append({"role": "user", "content": text})
+
     payload = {
         "model": resolved_model,
-        "messages": [
-            {"role": "system", "content": _SMART_REPLY_SYSTEM},
-            {"role": "user", "content": text},
-        ],
+        "messages": messages,
         "stream": False,
-        "options": {"temperature": 0.25, "num_predict": 80},
+        "options": {"temperature": 0.1, "num_predict": 80},
     }
     try:
         resp = requests.post(chat_url, json=payload, headers=headers, timeout=15)
@@ -3250,15 +3259,24 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "unknown":
         response = _unknown_response_for_text(effective_text)
         if not response and _should_use_brain_for_unknown(effective_text):
-            # Smart reply lane: single cheap LLM call (max 80 tokens) before full brain path.
-            # Handles ~70% of simple questions in <3s without AgentScope overhead.
+            # ── SMART REPLY LANE (B1) ────────────────────────────────────
+            # Step 1: single cheap call with no context.
             smart = _smart_reply(effective_text, {}, model=model)
             if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
                 _speak_or_print(smart, test_mode=test_mode)
                 _record(text, smart, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
                 state.transition(State.WAITING if not test_mode else State.IDLE)
                 return
-            # smart == "NEEDS_TOOLS" or "NEEDS_CONTEXT" → fall through to brain lane below
+            # Step 2: NEEDS_CONTEXT → inject fast context and retry once.
+            if smart == "NEEDS_CONTEXT":
+                ctx = _get_cached_context()
+                smart2 = _smart_reply(effective_text, ctx, model=model)
+                if smart2 and smart2 not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
+                    _speak_or_print(smart2, test_mode=test_mode)
+                    _record(text, smart2, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
+                    state.transition(State.WAITING if not test_mode else State.IDLE)
+                    return
+            # Step 3: NEEDS_TOOLS or still unsure → full AgentScope path.
             # Fast-path: direct keyword routing so user never waits for LLM to pick a tool
             research_result = _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="deep_research")
             if research_result:
@@ -3274,20 +3292,22 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 stream_speech=not test_mode,
                 test_mode=test_mode,
             )
-            response = tool_reply.get("speech", "") or _unknown_brain_response(effective_text, model=model)
-            if response:
-                if not tool_reply.get("spoken"):
-                    _speak_or_print(response, test_mode=test_mode)
-                _record(
-                    text,
-                    response,
-                    tool_reply.get("actions", []),
-                    results=tool_reply.get("results", []),
-                    intent_name="unknown",
-                    learning_meta=brain_learning_meta,
-                )
-                state.transition(State.WAITING if not test_mode else State.IDLE)
-                return
+            # B1 Step C: no cascading fallbacks — if AgentScope returns nothing, say so cleanly.
+            response = tool_reply.get("speech", "")
+            if not response:
+                response = "I am not sure about that."
+            if not tool_reply.get("spoken"):
+                _speak_or_print(response, test_mode=test_mode)
+            _record(
+                text,
+                response,
+                tool_reply.get("actions", []),
+                results=tool_reply.get("results", []),
+                intent_name="unknown",
+                learning_meta=brain_learning_meta,
+            )
+            state.transition(State.WAITING if not test_mode else State.IDLE)
+            return
         if not response:
             response = "I didn't catch that. Say open, search, compose mail, or latest news."
         _reply_without_action(
