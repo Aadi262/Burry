@@ -1,23 +1,25 @@
 """memory/bus.py — Lightweight memory bus for Burry.
 
-record(event) batches writes to memory/event_log.json via a background thread
-that flushes every 2 seconds, replacing the 9+ synchronous per-command writes.
+record(event) batches events in memory and a background thread appends them
+to memory/event_log.jsonl one JSON line at a time — no full file rewrites.
 
-recall(query) returns the 5 most recent relevant entries using keyword matching
-(or semantic similarity when nomic-embed-text is available).
+recall(query) reads the last 100 lines and returns the 5 most relevant by
+keyword match (or semantic similarity when nomic-embed-text is available).
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
 from datetime import datetime
 from typing import Any
 
-_LOG_PATH = os.path.join(os.path.dirname(__file__), "event_log.json")
+_LOG_PATH = os.path.join(os.path.dirname(__file__), "event_log.jsonl")
 _FLUSH_INTERVAL = 2.0  # seconds between background flushes
+_RECALL_LINES = 100    # lines to scan for recall
 
 # Pending events not yet flushed to disk
 _PENDING: list[dict] = []
@@ -48,31 +50,17 @@ def _flush_pending() -> None:
         batch = list(_PENDING)
         _PENDING.clear()
 
-    # Load existing log
-    existing: list[dict] = []
-    if os.path.exists(_LOG_PATH):
-        try:
-            with open(_LOG_PATH, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-                if not isinstance(existing, list):
-                    existing = []
-        except Exception:
-            existing = []
-
-    existing.extend(batch)
-    # Keep last 500 events to prevent unbounded growth
-    if len(existing) > 500:
-        existing = existing[-500:]
-
+    # Append-only: one JSON line per event — no full file read/write
     try:
-        with open(_LOG_PATH, "w", encoding="utf-8") as f:
-            json.dump(existing, f, ensure_ascii=False, indent=None, separators=(",", ":"))
+        with open(_LOG_PATH, "a", encoding="utf-8") as f:
+            for entry in batch:
+                f.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
     except Exception:
         pass
 
 
 def record(event: dict[str, Any]) -> None:
-    """Queue an event for batched write. Non-blocking — returns immediately.
+    """Queue an event for batched append. Non-blocking — returns immediately.
 
     Expected keys: text, intent, speech, model, outcome, timestamp.
     Missing keys are filled with defaults.
@@ -96,28 +84,19 @@ def record(event: dict[str, Any]) -> None:
 def recall(query: str, n: int = 5) -> list[dict]:
     """Return the n most recent events relevant to query.
 
-    Uses keyword matching by default. Falls back to semantic similarity
-    when nomic-embed-text is available.
+    Reads the last _RECALL_LINES lines of the JSONL log.
+    Uses keyword matching; falls back to semantic similarity when available.
     """
-    # Flush pending so recall sees the latest events
+    # Flush pending so recall sees the very latest events
     _flush_pending()
 
-    existing: list[dict] = []
-    if os.path.exists(_LOG_PATH):
-        try:
-            with open(_LOG_PATH, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-                if not isinstance(existing, list):
-                    existing = []
-        except Exception:
-            return []
-
-    if not existing:
+    events = _read_tail(_RECALL_LINES)
+    if not events:
         return []
 
     # Try semantic similarity first
     try:
-        results = _semantic_recall(query, existing, n)
+        results = _semantic_recall(query, events, n)
         if results:
             return results
     except Exception:
@@ -127,7 +106,7 @@ def recall(query: str, n: int = 5) -> list[dict]:
     lowered = query.lower()
     keywords = [w for w in lowered.split() if len(w) > 2]
     scored: list[tuple[int, dict]] = []
-    for entry in existing:
+    for entry in events:
         haystack = (
             entry.get("text", "") + " " + entry.get("speech", "") + " " + entry.get("intent", "")
         ).lower()
@@ -137,6 +116,28 @@ def recall(query: str, n: int = 5) -> list[dict]:
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [e for _, e in scored[:n]]
+
+
+def _read_tail(n: int) -> list[dict]:
+    """Read the last n lines from the JSONL log without loading the whole file."""
+    if not os.path.exists(_LOG_PATH):
+        return []
+    try:
+        with open(_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        tail = lines[-n:] if len(lines) > n else lines
+        entries = []
+        for line in tail:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except Exception:
+                continue
+        return entries
+    except Exception:
+        return []
 
 
 def _semantic_recall(query: str, events: list[dict], n: int) -> list[dict]:
@@ -154,10 +155,6 @@ def _semantic_recall(query: str, events: list[dict], n: int) -> list[dict]:
         r.raise_for_status()
         return r.json()["embedding"]
 
-    q_vec = embed(query)
-
-    import math
-
     def cosine(a: list[float], b: list[float]) -> float:
         dot = sum(x * y for x, y in zip(a, b))
         mag_a = math.sqrt(sum(x * x for x in a))
@@ -166,6 +163,7 @@ def _semantic_recall(query: str, events: list[dict], n: int) -> list[dict]:
             return 0.0
         return dot / (mag_a * mag_b)
 
+    q_vec = embed(query)
     scored: list[tuple[float, dict]] = []
     for entry in events:
         text = entry.get("text", "") + " " + entry.get("speech", "")
