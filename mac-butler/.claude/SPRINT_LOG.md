@@ -72,13 +72,22 @@ Commits: 5c97615 → 4211471
   record(event): non-blocking queue, background flush every 2s to memory/event_log.json
   recall(query): keyword + optional semantic recall via nomic-embed-text
   _record() in butler.py now calls bus.record() first; 9 sync writes preserved but off hot path
-- Tests: 419 passing, 0 failures after both phases
+- Phase 2b: runner model carousel removed
+  _prepare_model_request() now keeps only the memory check and no longer unloads other models before each agent turn
+- Phase 2c: dashboard operator polling finalized
+  _watch_operator_state now sleeps 0.5s and SearXNG status is cached at dashboard startup instead of checked inside every operator snapshot
+- Phase 3: butler.py split completed
+  Extracted pipeline/recorder.py, pipeline/router.py, and pipeline/orchestrator.py
+  butler.py reduced to 1693 lines and now acts as a thin facade
+- Tests: 419 passing, 0 failures on one clean buffered run
+- Timing: greeting command holds at ~2.15s total on the cleaned split tree
 
 ### Broken and fixed
 - Timing went 15.5s→6.35s (Phase 1) and held ~7-9s (Phase 2, Ollama variance)
 - Memory bus flush is background-only; no blocking on command hot path
+- The previously “background only” test claim is now confirmed with one clean run
+- Speech extraction initially broke some monkeypatched tests; thin wrappers restore patchability without re-inlining the speech path
 
 ### Remaining
-- Phase 3: butler.py split into pipeline/ directory (3579 lines)
 - Phase 4: Frontend fully event-driven (stop polling runtime_state.json)
-- Phase 5: Audit 18 silent except: pass blocks
+- runtime_state.json remains the acceptable full-file rewrite for dashboard state

@@ -15,7 +15,7 @@ from state import State, state
 from voice import speak
 
 
-def speak_or_print(text: str, test_mode: bool = False) -> None:
+def speak_or_print(text: str, test_mode: bool = False, *, speak_fn=None, notify_fn=None) -> None:
     """Speak text via TTS or print in test mode.
 
     B6: TTS fires in a background thread so the listening loop resumes
@@ -23,23 +23,26 @@ def speak_or_print(text: str, test_mode: bool = False) -> None:
     """
     if not text:
         return
+    speaker = speak_fn or speak
+    notifier = notify_fn or notify
     state.transition(State.SPEAKING)
     if test_mode:
         print(f"[Butler would say]: {text}")
     else:
         def _speak_and_notify() -> None:
-            speak(text)
-            notify("Burry", text[:180], subtitle="Response")
+            speaker(text)
+            notifier("Burry", text[:180], subtitle="Response")
         threading.Thread(target=_speak_and_notify, daemon=True, name="burry-tts").start()
 
 
-def speak_stream_chunk(text: str) -> None:
+def speak_stream_chunk(text: str, *, speak_fn=None) -> None:
     """Speak a single streaming sentence chunk."""
     cleaned = " ".join(str(text or "").split()).strip()
     if not cleaned:
         return
+    speaker = speak_fn or speak
     state.transition(State.SPEAKING)
-    speak(cleaned)
+    speaker(cleaned)
 
 
 async def stream_response_with_tts(prompt: str, model: str) -> str:
