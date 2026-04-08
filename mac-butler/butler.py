@@ -2736,8 +2736,12 @@ def _speak_or_print(text: str, test_mode: bool = False) -> None:
     if test_mode:
         print(f"[Butler would say]: {text}")
     else:
-        speak(text)
-        notify("Burry", text[:180], subtitle="Response")
+        # B6: fire TTS in background so the mic/listening loop resumes immediately.
+        # The voice pipeline no longer blocks waiting for speech to finish.
+        def _speak_and_notify() -> None:
+            speak(text)
+            notify("Burry", text[:180], subtitle="Response")
+        threading.Thread(target=_speak_and_notify, daemon=True, name="burry-tts").start()
 
 
 def _speak_stream_chunk(text: str) -> None:
