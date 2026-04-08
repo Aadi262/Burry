@@ -2734,87 +2734,14 @@ def _quick_summarize(text: str, model: str | None = None) -> str:
     )
 
 
-def _speak_or_print(text: str, test_mode: bool = False) -> None:
-    if not text:
-        return
-    state.transition(State.SPEAKING)
-    if test_mode:
-        print(f"[Butler would say]: {text}")
-    else:
-        # B6: fire TTS in background so the mic/listening loop resumes immediately.
-        # The voice pipeline no longer blocks waiting for speech to finish.
-        def _speak_and_notify() -> None:
-            speak(text)
-            notify("Burry", text[:180], subtitle="Response")
-        threading.Thread(target=_speak_and_notify, daemon=True, name="burry-tts").start()
-
-
-def _speak_stream_chunk(text: str) -> None:
-    cleaned = " ".join(str(text or "").split()).strip()
-    if not cleaned:
-        return
-    state.transition(State.SPEAKING)
-    speak(cleaned)
-
-
-async def _stream_response_with_tts(prompt: str, model: str) -> str:
-    """Stream LLM response and speak each sentence as it arrives.
-    STEAL 3: user hears first words within 1-2 seconds instead of waiting 45s.
-    Falls back silently if streaming fails.
-    """
-    return await _stream_sentences_with_tts(stream_llm_tokens(prompt, model))
-
-
-async def _stream_sentences_with_tts(sentence_stream) -> str:
-    """Consume streamed sentence chunks and serialize speech so chunks are not dropped."""
-    spoken_sentences: list[str] = []
-    speech_queue: queue.Queue[str | None] = queue.Queue()
-
-    def _speaker() -> None:
-        while True:
-            sentence = speech_queue.get()
-            try:
-                if sentence is None:
-                    return
-                speak(sentence)
-            finally:
-                speech_queue.task_done()
-
-    state.transition(State.SPEAKING)
-    speaker_thread = threading.Thread(target=_speaker, daemon=True, name="burry-stream-tts")
-    speaker_thread.start()
-    try:
-        async for sentence in sentence_stream:
-            cleaned = " ".join(str(sentence or "").split()).strip()
-            if not cleaned:
-                continue
-            spoken_sentences.append(cleaned)
-            speech_queue.put(cleaned)
-        return " ".join(spoken_sentences).strip()
-    except Exception:
-        return ""
-    finally:
-        speech_queue.put(None)
-        speech_queue.join()
-        speaker_thread.join(timeout=10)
-
-
-async def _stream_chat_response_with_tts(
-    messages: list[dict],
-    model: str,
-    *,
-    max_tokens: int = 140,
-    temperature: float = 0.3,
-) -> str:
-
-    return await _stream_sentences_with_tts(
-        stream_chat_with_ollama(
-            messages,
-            model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-    )
+# AP1: Speech functions moved to pipeline/speech.py — imported as private aliases
+from pipeline.speech import (
+    speak_or_print as _speak_or_print,
+    speak_stream_chunk as _speak_stream_chunk,
+    stream_response_with_tts as _stream_response_with_tts,
+    stream_sentences_with_tts as _stream_sentences_with_tts,
+    stream_chat_response_with_tts as _stream_chat_response_with_tts,
+)
 
 
 def _wait_for_runtime_confirmation(prompt: str, action: str, timeout_s: int = 30) -> bool:
