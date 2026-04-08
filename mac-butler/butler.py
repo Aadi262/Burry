@@ -98,8 +98,8 @@ def interrupt_burry(new_command: str) -> None:
         from brain.agentscope_backbone import interrupt_agentscope_turn
 
         interrupt_agentscope_turn(new_command)
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"[Butler] silent error: {_e}")
     print(f"[Butler] Interrupted — switching to: {new_command[:50]}")
 
 
@@ -2349,8 +2349,8 @@ def _get_last_project() -> str:
             for action in session.get("actions", []):
                 if action.get("type") in {"open_folder", "create_and_open", "open_editor"}:
                     return action.get("path", "")
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"[Butler] silent error: {_e}")
     return ""
 
 
@@ -2398,8 +2398,8 @@ def _preferred_editor(ctx: dict, project_path: str = "") -> str:
             remembered = _editor_key(state.get("last_editor", ""))
             if remembered:
                 return remembered
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
 
     return "auto"
 
@@ -2593,16 +2593,16 @@ def _record(
                 "model": (learning_meta or {}).get("model", ""),
                 "outcome": _bus_outcome,
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
 
         _remember_conversation_turn(text, intent_name or "reply", speech)
         # Add to three-tier long-term memory (Phase 6)
         try:
             from memory.long_term import add_to_working_memory
             add_to_working_memory(text[:200], speech[:200])
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         # Record RL episode for model improvement (Phase 11)
         try:
             from memory.rl_loop import record_episode_with_agentscope_feedback
@@ -2618,8 +2618,8 @@ def _record(
                 response=speech,
                 outcome=_outcome,
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         record_session(text[:100], speech[:200], actions, results=results or [])
         save_session(
             {
@@ -2654,10 +2654,10 @@ def _record(
                 actions=actions,
                 touched_projects=list(touched.keys()),
             )
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
+    except Exception as _e:
+        print(f"[Butler] silent error: {_e}")
 
 
 def _remember_project_state(action: dict) -> None:
@@ -2676,8 +2676,8 @@ def _remember_project_state(action: dict) -> None:
                     "last_opened": datetime.now().isoformat(),
                 },
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         return
 
     if action_type not in {"open_editor", "create_and_open", "open_folder", "create_file_in_editor"}:
@@ -3148,8 +3148,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         try:
             from brain.agentscope_backbone import interrupt_agentscope_turn
             interrupt_agentscope_turn("stop")
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         _speak_or_print("Going quiet. Say wake up to start again.", test_mode=test_mode)
         _record(text, "Going quiet. Say wake up to start again.", [], intent_name="butler_sleep")
         state.transition(State.IDLE)
@@ -3168,8 +3168,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             try:
                 from brain.agentscope_backbone import interrupt_agentscope_turn
                 interrupt_agentscope_turn(text)
-            except Exception:
-                pass
+            except Exception as _e:
+                print(f"[Butler] silent error: {_e}")
             add_event("interrupt.instant", {"intent": early_intent.name})
         _execute_instant(early_intent, text, test_mode=test_mode)
         return
@@ -3210,8 +3210,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             _speak_or_print(result.get("speech", "Done."), test_mode=test_mode)
             _record(text, result.get("speech", ""), result.get("actions", []))
             return
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"[Butler] silent error: {_e}")
 
     note_heard_text(text)
     add_event("stt.complete", {"text": text[:100]})
@@ -3530,8 +3530,8 @@ def _save_backbone_session_state() -> None:
         if getattr(backbone, "agent", None) is not None:
             save_session_state(backbone.agent)
             _SESSION_STATE_SAVED = True
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"[Butler] silent error: {_e}")
 
 
 def _shutdown_handler(signum=None, frame=None) -> None:
@@ -3590,8 +3590,8 @@ def main() -> None:
             from skills import load_skills
 
             load_skills()
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
     else:
         _ensure_watcher_started()
         start_ambient_daemon()
@@ -3601,15 +3601,15 @@ def main() -> None:
             from channels.imessage_channel import start_imessage_channel
 
             start_imessage_channel()
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         # Load skills at startup (STEAL 4)
         try:
             from skills import load_skills
 
             load_skills()
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         # Load configured MCP servers into toolkit (Phase 2)
         try:
             from brain.mcp_client import load_configured_mcp_servers
@@ -3617,8 +3617,8 @@ def main() -> None:
             import brain.tools_registry  # noqa
 
             load_configured_mcp_servers(get_toolkit())
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         # Start A2A server — prefer AgentScope native A2A when available.
         try:
             from brain.agentscope_backbone import get_backbone
@@ -3626,8 +3626,8 @@ def main() -> None:
 
             backbone = get_backbone(model_name=args.model)
             start_agentscope_a2a(backbone.agent)
-        except Exception:
-            pass
+        except Exception as _e:
+            print(f"[Butler] silent error: {_e}")
         _report_brain_backend_status()
 
     if args.command:
