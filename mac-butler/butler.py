@@ -76,6 +76,32 @@ from tasks import get_active_tasks
 from voice import listen_continuous, speak
 from runtime.tracing import add_event, trace_command
 
+# AP5: Local imports moved to top — avoids re-importing on every call
+from brain.ollama_client import (
+    _call,
+    _get_ollama_url,
+    _resolve_backend_model,
+    chat_with_ollama,
+    check_vps_connection,
+    pick_butler_model,
+    send_to_ollama,
+    stream_chat_with_ollama,
+    stream_llm_tokens,
+)
+from brain.agentscope_backbone import (
+    get_backbone,
+    interrupt_agentscope_turn,
+    run_agentscope_turn,
+)
+from brain.toolkit import get_toolkit
+import brain.tools_registry  # noqa: F401 — registers tools on import
+from brain.tools import TOOLS
+from memory.bus import record as _bus_record
+from memory.graph import observe_project_relationships
+from memory.long_term import add_to_working_memory, save_session_state
+from memory.rl_loop import record_episode_with_agentscope_feedback
+from memory.store import load_recent_sessions, semantic_search
+
 executor = Executor()
 _WATCHER_LOCK = threading.Lock()
 _WATCHER_STARTED = False
@@ -95,7 +121,6 @@ def interrupt_burry(new_command: str) -> None:
         _INTERRUPT_MESSAGE = new_command
     _INTERRUPT_EVENT.set()
     try:
-        from brain.agentscope_backbone import interrupt_agentscope_turn
 
         interrupt_agentscope_turn(new_command)
     except Exception as _e:
@@ -657,7 +682,6 @@ def _fast_path_llm_response(
     if intent_name == "greeting" or _looks_like_greeting(text):
         return _deterministic_greeting_response(text)
 
-    from brain.ollama_client import _call, pick_butler_model
 
     prompt = _fast_path_prompt(intent_name, text, ctx)
     voice_model = pick_butler_model("voice", override=model)
@@ -687,7 +711,6 @@ def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | Non
       "NEEDS_CONTEXT" — re-call with context injected, then escalate if still unsure
     Returns None on error (caller should fall through to brain lane).
     """
-    from brain.ollama_client import _get_ollama_url, _resolve_backend_model
 
     fast_model = model or _SMART_REPLY_MODEL
     generate_url, headers = _get_ollama_url()
@@ -1100,11 +1123,6 @@ def _startup_session_hint() -> str:
 
 
 def _startup_briefing_sessions(limit: int = 3) -> list[str]:
-    try:
-        from memory.store import load_recent_sessions
-    except Exception:
-        return []
-
     summaries: list[str] = []
     for session in load_recent_sessions(max(6, limit * 3)):
         context = " ".join(
@@ -1440,7 +1458,6 @@ def _direct_agent_plan_for_text(text: str) -> dict | None:
 
 
 def _plan_with_brain(context_text: str, model: str | None = None) -> dict:
-    from brain.ollama_client import send_to_ollama
 
     fallback = {
         "speech": "Back on mac-butler. Want to jump in?",
@@ -1673,8 +1690,6 @@ def _toolkit_result_text(result) -> str:
 
 
 def _call_tool_with_toolkit(tool_name: str, arguments: dict) -> dict:
-    from brain.toolkit import get_toolkit
-    import brain.tools_registry  # noqa: F401
 
     name = str(tool_name or "").strip()
     args = dict(arguments or {})
@@ -1691,7 +1706,6 @@ def _call_tool_with_toolkit(tool_name: str, arguments: dict) -> dict:
             "result": _clip_tool_payload(payload_result),
         }
         if name == "recall_memory":
-            from memory.store import semantic_search
 
             matches = semantic_search(str(args.get("query", "")).strip(), n=3)
             note_memory_recall(str(args.get("query", "")).strip(), matches)
@@ -1749,8 +1763,6 @@ def _tool_chat_response(
     intent_confidence: float = 0.0,
     stream_speech: bool = False,
 ) -> dict:
-    from brain.ollama_client import chat_with_ollama, pick_butler_model
-    from brain.tools import TOOLS
 
     planning_model = pick_butler_model("planning", override=model)
     voice_model = pick_butler_model("voice", override=model)
@@ -1772,7 +1784,6 @@ def _tool_chat_response(
             }
 
     try:
-        from brain.agentscope_backbone import run_agentscope_turn
 
         backbone_reply = run_agentscope_turn(
             text,
@@ -2258,7 +2269,6 @@ def _report_brain_backend_status() -> None:
         return
     _BRAIN_STATUS_CHECKED = True
     try:
-        from brain.ollama_client import check_vps_connection
 
         conn = check_vps_connection()
         if conn["status"] == "ok":
@@ -2273,7 +2283,6 @@ def _report_brain_backend_status() -> None:
 
 
 def _raw_llm(prompt: str, model: str | None = None, max_tokens: int = 80, temperature: float = 0.4) -> str:
-    from brain.ollama_client import _get_ollama_url, _resolve_backend_model
 
     chosen = model or OLLAMA_MODEL
     generate_url, headers = _get_ollama_url()
@@ -2581,7 +2590,6 @@ def _record(
 
         # ── MEMORY BUS: non-blocking batched write (Phase 2) ─────────
         try:
-            from memory.bus import record as _bus_record
             _bus_outcome = "success" if speech and not any(
                 str(r.get("status", "")).lower() == "error"
                 for r in (results or []) if isinstance(r, dict)
@@ -2599,13 +2607,11 @@ def _record(
         _remember_conversation_turn(text, intent_name or "reply", speech)
         # Add to three-tier long-term memory (Phase 6)
         try:
-            from memory.long_term import add_to_working_memory
             add_to_working_memory(text[:200], speech[:200])
         except Exception as _e:
             print(f"[Butler] silent error: {_e}")
         # Record RL episode for model improvement (Phase 11)
         try:
-            from memory.rl_loop import record_episode_with_agentscope_feedback
             _model = learning_meta.get("model", "") if learning_meta else ""
             _outcome = "success" if speech and not any(
                 str(r.get("status", "")).lower() == "error"
@@ -2646,7 +2652,6 @@ def _record(
                 }
             )
         try:
-            from memory.graph import observe_project_relationships
 
             observe_project_relationships(
                 text=text,
@@ -2757,7 +2762,6 @@ async def _stream_response_with_tts(prompt: str, model: str) -> str:
     STEAL 3: user hears first words within 1-2 seconds instead of waiting 45s.
     Falls back silently if streaming fails.
     """
-    from brain.ollama_client import stream_llm_tokens
     return await _stream_sentences_with_tts(stream_llm_tokens(prompt, model))
 
 
@@ -2802,7 +2806,6 @@ async def _stream_chat_response_with_tts(
     max_tokens: int = 140,
     temperature: float = 0.3,
 ) -> str:
-    from brain.ollama_client import stream_chat_with_ollama
 
     return await _stream_sentences_with_tts(
         stream_chat_with_ollama(
@@ -3104,8 +3107,6 @@ def _dispatch_research(
     query = _RESEARCH_STRIP_RE.sub("", lowered).strip()
     tool_reply: dict = {"speech": "", "actions": [], "results": []}
     try:
-        from brain.toolkit import get_toolkit
-        import brain.tools_registry  # noqa: F401
 
         result = get_toolkit().call("deep_research", question=query or effective_text)
         tool_reply = {
@@ -3146,7 +3147,6 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         add_event("stt.complete", {"text": text[:100]})
         _clear_pending_command_state()
         try:
-            from brain.agentscope_backbone import interrupt_agentscope_turn
             interrupt_agentscope_turn("stop")
         except Exception as _e:
             print(f"[Butler] silent error: {_e}")
@@ -3166,7 +3166,6 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         if state.is_busy:
             _clear_pending_command_state()
             try:
-                from brain.agentscope_backbone import interrupt_agentscope_turn
                 interrupt_agentscope_turn(text)
             except Exception as _e:
                 print(f"[Butler] silent error: {_e}")
@@ -3523,7 +3522,6 @@ def _save_backbone_session_state() -> None:
     if _SESSION_STATE_SAVED:
         return
     try:
-        from brain.agentscope_backbone import get_backbone
         from memory.long_term import save_session_state
 
         backbone = get_backbone()
@@ -3543,7 +3541,6 @@ def _shutdown_handler(signum=None, frame=None) -> None:
         return
     print("[Butler] Shutting down - saving session state...")
     try:
-        from brain.agentscope_backbone import get_backbone
         from memory.long_term import save_session_state
         from runtime.tracing import shutdown_tracing
 
@@ -3613,15 +3610,12 @@ def main() -> None:
         # Load configured MCP servers into toolkit (Phase 2)
         try:
             from brain.mcp_client import load_configured_mcp_servers
-            from brain.toolkit import get_toolkit
-            import brain.tools_registry  # noqa
 
             load_configured_mcp_servers(get_toolkit())
         except Exception as _e:
             print(f"[Butler] silent error: {_e}")
         # Start A2A server — prefer AgentScope native A2A when available.
         try:
-            from brain.agentscope_backbone import get_backbone
             from channels.a2a_server import start_agentscope_a2a
 
             backbone = get_backbone(model_name=args.model)
