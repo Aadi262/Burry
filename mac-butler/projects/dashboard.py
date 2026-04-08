@@ -57,13 +57,16 @@ PREFERRED_PORT = 3333
 WS_PREFERRED_PORT = 3334
 PORT = PREFERRED_PORT
 WS_PORT = WS_PREFERRED_PORT
-USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
+USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "1").strip().lower() not in {"0", "false", "no", "off"}
+ALLOW_BROWSER_HUD = os.environ.get("BURRY_ALLOW_BROWSER_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
 _SERVER: ThreadingHTTPServer | None = None
 _SERVER_THREAD: threading.Thread | None = None
 _SERVER_LOCK = threading.Lock()
 _WINDOW_LOCK = threading.Lock()
 _LAST_WINDOW_OPENED_AT = 0.0
-STREAM_INTERVAL_SECONDS = 0.35
+# Keep the SSE operator stream aligned with the slower watcher cadence so the
+# local dashboard is not constantly polling runtime state.
+STREAM_INTERVAL_SECONDS = 0.5
 _WS_LOOP: asyncio.AbstractEventLoop | None = None
 _WS_SERVER_THREAD: threading.Thread | None = None
 _WS_CLIENTS: set = set()
@@ -73,6 +76,10 @@ _VPS_CACHE_LOCK = threading.Lock()
 _VPS_CACHE_PAYLOAD: dict | None = None
 _VPS_CACHE_AT = 0.0
 _VPS_CACHE_TTL_SECONDS = 30.0
+RUNTIME_STALE_SECONDS = 6.0
+_SEARCH_STATUS_LOCK = threading.Lock()
+_SEARCH_ONLINE = False
+_SEARCH_STATUS_PRIMED = False
 
 
 def _status_rank(status: str) -> int:
@@ -263,6 +270,50 @@ def _url_ok(url: str) -> bool:
         return False
 
 
+def _prime_operator_status_cache(force: bool = False) -> None:
+    global _SEARCH_ONLINE, _SEARCH_STATUS_PRIMED
+
+    with _SEARCH_STATUS_LOCK:
+        if _SEARCH_STATUS_PRIMED and not force:
+            return
+
+    try:
+        from butler_config import SEARXNG_URL
+    except Exception:
+        SEARXNG_URL = "http://localhost:8080"
+
+    search_online = _url_ok(f"{SEARXNG_URL}/")
+    with _SEARCH_STATUS_LOCK:
+        _SEARCH_ONLINE = search_online
+        _SEARCH_STATUS_PRIMED = True
+
+
+def _cached_search_online() -> bool:
+    with _SEARCH_STATUS_LOCK:
+        return bool(_SEARCH_ONLINE)
+
+
+def _parse_runtime_timestamp(value: str) -> datetime | None:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return None
+    if cleaned.endswith("Z"):
+        cleaned = f"{cleaned[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(cleaned)
+    except Exception:
+        return None
+
+
+def _runtime_telemetry_freshness(runtime_state: dict) -> tuple[bool, float | None]:
+    stamp = _parse_runtime_timestamp(str(runtime_state.get("updated_at", "") or ""))
+    if stamp is None:
+        return False, None
+    now = datetime.now(stamp.tzinfo) if stamp.tzinfo else datetime.now()
+    age_seconds = max(0.0, (now - stamp).total_seconds())
+    return age_seconds <= RUNTIME_STALE_SECONDS, age_seconds
+
+
 def _wait_for_dashboard_health(url: str, timeout: float = 6.0) -> bool:
     health_url = f"{url.rstrip('/')}/health"
     deadline = time.monotonic() + timeout
@@ -275,11 +326,10 @@ def _wait_for_dashboard_health(url: str, timeout: float = 6.0) -> bool:
 
 def operator_snapshot(projects: list[dict] | None = None) -> dict:
     try:
-        from butler_config import MCP_SERVERS, OLLAMA_LOCAL_URL, SEARXNG_URL, USE_VPS_OLLAMA, VPS_OLLAMA_URL
+        from butler_config import MCP_SERVERS, OLLAMA_LOCAL_URL, USE_VPS_OLLAMA, VPS_OLLAMA_URL
     except Exception:
         MCP_SERVERS = {}
         OLLAMA_LOCAL_URL = "http://localhost:11434"
-        SEARXNG_URL = "http://localhost:8080"
         USE_VPS_OLLAMA = False
         VPS_OLLAMA_URL = ""
 
@@ -316,6 +366,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
 
     catalog = projects if projects is not None else _dashboard_projects()
     runtime_state = load_runtime_state() or {}
+    telemetry_fresh, telemetry_age_seconds = _runtime_telemetry_freshness(runtime_state)
     mac_state = load_mac_state() or {}
     mood_state = describe_mood_state() or {}
     runtime_workspace = runtime_state.get("workspace") if isinstance(runtime_state.get("workspace"), dict) else {}
@@ -335,7 +386,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
 
     stt = describe_stt() or {}
     tts = describe_tts() or {}
-    search_online = _url_ok(f"{SEARXNG_URL}/")
+    search_online = _cached_search_online()
     voice_backend = str(tts.get("backend", "unavailable")).lower()
     listen_backend = str(stt.get("backend", "pending")).lower()
     systems = [
@@ -407,6 +458,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
     memory_recall = runtime_state.get("last_memory_recall") if isinstance(runtime_state.get("last_memory_recall"), dict) else {}
     tool_stream = list(runtime_state.get("tool_stream") or [])[-6:]
     active_tools = [str(item).strip() for item in list(runtime_state.get("active_tools") or []) if str(item).strip()]
+    metrics = runtime_state.get("metrics") if isinstance(runtime_state.get("metrics"), dict) else _metrics_payload()
     ambient_context = [
         _clip_text(item, limit=140)
         for item in list(runtime_state.get("ambient_context") or [])[:3]
@@ -422,6 +474,10 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         pass
     state_name = str(runtime_state.get("state", "idle") or "idle").strip().lower()
     session_active = bool(runtime_state.get("session_active"))
+    if not telemetry_fresh:
+        state_name = "idle"
+        session_active = False
+        active_tools = []
     session_label = "live" if session_active else "standby"
 
     return {
@@ -434,6 +490,8 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         "mood": str(mood_state.get("name", "") or "focused"),
         "mood_label": str(mood_state.get("label", "") or "Focused"),
         "mood_note": str(mood_state.get("note", "") or ""),
+        "telemetry_fresh": telemetry_fresh,
+        "telemetry_age_seconds": round(telemetry_age_seconds, 2) if telemetry_age_seconds is not None else None,
         "updated_at": str(runtime_state.get("updated_at", "") or _timestamp()),
         "last_heard_text": str(runtime_state.get("last_heard_text", "") or ""),
         "last_heard_at": str(runtime_state.get("last_heard_at", "") or ""),
@@ -451,10 +509,16 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         "mcp": mcp_rows,
         "active_tools": active_tools[:4],
         "tool_stream": tool_stream,
+        "metrics": metrics,
         "memory_recall": memory_recall,
         "ambient_context": ambient_context,
         "last_agent_result": last_agent_result,
         "events": events,
+        "observability": {
+            "metrics_path": "/api/metrics",
+            "logs_path": "/api/logs",
+            "traces_path": "/api/traces",
+        },
     }
 
 
@@ -482,6 +546,7 @@ def generate_dashboard() -> str:
 
 
 def _dashboard_payload() -> dict:
+    _prime_operator_status_cache()
     projects = _dashboard_projects()
     return {
         "projects": projects,
@@ -503,6 +568,55 @@ def _dispatch_command(text: str) -> None:
         handle_input(text, test_mode=False)
     except Exception as exc:
         print(f"[dashboard] command dispatch failed: {exc}")
+
+
+def _command_status_label(text: str) -> str:
+    clean = " ".join(str(text or "").split()).strip()
+    if not clean:
+        return "error"
+
+    try:
+        from butler import BACKGROUND_LANE_INTENTS, INSTANT_LANE_INTENTS
+        from intents.router import route
+        from state import state
+    except Exception:
+        return "executing"
+
+    intent = route(clean)
+    if intent.name in INSTANT_LANE_INTENTS:
+        return "executing"
+    if intent.name in BACKGROUND_LANE_INTENTS:
+        return "acknowledged"
+    if state.is_busy:
+        return "queued"
+    return "executing"
+
+
+def _metrics_payload() -> dict:
+    try:
+        from runtime import load_metrics
+    except Exception:
+        return {}
+    payload = load_metrics() or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _logs_payload(limit: int = 40) -> list[dict]:
+    try:
+        from runtime.log_store import load_recent_runtime_events
+    except Exception:
+        return []
+    payload = load_recent_runtime_events(limit=max(1, min(200, int(limit or 40))))
+    return payload if isinstance(payload, list) else []
+
+
+def _traces_payload(limit: int = 40) -> list[dict]:
+    try:
+        from runtime.log_store import load_recent_trace_spans
+    except Exception:
+        return []
+    payload = load_recent_trace_spans(limit=max(1, min(200, int(limit or 40))))
+    return payload if isinstance(payload, list) else []
 
 
 def _dispatch_listen_once() -> None:
@@ -622,7 +736,7 @@ def _watch_operator_state() -> None:
                 _broadcast_projects_snapshot(projects_payload)
                 last_projects_payload = projects_encoded
             last_projects_check_at = now
-        time.sleep(0.12)
+        time.sleep(0.5)
 
 
 def _start_ws_watcher() -> None:
@@ -765,6 +879,7 @@ def serve_dashboard():
 
     global _SERVER, _SERVER_THREAD, PORT
     with _SERVER_LOCK:
+        _prime_operator_status_cache(force=True)
         if _SERVER is not None and _SERVER_THREAD is not None and _SERVER_THREAD.is_alive():
             _start_ws_server()
             _write_dashboard()
@@ -856,6 +971,27 @@ def serve_dashboard():
                     if parsed.path == "/api/vps":
                         self._send_json(_vps_payload())
                         return
+                    if parsed.path == "/api/metrics":
+                        self._send_json(_metrics_payload())
+                        return
+                    if parsed.path == "/api/logs":
+                        query = parse_qs(parsed.query or "")
+                        try:
+                            limit = int((query.get("limit") or ["40"])[0])
+                        except Exception:
+                            limit = 40
+                        items = _logs_payload(limit)
+                        self._send_json({"items": items, "count": len(items)})
+                        return
+                    if parsed.path == "/api/traces":
+                        query = parse_qs(parsed.query or "")
+                        try:
+                            limit = int((query.get("limit") or ["40"])[0])
+                        except Exception:
+                            limit = 40
+                        items = _traces_payload(limit)
+                        self._send_json({"items": items, "count": len(items)})
+                        return
                     if parsed.path == "/api/status":
                         self._send_json(_dashboard_payload())
                         return
@@ -920,11 +1056,14 @@ def serve_dashboard():
                         if not text:
                             self._send_json({"status": "error", "error": "Command text required."}, status=400)
                             return
+                        status_label = _command_status_label(text)
                         worker = threading.Thread(target=_dispatch_command, args=(text,), daemon=True)
                         worker.start()
                         self._send_json(
                             {
-                                "status": "accepted",
+                                "status": status_label,
+                                "status_label": status_label,
+                                "accepted": True,
                                 "text": text,
                                 "queued_at": _timestamp(),
                             },
@@ -992,11 +1131,15 @@ def show_dashboard_window(force: bool = False) -> None:
     if USE_NATIVE_HUD and _spawn_native_shell(url):
         return
 
+    if not ALLOW_BROWSER_HUD:
+        return
+
     _open_browser_window(url)
 
 
 def open_dashboard():
     """Generate + serve + open in a direct app-style window."""
+    _prime_operator_status_cache(force=True)
     _write_dashboard()
     server = serve_dashboard()
     if server is not None:
