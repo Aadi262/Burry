@@ -30,7 +30,6 @@ from brain.ollama_client import (
     _get_available_models,
     _check_memory,
     _get_request_target_for_model,
-    _unload_model,
     pick_agent_model,
 )
 from burry_mcp import MCPError, call_server_tool, list_server_tools, normalize_tool_result
@@ -80,8 +79,10 @@ def _pick_model(agent_type: str) -> str:
 
 def _prepare_model_request(model: str) -> None:
     _check_memory()
-    for candidate in {name for name in ROUTED_MODELS.values() if name and name != model}:
-        _unload_model(candidate)
+    # NOTE: Previously this unloaded ALL other models from VRAM before every
+    # agent call, causing constant model load/unload thrashing (~3-5s penalty).
+    # Ollama already manages its own model caching and will evict least-recently
+    # used models when VRAM is tight. Let it handle this automatically.
 
 
 def _call_model(prompt: str, model: str, max_tokens: int = 400, timeout: int = 90) -> str:
