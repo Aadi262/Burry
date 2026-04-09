@@ -98,7 +98,7 @@ from brain.agentscope_backbone import (
 )
 from brain.toolkit import get_toolkit
 import brain.tools_registry  # noqa: F401 — registers tools on import
-from brain.tools import TOOLS
+from brain.tools_registry import TOOLS
 from memory.bus import record as _bus_record
 from memory.graph import observe_project_relationships
 from memory.long_term import add_to_working_memory, save_session_state

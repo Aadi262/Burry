@@ -14,7 +14,7 @@ import brain.ollama_client as ollama_client
 import brain.toolkit as toolkit_module
 import memory.store as memory_store
 from brain.query_analyzer import analyze_query
-from brain.tools import TOOLS
+from brain.tools_registry import TOOLS
 
 
 def _butler():

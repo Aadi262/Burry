@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import butler as butler_module
-from brain.tools import TOOLS
+from brain.tools_registry import TOOLS
 from brain.ollama_client import _strip_repeated_project_from_task
 from butler import (
     _brain_context_text,

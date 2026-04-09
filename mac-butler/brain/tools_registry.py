@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 from butler_config import VPS_HOSTS
-from brain.toolkit import tool
+from brain.toolkit import get_toolkit, tool
 from executor.engine import Executor
 
 _executor = Executor()
@@ -310,3 +310,10 @@ def index_file(file_path: str, title: str = "") -> str:
     from memory.knowledge_base import index_file as _index
     count = _index(file_path, title)
     return f"Indexed {count} chunks from {file_path}"
+
+
+def get_tools_schema() -> list[dict]:
+    return get_toolkit().get_tools()
+
+
+TOOLS = get_tools_schema()
