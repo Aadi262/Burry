@@ -114,6 +114,27 @@ def _route_initial_intent(text: str):
     return b.route(text)
 
 
+def _run_skill_match(text: str, *, test_mode: bool = False) -> bool:
+    b = _butler()
+    try:
+        from skills import match_skill
+
+        skill, entities = match_skill(text)
+        if not skill:
+            return False
+        result = skill["execute"](text, entities)
+        speech = result.get("speech", "Done.")
+    except Exception as exc:
+        print(f"[Butler] silent error: {exc}")
+        return False
+
+    b.note_heard_text(text)
+    b.add_event("stt.complete", {"text": text[:100]})
+    b._speak_or_print(speech, test_mode=test_mode)
+    b._record(text, speech, result.get("actions", []), intent_name=skill.get("name", "skill"))
+    return True
+
+
 def _filename_from_follow_up(text: str) -> str:
     candidate = re.sub(
         r"^(?:call(?: it)?|name(?: it)?|make it|create it as)\s+",
@@ -689,21 +710,8 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         b.state.transition(b.State.IDLE)
         return
 
-    if not b.ctx.has_pending():
-        try:
-            from skills import match_skill
-
-            skill, entities = match_skill(text)
-            if skill:
-                result = skill["execute"](text, entities)
-                speech = result.get("speech", "Done.")
-                b.note_heard_text(text)
-                b.add_event("stt.complete", {"text": text[:100]})
-                b._speak_or_print(speech, test_mode=test_mode)
-                b._record(text, speech, result.get("actions", []), intent_name=skill.get("name", "skill"))
-                return
-        except Exception as exc:
-            print(f"[Butler] silent error: {exc}")
+    if not b.ctx.has_pending() and _run_skill_match(text, test_mode=test_mode):
+        return
 
     early_intent = _route_initial_intent(text)
     semantic_task = plan_semantic_task(text, current_intent=early_intent.name)
