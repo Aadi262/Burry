@@ -38,6 +38,7 @@ from butler_config import (
 )
 from daemon.ambient import start_ambient_daemon
 from daemon.wake_word import start_wake_word_daemon
+from brain.session_context import ctx
 from brain.query_analyzer import analyze_query
 from context import build_structured_context
 from context.mac_activity import get_state_for_context, load_state as load_mac_state, start_watcher
@@ -51,7 +52,7 @@ from intents.router import (
     is_ambiguous_song_query,
     route,
 )
-from memory.layered import append_to_index, save_project_detail, save_session
+from memory.layered import save_project_detail, save_session
 from memory.learner import analyze_and_learn
 from memory.store import _load as _load_memory
 from memory.store import (
@@ -101,8 +102,7 @@ import brain.tools_registry  # noqa: F401 — registers tools on import
 from brain.tools_registry import TOOLS
 from memory.bus import record as _bus_record
 from memory.graph import observe_project_relationships
-from memory.long_term import add_to_working_memory, save_session_state
-from memory.rl_loop import record_episode_with_agentscope_feedback
+from memory.long_term import save_session_state
 from memory.store import load_recent_sessions, semantic_search
 from pipeline.orchestrator import (
     TOOL_SYSTEM_PROMPT,
@@ -215,8 +215,6 @@ def _clear_pending_command_state() -> None:
         _INTERRUPT_MESSAGE = ""
 
 
-_PENDING_DIALOGUE_LOCK = threading.Lock()
-_PENDING_DIALOGUE: dict | None = None
 _CONVERSATION_LOCK = threading.Lock()
 _LEARNING_TRACE_LOCK = threading.Lock()
 _LAST_RESOLVED_COMMAND = {
@@ -241,6 +239,14 @@ _FOLLOWUP_PREFIXES = (
     "and who ",
     "and why ",
     "and how ",
+    "with subject ",
+    "subject is ",
+    "the subject ",
+    "body is ",
+    "the body says ",
+    "body should say ",
+    "saying ",
+    "message is ",
 )
 FAST_PATH_INTENTS = {"greeting", "question", "unknown", "chitchat"}
 FAST_PATH_CONFIDENCE = 0.8
@@ -1674,11 +1680,13 @@ def main() -> None:
         _report_brain_backend_status()
 
     if args.command:
+        ctx.reset()
         handle_command(args.command, test_mode=args.test, model=args.model)
         _save_backbone_session_state()
         return
 
     if args.interactive:
+        ctx.reset()
         run_interactive(use_stt=args.stt, model=args.model, test_mode=args.test)
         _save_backbone_session_state()
         return

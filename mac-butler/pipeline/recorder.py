@@ -7,6 +7,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+_LOW_SIGNAL_RESPONSES = {
+    "i didn't catch that. say open, search, compose mail, or latest news.",
+    "i don't know yet. ask again in a shorter way.",
+    "i'm still thinking, give me a moment.",
+    "i'm not sure what you want done yet. tell me the outcome you want, and i'll handle it or ask one quick question.",
+    "i couldn't answer that cleanly yet. ask it another way or tell me to look it up.",
+}
+
 
 def _butler():
     import butler  # noqa: PLC0415
@@ -98,6 +106,7 @@ def reset_conversation_context() -> None:
     with b._CONVERSATION_LOCK:
         b._SESSION_CONVERSATION.clear()
         b.note_conversation_turns([])
+    b.ctx.reset()
     b._briefing_done = False
 
 
@@ -157,6 +166,7 @@ def _record(
         learning_payload = dict(learning_meta or {})
         normalized_text = " ".join(str(text or "").split()).strip()
         normalized_intent = " ".join(str(intent_name or "").split()).strip()
+        normalized_speech = " ".join(str(speech or "").split()).strip()
         now_mono = time.monotonic()
         with b._LEARNING_TRACE_LOCK:
             previous = dict(b._LAST_RESOLVED_COMMAND)
@@ -187,6 +197,10 @@ def _record(
                 }
             )
 
+        if normalized_speech.lower() in _LOW_SIGNAL_RESPONSES:
+            b.ctx.add_butler(normalized_speech)
+            return
+
         try:
             outcome = "success" if speech and not any(
                 str(item.get("status", "")).lower() == "error"
@@ -206,26 +220,7 @@ def _record(
             print(f"[Butler] silent error: {exc}")
 
         _remember_conversation_turn(text, intent_name or "reply", speech)
-        try:
-            b.add_to_working_memory(text[:200], speech[:200])
-        except Exception as exc:
-            print(f"[Butler] silent error: {exc}")
-        try:
-            model_name = learning_meta.get("model", "") if learning_meta else ""
-            outcome = "success" if speech and not any(
-                str(item.get("status", "")).lower() == "error"
-                for item in (results or [])
-                if isinstance(item, dict)
-            ) else "failure"
-            b.record_episode_with_agentscope_feedback(
-                text=text,
-                intent=intent_name or "unknown",
-                model=model_name,
-                response=speech,
-                outcome=outcome,
-            )
-        except Exception as exc:
-            print(f"[Butler] silent error: {exc}")
+        b.ctx.add_butler(normalized_speech)
         b.record_session(text[:100], speech[:200], actions, results=results or [])
         b.save_session(
             {
@@ -234,9 +229,6 @@ def _record(
                 "actions": actions,
                 "context_preview": text[:120],
             }
-        )
-        b.append_to_index(
-            f"{datetime.now().strftime('%m/%d')} command: {text[:80]} -> {speech[:80]}"
         )
         touched = b.record_project_execution(text, speech, actions, results=results or [])
         with b._LEARNING_TRACE_LOCK:

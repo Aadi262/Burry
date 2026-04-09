@@ -16,6 +16,7 @@ from pathlib import Path
 
 import requests
 
+from brain.session_context import ctx
 from daemon.clap_detector import ClapDetector
 from butler_config import BUTLER_MODEL_CHAINS, OLLAMA_LOCAL_URL, OLLAMA_MODEL
 from runtime import note_session_active
@@ -334,6 +335,19 @@ def _run_continuous_session() -> None:
             if _shutdown_event.is_set():
                 break
             if text and len(text) > 2:
+                # ── HARD STOP: intercept before dispatching ──────────────
+                lowered_text = " ".join(text.lower().split()).strip()
+                if lowered_text in {"stop", "sleep", "quiet", "be quiet",
+                                    "go quiet", "shut up", "stop listening",
+                                    "go to sleep"}:
+                    print(f"[Trigger] Stop intercepted: {text}")
+                    try:
+                        from butler import handle_input as _handle_stop
+                        _handle_stop(text)
+                    except Exception:
+                        state.transition(State.IDLE)
+                    break  # exit session immediately
+
                 session_texts.append(text)
                 # If a handle thread is already running, treat new input as interrupt
                 if _handle_thread is not None and _handle_thread.is_alive():
@@ -356,6 +370,7 @@ def _run_continuous_session() -> None:
             session_actions=session_actions,
         )
         _observe_session_project_relationships(session_texts, session_speeches, session_actions)
+        ctx.reset()
         reset_conversation_context()
         _write_session_end_summary()
         _clear_session_flag()
@@ -388,6 +403,7 @@ def on_trigger():
     threading.Thread(target=_warm_planning_model, daemon=True).start()
 
     note_session_active(True, source="trigger")
+    ctx.reset()
     reset_conversation_context()
     if show_dashboard_window is not None:
         try:
