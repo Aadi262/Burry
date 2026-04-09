@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
-from intents.router import route
+from brain.session_context import ctx
+from intents.router import _classifier_intent, route
 
 
 class IntentRouterTests(unittest.TestCase):
@@ -89,6 +91,15 @@ class IntentRouterTests(unittest.TestCase):
         self.assertIn("su=project+update", url)
         self.assertIn("body=shipping+tonight", url)
 
+    def test_compose_mail_drops_trailing_connector_before_body(self):
+        result = route("open gmail and write a mail to vedang2803@gmail.com with subject test gmail and body how are u")
+        self.assertEqual(result.name, "compose_email")
+        url = result.to_action()["url"]
+        self.assertIn("to=vedang2803%40gmail.com", url)
+        self.assertIn("su=test+gmail", url)
+        self.assertNotIn("su=test+gmail+and", url)
+        self.assertIn("body=how+are+u", url)
+
     def test_open_google_sheet_routes_to_browser_url(self):
         result = route("open google sheet")
         self.assertEqual(result.name, "open_app")
@@ -118,10 +129,15 @@ class IntentRouterTests(unittest.TestCase):
         result = route("pause video")
         self.assertEqual(result.name, "pause_video")
 
-    def test_volume_up_routes_to_system_volume(self):
+    def test_volume_up_routes_to_instant_volume_up(self):
         result = route("turn up the volume")
         self.assertEqual(result.name, "system_volume")
         self.assertEqual(result.params["direction"], "up")
+
+    def test_exact_volume_up_routes_to_fast_pattern(self):
+        result = route("volume up")
+        self.assertEqual(result.name, "volume_up")
+        self.assertEqual(result.to_action()["type"], "volume_up")
 
     def test_whatsapp_routes_deterministically(self):
         result = route("message vedang on whatsapp")
@@ -143,6 +159,14 @@ class IntentRouterTests(unittest.TestCase):
     def test_bye_routes_to_sleep(self):
         result = route("bye")
         self.assertEqual(result.name, "butler_sleep")
+
+    def test_stop_routes_to_pause(self):
+        result = route("stop")
+        self.assertEqual(result.name, "spotify_pause")
+
+    def test_how_are_u_routes_to_greeting(self):
+        result = route("how are u?")
+        self.assertEqual(result.name, "greeting")
 
     def test_mcp_status_routes_deterministically(self):
         result = route("which mcp is failing")
@@ -242,6 +266,29 @@ class IntentRouterTests(unittest.TestCase):
         result = route("trending repos")
         self.assertEqual(result.name, "github_trending")
         self.assertEqual(result.to_action()["agent"], "github_trending")
+
+    @patch("intents.router._call_classifier")
+    def test_classifier_prompt_uses_recent_session_history(self, mock_call_classifier):
+        ctx.reset()
+        ctx.add_user("write mail to vedang")
+        ctx.add_butler("What is the subject?")
+        mock_call_classifier.return_value = '{"intent":"compose_email","params":{"to":"vedang","subject":"project update","body":""},"confidence":0.91,"platform":null,"needs_confirmation":false}'
+
+        result = _classifier_intent("write mail to vedang about project update")
+
+        self.assertEqual(result.name, "compose_email")
+        self.assertEqual(result.params["recipient"], "vedang")
+        prompt = mock_call_classifier.call_args.args[0]
+        self.assertIn("User: write mail to vedang", prompt)
+        self.assertIn("Burry: What is the subject?", prompt)
+
+    @patch("intents.router._call_classifier")
+    def test_classifier_low_confidence_drops_into_conversation(self, mock_call_classifier):
+        mock_call_classifier.return_value = '{"intent":"open_app","params":{"app":"Terminal"},"confidence":0.2,"platform":null,"needs_confirmation":false}'
+
+        result = _classifier_intent("open terminal maybe")
+
+        self.assertEqual(result.name, "conversation")
 
     def test_work_question_routes_directly_to_what_next(self):
         result = route("what should i do")

@@ -6,10 +6,18 @@ Deterministic intent router. No LLM. Handles common commands instantly.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import sys
+import threading
 import time
 import urllib.parse
 
+import requests
+
+from brain.session_context import ctx
+from butler_config import OLLAMA_LOCAL_URL
 from contact_utils import normalize_email
 
 APP_MAP = {
@@ -115,6 +123,156 @@ GENERIC_FILE_NAMES = {
 }
 
 LOW_SIGNAL_MAIL_WORDS = {"", "it", "this", "that", "someone", "mail", "email"}
+PLATFORM_MAP = {
+    "youtube": "youtube",
+    "spotify": "spotify",
+    "apple music": "apple_music",
+    "soundcloud": "soundcloud",
+}
+
+INSTANT_PATTERNS = {
+    "pause": {"type": "spotify_pause"},
+    "next song": {"type": "spotify_next"},
+    "previous": {"type": "spotify_prev"},
+    "mute": {"type": "volume_set", "level": 0},
+    "stop": {"type": "spotify_pause"},
+    "screenshot": {"type": "screenshot"},
+    "new tab": {"type": "browser_new_tab"},
+    "close tab": {"type": "browser_close_tab"},
+    "lock screen": {"type": "lock_screen"},
+    "show desktop": {"type": "show_desktop"},
+    "sleep": {"type": "sleep_mac"},
+    "volume up": {"type": "volume_up"},
+    "volume down": {"type": "volume_down"},
+}
+
+CLASSIFIER_SYSTEM = """You are Burry's brain running on a Mac.
+The user spoke to you. Decide what they want.
+Return ONLY valid JSON. Nothing else. No explanation.
+
+Available intents:
+news             - wants current info, news, weather, facts about anything
+play_music       - wants to play audio on spotify or youtube or apple music
+open_app         - wants to open any application
+compose_email    - wants to write or send an email
+create_folder    - wants to make a new directory
+create_file      - wants to make a new file
+read_file        - wants to read file contents
+write_file       - wants to write content to existing file
+delete_file      - wants to delete a file (always confirm)
+find_file        - wants to find a file by name
+list_files       - wants to see files in a location
+move_file        - wants to move or rename a file
+open_url         - wants to go to a specific website
+browser_tab      - wants to open close or manage browser tabs
+browser_window   - wants to open a new browser window
+web_search       - wants to search the web for something
+volume_control   - wants to change system volume to specific level
+brightness       - wants to change screen brightness
+compose_whatsapp - wants to send a WhatsApp message
+calendar_read    - wants to know about their schedule or meetings
+calendar_add     - wants to add an event or reminder
+task_read        - wants to know their pending tasks
+task_add         - wants to add a new task
+task_done        - wants to mark a task complete
+obsidian_note    - wants to add or read an Obsidian note
+run_command      - wants to run a terminal or shell command
+open_project     - wants to open a coding project in an editor
+git_action       - wants to run git command with confirmation
+vps_check        - wants to check or connect to VPS
+summarize_page   - wants to summarize current webpage
+summarize_video  - wants to summarize a YouTube video
+read_screen      - wants to know what is on screen right now
+take_screenshot  - wants to capture and describe screen
+focus_app        - wants to switch to a different app
+quit_app         - wants to quit an application
+minimize_app     - wants to minimize current window
+system_info      - wants battery wifi storage info
+dark_mode        - wants to toggle dark mode
+do_not_disturb   - wants to toggle do not disturb
+conversation     - wants to talk brainstorm discuss argue
+unknown          - genuinely cannot determine intent
+
+Recent conversation:
+{recent_history}
+
+User said: "{text}"
+
+Return ONLY this JSON:
+{{
+  "intent": "one intent from the list above",
+  "params": {{}},
+  "confidence": 0.95,
+  "platform": null,
+  "needs_confirmation": false
+}}
+
+Params by intent examples:
+news: {{"topic": "Claude Mythos", "region": "India"}}
+play_music: {{"song": "blinding lights", "artist": "weeknd"}}
+open_app: {{"app": "Terminal"}}
+compose_email: {{"to": "vedang@gmail.com", "subject": "", "body": ""}}
+create_folder: {{"name": "client work", "path": "~/Desktop"}}
+create_file: {{"name": "notes.txt", "path": "~/Desktop", "content": ""}}
+read_file: {{"path": "~/Desktop/notes.txt"}}
+write_file: {{"path": "~/Desktop/notes.txt", "content": "hello world"}}
+delete_file: {{"path": "~/Desktop/notes.txt"}}
+find_file: {{"query": "resume"}}
+list_files: {{"path": "~/Desktop"}}
+move_file: {{"from": "~/Desktop/old.txt", "to": "~/Documents/new.txt"}}
+open_url: {{"url": "https://github.com"}}
+browser_tab: {{"action": "new", "search": "adpilot github"}}
+browser_window: {{"action": "new", "url": ""}}
+web_search: {{"query": "latest AI news"}}
+volume_control: {{"level": 50}}
+brightness: {{"level": 70}}
+compose_whatsapp: {{"contact": "vedang", "phone": "", "message": "hi"}}
+calendar_read: {{"range": "today"}}
+calendar_add: {{"title": "meeting", "time": "tomorrow 3pm", "duration": 60}}
+task_read: {{"filter": "today"}}
+task_add: {{"title": "fix login bug", "project": "adpilot"}}
+task_done: {{"title": "fix login bug"}}
+obsidian_note: {{"title": "", "content": "fix login bug", "action": "add"}}
+run_command: {{"cmd": "git status", "cwd": "~/Burry/mac-butler"}}
+open_project: {{"name": "adpilot", "editor": "claude"}}
+git_action: {{"cmd": "commit", "message": "fix login", "needs_confirmation": true}}
+vps_check: {{"action": "status"}}
+summarize_page: {{"url": ""}}
+summarize_video: {{"url": "", "save_to_obsidian": false}}
+read_screen: {{"describe": true}}
+take_screenshot: {{"save": true, "describe": true}}
+focus_app: {{"app": "Cursor"}}
+quit_app: {{"app": "Chrome"}}
+minimize_app: {{"app": ""}}
+system_info: {{"query": "battery"}}
+dark_mode: {{"enable": true}}
+do_not_disturb: {{"enable": true}}
+conversation: {{"topic": "brainstorm mac-butler architecture"}}
+
+Real examples of how to classify:
+"yo whats up with claude mythos bro" → {{"intent":"news","params":{{"topic":"Claude Mythos"}},"confidence":0.94,"platform":null,"needs_confirmation":false}}
+"bro make a folder called client stuff on my desktop" → {{"intent":"create_folder","params":{{"name":"client stuff","path":"~/Desktop"}},"confidence":0.97,"platform":null,"needs_confirmation":false}}
+"play that blinding lights song on youtube" → {{"intent":"play_music","params":{{"song":"blinding lights"}},"confidence":0.95,"platform":"youtube","needs_confirmation":false}}
+"check if anything happened in india today" → {{"intent":"news","params":{{"topic":"India","region":"India"}},"confidence":0.93,"platform":null,"needs_confirmation":false}}
+"open a new tab and search adpilot github" → {{"intent":"browser_tab","params":{{"action":"new","search":"adpilot github"}},"confidence":0.91,"platform":null,"needs_confirmation":false}}
+"remind me tomorrow morning to call vedang" → {{"intent":"calendar_add","params":{{"title":"call vedang","time":"tomorrow morning"}},"confidence":0.90,"platform":null,"needs_confirmation":false}}
+"whats on my calendar today" → {{"intent":"calendar_read","params":{{"range":"today"}},"confidence":0.96,"platform":null,"needs_confirmation":false}}
+"write a mail to vedang about project update" → {{"intent":"compose_email","params":{{"to":"vedang","subject":"project update","body":""}},"confidence":0.88,"platform":null,"needs_confirmation":false}}
+"open adpilot in claude code" → {{"intent":"open_project","params":{{"name":"adpilot","editor":"claude"}},"confidence":0.95,"platform":null,"needs_confirmation":false}}
+"lets brainstorm the mac-butler architecture" → {{"intent":"conversation","params":{{"topic":"mac-butler architecture"}},"confidence":0.92,"platform":null,"needs_confirmation":false}}
+"summarize this youtube video and save to obsidian" → {{"intent":"summarize_video","params":{{"url":"","save_to_obsidian":true}},"confidence":0.91,"platform":null,"needs_confirmation":false}}
+"what is on my screen right now" → {{"intent":"read_screen","params":{{"describe":true}},"confidence":0.97,"platform":null,"needs_confirmation":false}}
+"how much battery do i have" → {{"intent":"system_info","params":{{"query":"battery"}},"confidence":0.99,"platform":null,"needs_confirmation":false}}
+"run git status in mac-butler" → {{"intent":"run_command","params":{{"cmd":"git status","cwd":"~/Burry/mac-butler"}},"confidence":0.96,"platform":null,"needs_confirmation":false}}
+"push to main" → {{"intent":"git_action","params":{{"cmd":"push","message":"","needs_confirmation":true}},"confidence":0.95,"platform":null,"needs_confirmation":true}}
+"move my resume to documents" → {{"intent":"move_file","params":{{"from":"~/Desktop/resume.pdf","to":"~/Documents/resume.pdf"}},"confidence":0.88,"platform":null,"needs_confirmation":false}}
+"add a note in obsidian about the adpilot bug" → {{"intent":"obsidian_note","params":{{"title":"adpilot bug","content":"","action":"add"}},"confidence":0.93,"platform":null,"needs_confirmation":false}}"""
+
+_CLASSIFIER_MODEL = "gemma4:e4b"
+_CLASSIFIER_LOCK = threading.Lock()
+_CLASSIFIER_BACKOFF_UNTIL = 0.0
+_CLASSIFIER_BACKOFF_SECONDS = 30.0
+_CLASSIFIER_TIMEOUT_SECONDS = 4.0
 
 
 class IntentResult:
@@ -124,11 +282,15 @@ class IntentResult:
         params: dict | None = None,
         confidence: float = 1.0,
         raw: str = "",
+        platform: str | None = None,
+        needs_confirmation: bool = False,
     ) -> None:
         self.name = name
         self.params = params or {}
         self.confidence = confidence
         self.raw = raw
+        self.platform = platform
+        self.needs_confirmation = needs_confirmation
 
     @property
     def intent(self) -> str:
@@ -294,10 +456,115 @@ class IntentResult:
             return {"type": "pause_video"}
         if name == "volume_set":
             return {"type": "volume_set", "level": params.get("level", 50)}
+        if name == "volume_up":
+            return {"type": "volume_up"}
+        if name == "volume_down":
+            return {"type": "volume_down"}
         if name == "system_volume":
             return {"type": "system_volume", "direction": params.get("direction", "up")}
         if name == "screenshot":
             return {"type": "screenshot"}
+        if name == "lock_screen":
+            return {"type": "lock_screen"}
+        if name == "show_desktop":
+            return {"type": "show_desktop"}
+        if name == "sleep_mac":
+            return {"type": "sleep_mac"}
+        if name == "play_music":
+            song = str(params.get("song", "") or "").strip()
+            if self.platform == "youtube":
+                return {
+                    "type": "open_url_in_browser",
+                    "url": _youtube_search_url(song or params.get("query", "")),
+                }
+            if song:
+                return {"type": "search_and_play", "query": song}
+            return {"type": "play_music", "mode": params.get("mode", "focus")}
+        if name == "open_url":
+            return {"type": "open_url", "url": params.get("url", "")}
+        if name == "browser_tab":
+            action_name = str(params.get("action", "new") or "new").strip().lower()
+            if action_name == "close":
+                return {"type": "browser_close_tab"}
+            if action_name == "refresh":
+                return {"type": "browser_refresh"}
+            if action_name == "back":
+                return {"type": "browser_go_back"}
+            if str(params.get("url", "") or "").strip():
+                return {"type": "browser_go_to", "url": params.get("url", "")}
+            if str(params.get("search", "") or "").strip():
+                return {"type": "browser_search", "query": params.get("search", ""), "new_tab": action_name != "current"}
+            return {"type": "browser_new_tab", "url": params.get("url", "")}
+        if name == "browser_window":
+            return {"type": "browser_window", "action": params.get("action", "new"), "url": params.get("url", "")}
+        if name == "web_search":
+            return {"type": "run_agent", "agent": "search", "query": params.get("query", self.raw)}
+        if name == "volume_control":
+            return {"type": "volume_set", "level": params.get("level", 50)}
+        if name == "brightness":
+            return {"type": "brightness", "level": params.get("level")}
+        if name == "compose_whatsapp":
+            return {
+                "type": "compose_whatsapp",
+                "contact": params.get("contact", ""),
+                "phone": params.get("phone", ""),
+                "message": params.get("message", ""),
+            }
+        if name == "calendar_read":
+            return {"type": "calendar_read", "range": params.get("range", "today")}
+        if name == "calendar_add":
+            return {
+                "type": "calendar_add",
+                "title": params.get("title", ""),
+                "time": params.get("time", ""),
+                "duration": params.get("duration", 60),
+            }
+        if name == "task_read":
+            return {"type": "task_read", "filter": params.get("filter", "today")}
+        if name == "task_add":
+            return {"type": "task_add", "title": params.get("title", ""), "project": params.get("project", "")}
+        if name == "task_done":
+            return {"type": "task_done", "title": params.get("title", "")}
+        if name == "read_file":
+            return {"type": "read_file", "path": params.get("path", "")}
+        if name == "write_file":
+            return {"type": "write_file", "path": params.get("path", ""), "content": params.get("content", ""), "mode": "overwrite"}
+        if name == "delete_file":
+            return {"type": "delete_file", "path": params.get("path", "")}
+        if name == "find_file":
+            return {"type": "find_file", "query": params.get("query", "")}
+        if name == "list_files":
+            return {"type": "list_files", "path": params.get("path", "")}
+        if name == "move_file":
+            return {"type": "move_file", "from": params.get("from", ""), "to": params.get("to", "")}
+        if name == "run_command":
+            return {"type": "run_command", "cmd": params.get("cmd", ""), "cwd": params.get("cwd", "")}
+        if name == "git_action":
+            return {"type": "git_action", "cmd": params.get("cmd", ""), "message": params.get("message", ""), "needs_confirmation": self.needs_confirmation}
+        if name == "vps_check":
+            return {"type": "vps_check", "action": params.get("action", "status")}
+        if name == "summarize_page":
+            return {"type": "summarize_page", "url": params.get("url", "")}
+        if name == "summarize_video":
+            return {"type": "summarize_video", "url": params.get("url", ""), "save_to_obsidian": bool(params.get("save_to_obsidian", False))}
+        if name == "read_screen":
+            return {"type": "read_screen", "describe": bool(params.get("describe", True))}
+        if name == "take_screenshot":
+            return {"type": "take_screenshot", "save": bool(params.get("save", True)), "describe": bool(params.get("describe", True))}
+        if name == "focus_app":
+            return {"type": "focus_app", "app": params.get("app", "")}
+        if name == "quit_app":
+            return {"type": "quit_app", "app": params.get("app", "")}
+        if name == "minimize_app":
+            return {"type": "minimize_app", "app": params.get("app", "")}
+        if name == "system_info":
+            return {"type": "system_info", "query": params.get("query", "")}
+        if name == "dark_mode":
+            return {"type": "dark_mode", "enable": params.get("enable")}
+        if name == "do_not_disturb":
+            return {"type": "do_not_disturb", "enable": params.get("enable")}
+        if name == "conversation":
+            return None
         return None
 
     def needs_llm(self) -> bool:
@@ -362,8 +629,49 @@ class IntentResult:
             "browser_close_window": "Closing the window.",
             "pause_video": "Pausing the video.",
             "volume_set": f"Setting volume to {self.params.get('level', 50)}.",
+            "volume_up": "Volume up.",
+            "volume_down": "Volume down.",
             "system_volume": f"Volume {self.params.get('direction', 'up')}.",
             "screenshot": "Taking a screenshot.",
+            "lock_screen": "Locking the screen.",
+            "show_desktop": "Showing the desktop.",
+            "sleep_mac": "Putting the Mac to sleep.",
+            "play_music": (
+                f"Playing {self.params.get('song', 'that')}."
+                if self.params.get("song")
+                else "Playing music."
+            ),
+            "open_url": "Opening that.",
+            "browser_tab": "Handling the tab.",
+            "browser_window": "Opening a browser window.",
+            "web_search": "Looking that up.",
+            "volume_control": f"Setting volume to {self.params.get('level', 50)}.",
+            "brightness": "Adjusting brightness.",
+            "compose_whatsapp": "Opening WhatsApp.",
+            "calendar_read": "Checking your calendar.",
+            "calendar_add": "Adding that to the calendar.",
+            "task_read": "Checking your tasks.",
+            "task_add": "Adding that task.",
+            "task_done": "Marking that done.",
+            "read_file": "Reading that file.",
+            "write_file": "Writing that file.",
+            "delete_file": "Deleting that file.",
+            "find_file": "Finding that file.",
+            "list_files": "Listing files there.",
+            "move_file": "Moving that file.",
+            "run_command": "Running that command.",
+            "git_action": "Running that git action.",
+            "vps_check": "Checking the VPS.",
+            "summarize_page": "Summarizing the page.",
+            "summarize_video": "Summarizing the video.",
+            "read_screen": "Reading the screen.",
+            "take_screenshot": "Taking a screenshot.",
+            "focus_app": f"Switching to {self.params.get('app', 'that app')}.",
+            "quit_app": f"Quitting {self.params.get('app', 'that app')}.",
+            "minimize_app": "Minimizing that app.",
+            "system_info": "Checking that.",
+            "dark_mode": "Toggling dark mode.",
+            "do_not_disturb": "Toggling do not disturb.",
             "mcp_status": "Checking M C P status.",
             "butler_sleep": "Going quiet.",
         }
@@ -385,6 +693,14 @@ def clean_song_query(query: str) -> str:
     # Strip punctuation
     query = query.strip().strip('.,!?')
     return query
+
+
+def _extract_platform(text: str) -> str | None:
+    lowered = _normalize_spaces(str(text or "").lower())
+    for keyword, platform in PLATFORM_MAP.items():
+        if keyword in lowered:
+            return platform
+    return None
 
 
 def is_ambiguous_song_query(query: str) -> bool:
@@ -584,7 +900,7 @@ def _extract_compose_email_params(text: str) -> dict | None:
 
     subject_match = re.search(r"\b(?:subject|about)\s+(.+)$", remainder, flags=re.IGNORECASE)
     if subject_match:
-        subject = subject_match.group(1).strip()
+        subject = re.sub(r"\s+\b(?:and|with)\b\s*$", "", subject_match.group(1).strip(), flags=re.IGNORECASE)
         remainder = remainder[: subject_match.start()].strip()
 
     _TRAILING_NOISE = re.compile(
@@ -705,7 +1021,217 @@ def extract_requested_filename(text: str) -> str:
     return candidate
 
 
-def route(text: str) -> IntentResult:
+def _normalize_recent_history(turn_limit: int, current_text: str) -> str:
+    turns = list(getattr(ctx, "turns", []) or [])
+    cleaned_current = _normalize_spaces(str(current_text or ""))
+    if turns:
+        last = turns[-1]
+        if (
+            isinstance(last, dict)
+            and str(last.get("role", "")).strip().lower() == "user"
+            and _normalize_spaces(str(last.get("text", ""))) == cleaned_current
+        ):
+            turns = turns[:-1]
+
+    lines = []
+    for turn in turns[-turn_limit:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", "")).strip().lower()
+        text = _normalize_spaces(str(turn.get("text", "")))
+        if not text:
+            continue
+        speaker = "User" if role == "user" else "Burry"
+        lines.append(f"{speaker}: {text}")
+    return "\n".join(lines) if lines else "None"
+
+
+def _strip_json_envelope(raw: str) -> str:
+    cleaned = str(raw or "").strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    if cleaned.startswith("{") and cleaned.endswith("}"):
+        return cleaned
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    return match.group(0) if match else cleaned
+
+
+def _running_under_tests() -> bool:
+    forced = str(os.environ.get("BURRY_FORCE_CLASSIFIER_ROUTE", "")).strip().lower()
+    if forced in {"1", "true", "yes", "on"}:
+        return False
+    argv = " ".join(sys.argv).lower()
+    return "pytest" in argv or "unittest" in argv
+
+
+def _classifier_prompt(text: str) -> str:
+    return CLASSIFIER_SYSTEM.format(
+        recent_history=_normalize_recent_history(4, text),
+        text=str(text or "").replace('"', '\\"'),
+    )
+
+
+def _instant_action_for_text(text: str) -> dict | None:
+    normalized = _normalize_voice_aliases(text).lower().strip(" .!?")
+    for phrase, action in INSTANT_PATTERNS.items():
+        if " " in phrase:
+            if normalized == phrase:
+                return dict(action)
+            continue
+        if normalized == phrase:
+            return dict(action)
+    return None
+
+
+def _intent_from_action(action: dict, text: str) -> IntentResult:
+    action_type = str(action.get("type", "")).strip()
+    if action_type == "volume_set":
+        return Intent("volume_set", {"level": action.get("level", 0)}, confidence=1.0, raw=text)
+    if action_type in {"spotify_pause", "spotify_next", "spotify_prev", "screenshot", "lock_screen", "show_desktop", "sleep_mac", "volume_up", "volume_down"}:
+        return Intent(action_type, confidence=1.0, raw=text)
+    if action_type == "browser_new_tab":
+        return Intent("browser_new_tab", confidence=1.0, raw=text)
+    if action_type == "browser_close_tab":
+        return Intent("browser_close_tab", confidence=1.0, raw=text)
+    return Intent("unknown", confidence=0.0, raw=text)
+
+
+def _classifier_backoff_active() -> bool:
+    with _CLASSIFIER_LOCK:
+        return time.monotonic() < _CLASSIFIER_BACKOFF_UNTIL
+
+
+def _mark_classifier_backoff() -> None:
+    global _CLASSIFIER_BACKOFF_UNTIL
+    with _CLASSIFIER_LOCK:
+        _CLASSIFIER_BACKOFF_UNTIL = time.monotonic() + _CLASSIFIER_BACKOFF_SECONDS
+
+
+def _clear_classifier_backoff() -> None:
+    global _CLASSIFIER_BACKOFF_UNTIL
+    with _CLASSIFIER_LOCK:
+        _CLASSIFIER_BACKOFF_UNTIL = 0.0
+
+
+def _call_classifier(prompt: str) -> str:
+    if _running_under_tests() or _classifier_backoff_active():
+        return ""
+
+    payload = {
+        "model": _CLASSIFIER_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": "5m",
+        "options": {
+            "temperature": 0,
+            "num_predict": 260,
+            "num_ctx": 4096,
+        },
+    }
+    try:
+        response = requests.post(
+            f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate",
+            json=payload,
+            timeout=_CLASSIFIER_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        _clear_classifier_backoff()
+        data = response.json() if response.content else {}
+        return str(data.get("response", "") or "").strip()
+    except Exception:
+        _mark_classifier_backoff()
+        return ""
+
+
+def _normalize_classifier_payload(intent_name: str, params: dict, platform: str | None, text: str) -> tuple[str, dict, str | None]:
+    normalized_intent = str(intent_name or "unknown").strip() or "unknown"
+    normalized_params = dict(params or {})
+    normalized_platform = str(platform or "").strip() or None
+
+    if normalized_intent == "compose_email":
+        recipient = str(normalized_params.get("to", "") or normalized_params.get("recipient", "")).strip()
+        normalized_params["recipient"] = recipient
+        normalized_params.setdefault("subject", "")
+        normalized_params.setdefault("body", "")
+    if normalized_intent == "play_music":
+        song = str(normalized_params.get("song", "") or normalized_params.get("query", "")).strip()
+        artist = str(normalized_params.get("artist", "") or "").strip()
+        if artist and song and artist.lower() not in song.lower():
+            song = f"{song} {artist}".strip()
+        normalized_params["song"] = song or clean_song_query(text)
+        if not normalized_platform:
+            normalized_platform = _extract_platform(text)
+    if normalized_intent == "open_app":
+        app = str(normalized_params.get("app", "") or "").strip()
+        if app:
+            app_key, mapped = _match_from_map(app, APP_MAP)
+            if mapped is not None:
+                normalized_params["app"] = mapped
+                normalized_params.setdefault("name", app_key if isinstance(mapped, tuple) else mapped)
+    if normalized_intent == "open_project":
+        normalized_params.setdefault("editor", detect_editor_choice(text))
+    if normalized_intent == "browser_tab":
+        normalized_params["action"] = str(normalized_params.get("action", "new") or "new").strip().lower()
+    if normalized_intent == "volume_control":
+        try:
+            normalized_params["level"] = max(0, min(100, int(normalized_params.get("level", 50))))
+        except Exception:
+            normalized_params["level"] = 50
+    if normalized_intent == "create_folder":
+        path = str(normalized_params.get("path", "") or "").strip()
+        name = str(normalized_params.get("name", "") or "").strip()
+        if name and not path:
+            normalized_params["path"] = f"~/Desktop/{name}"
+    if normalized_intent == "create_file":
+        normalized_params.setdefault("name", extract_requested_filename(text) or "untitled.txt")
+    if normalized_intent == "conversation":
+        normalized_params.setdefault("topic", _clean_lookup_query(text))
+    return normalized_intent, normalized_params, normalized_platform
+
+
+def _classifier_intent(text: str) -> IntentResult | None:
+    raw = _call_classifier(_classifier_prompt(text))
+    if not raw:
+        return None
+
+    try:
+        payload = json.loads(_strip_json_envelope(raw))
+    except Exception:
+        return None
+
+    intent_name, params, platform = _normalize_classifier_payload(
+        payload.get("intent", "unknown"),
+        payload.get("params") if isinstance(payload.get("params"), dict) else {},
+        payload.get("platform"),
+        text,
+    )
+    try:
+        confidence = float(payload.get("confidence", 0.0) or 0.0)
+    except Exception:
+        confidence = 0.0
+    needs_confirmation = bool(payload.get("needs_confirmation", False))
+
+    if confidence < 0.4:
+        return Intent(
+            "conversation",
+            {"topic": params.get("topic", _clean_lookup_query(text) or text)},
+            confidence=confidence,
+            raw=text,
+            platform=platform,
+            needs_confirmation=needs_confirmation,
+        )
+
+    return Intent(
+        intent_name,
+        params,
+        confidence=confidence,
+        raw=text,
+        platform=platform,
+        needs_confirmation=needs_confirmation,
+    )
+
+
+def _legacy_route(text: str) -> IntentResult:
     lowered = _normalize_voice_aliases(text.lower())
     lowered_compact = _normalize_spaces(lowered)
 
@@ -718,7 +1244,21 @@ def route(text: str) -> IntentResult:
     }:
         return Intent("what_next", confidence=0.95, raw=text)
 
-    if lowered in {"bye", "goodbye", "sleep", "go quiet", "go to sleep", "stop listening", "burry sleep", "go to sleep burry"}:
+    if lowered in {
+        "bye",
+        "goodbye",
+        "sleep",
+        "stop",
+        "quiet",
+        "be quiet",
+        "go quiet",
+        "go silent",
+        "shut up",
+        "stop listening",
+        "burry sleep",
+        "go to sleep",
+        "go to sleep burry",
+    }:
         return Intent("butler_sleep", raw=text)
 
     if re.search(r"\b(wake up|wake|burry wake|start listening|hey burry|listen up)\b", lowered):
@@ -764,6 +1304,21 @@ def route(text: str) -> IntentResult:
         )
     ):
         return Intent("market", {"topics": ["AI agents", "LLMs", "open source"]}, raw=text)
+
+    if any(
+        value in lowered
+        for value in (
+            "what's on hackernews",
+            "whats on hackernews",
+            "what's on hacker news",
+            "whats on hacker news",
+            "check hackernews",
+            "check hacker news",
+            "hackernews",
+            "hacker news",
+        )
+    ):
+        return Intent("hackernews", {"limit": 10}, raw=text)
 
     news_request = _extract_news_request(text)
     if news_request is not None:
@@ -823,6 +1378,20 @@ def route(text: str) -> IntentResult:
 
     match = re.match(r"^(?:play|put on)\s+(.+)$", lowered)
     if match:
+        platform = _extract_platform(match.group(1))
+        if platform == "youtube":
+            query = _clean_lookup_query(
+                re.sub(r"\b(?:play|put on|on|youtube|music|song)\b", " ", match.group(1), flags=re.IGNORECASE)
+            )
+            if query:
+                return Intent(
+                    "open_app",
+                    {
+                        "app": ("browser", _youtube_search_url(query)),
+                        "name": "YouTube results",
+                    },
+                    raw=text,
+                )
         query = clean_song_query(match.group(1).strip())
         if is_ambiguous_song_query(query):
             return Intent("clarify_song", raw=text)
@@ -836,12 +1405,26 @@ def route(text: str) -> IntentResult:
         lowered,
     )
     if match:
+        platform = _extract_platform(match.group(1))
+        if platform == "youtube":
+            query = _clean_lookup_query(
+                re.sub(r"\b(?:change|switch|music|song|track|to|on|youtube)\b", " ", match.group(1), flags=re.IGNORECASE)
+            )
+            if query:
+                return Intent(
+                    "open_app",
+                    {
+                        "app": ("browser", _youtube_search_url(query)),
+                        "name": "YouTube results",
+                    },
+                    raw=text,
+                )
         query = clean_song_query(match.group(1).strip())
         if is_ambiguous_song_query(query):
             return Intent("clarify_song", raw=text)
         return Intent("spotify_play", {"song": query}, raw=text)
 
-    if any(value in lowered for value in ("pause music", "stop music", "pause spotify", "mute")):
+    if lowered == "pause" or any(value in lowered for value in ("pause music", "stop music", "pause spotify", "mute")):
         return Intent("spotify_pause", raw=text)
 
     if any(value in lowered for value in ("next song", "next track", "skip")):
@@ -921,18 +1504,6 @@ def route(text: str) -> IntentResult:
     if any(value in lowered for value in ("ai news", "a i news", "air news", "tech news")):
         topic = "tech" if "tech news" in lowered else "AI"
         return Intent("news", {"topic": topic, "hours": 24}, raw=text)
-    if any(
-        value in lowered
-        for value in (
-            "what's on hackernews",
-            "whats on hackernews",
-            "what's on hacker news",
-            "whats on hacker news",
-            "hackernews",
-            "hacker news",
-        )
-    ):
-        return Intent("hackernews", {"limit": 10}, raw=text)
     if any(value in lowered for value in ("trending repos", "trending repositories", "github trending")):
         return Intent("github_trending", {"language": "python", "since": "daily"}, raw=text)
     if any(
@@ -999,7 +1570,7 @@ def route(text: str) -> IntentResult:
     if re.match(
         r"^(?:hi|hello|hey|yo)(?:\s+there)?(?:\s+how are you)?[.!? ]*$",
         lowered,
-    ) or re.match(r"^how are you[.!? ]*$", lowered):
+    ) or re.match(r"^how are (?:you|u)[.!? ]*$", lowered) or re.match(r"^how r u[.!? ]*$", lowered):
         return Intent("greeting", confidence=0.95, raw=text)
 
     if lowered.endswith("?") or re.match(
@@ -1113,6 +1684,18 @@ def _extract_from_conversational(text: str, lowered: str) -> IntentResult | None
         return Intent("spotify_next", raw=text)
 
     return None
+
+
+def route(text: str) -> IntentResult:
+    instant_action = _instant_action_for_text(text)
+    if instant_action is not None:
+        return _intent_from_action(instant_action, text)
+
+    classified = _classifier_intent(text)
+    if classified is not None:
+        return classified
+
+    return _legacy_route(text)
 
 
 # Alias for tests and external callers

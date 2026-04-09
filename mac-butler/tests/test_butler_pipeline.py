@@ -13,6 +13,7 @@ from butler import (
     _contextualize_action,
     _deterministic_project_plan,
     _extract_news_topic,
+    handle_input,
     _direct_agent_plan_for_text,
     _looks_like_followup_reference,
     _maybe_add_info_followup,
@@ -37,12 +38,110 @@ from butler import (
     reset_conversation_context,
 )
 from intents.router import IntentResult
+from state import State
 
 
 class ButlerPipelineTests(unittest.TestCase):
     def tearDown(self):
+        butler_module._clear_pending_command_state()
+        butler_module.state.transition(State.IDLE)
         _clear_pending_dialogue()
         reset_conversation_context()
+
+    @patch("butler.speak")
+    def test_stop_bypasses_busy_queue(self, mock_speak):
+        butler_module._clear_pending_command_state()
+        butler_module.state.transition(State.SPEAKING)
+
+        handle_input("stop listening")
+
+        self.assertTrue(butler_module._COMMAND_QUEUE.empty())
+        self.assertEqual(butler_module.state.current, State.IDLE)
+        mock_speak.assert_called_once()
+
+    @patch("brain.agentscope_backbone.interrupt_agentscope_turn", return_value=True)
+    @patch("butler.note_intent")
+    @patch("butler.add_event")
+    @patch("butler.note_heard_text")
+    @patch("butler._ensure_watcher_started")
+    @patch("butler.speak")
+    @patch("butler.executor.run", return_value=[{"status": "ok", "result": "Opened YouTube"}])
+    def test_busy_fast_action_replaces_queue_and_requests_interrupt(
+        self,
+        _mock_executor_run,
+        mock_speak,
+        _mock_watcher,
+        _mock_heard,
+        _mock_event,
+        _mock_intent,
+        mock_interrupt,
+    ):
+        butler_module._clear_pending_command_state()
+        butler_module._COMMAND_QUEUE.put_nowait("older queued command")
+        butler_module.state.transition(State.THINKING)
+
+        handle_input("open youtube")
+
+        self.assertTrue(butler_module._COMMAND_QUEUE.empty())
+        mock_interrupt.assert_called_once_with("open youtube")
+        mock_speak.assert_called_once()
+
+    @patch("skills.match_skill", return_value=(None, {}))
+    @patch("butler.note_intent")
+    @patch("butler.add_event")
+    @patch("butler.note_heard_text")
+    @patch("butler.speak")
+    @patch("butler.executor.run", return_value=[{"status": "ok", "result": "Opened YouTube"}])
+    @patch("butler._get_cached_context")
+    @patch("butler._ensure_watcher_started")
+    def test_direct_browser_action_skips_context_build(
+        self,
+        _mock_watcher,
+        mock_get_cached_context,
+        mock_executor_run,
+        _mock_speak,
+        _mock_heard,
+        _mock_event,
+        _mock_intent,
+        _mock_skill_match,
+    ):
+        butler_module.state.transition(State.IDLE)
+
+        handle_input("open youtube")
+
+        mock_get_cached_context.assert_not_called()
+        mock_executor_run.assert_called_once()
+
+    @patch("butler._record")
+    @patch("butler.observe_and_followup")
+    @patch("butler.speak")
+    @patch("butler.executor.run", return_value=[{"status": "ok", "result": "Opened YouTube"}])
+    @patch("butler.note_tool_finished")
+    @patch("butler.note_tool_started")
+    def test_run_actions_with_response_traces_direct_action_and_delays_speech(
+        self,
+        mock_started,
+        mock_finished,
+        _mock_executor_run,
+        mock_speak,
+        mock_followup,
+        _mock_record,
+    ):
+        butler_module.state.transition(State.THINKING)
+
+        final_response, results = _run_actions_with_response(
+            text="open youtube",
+            response="Opening YouTube.",
+            actions=[{"type": "open_url_in_browser", "url": "https://youtube.com"}],
+            test_mode=False,
+        )
+
+        self.assertEqual(final_response, "Opening YouTube.")
+        self.assertEqual(results[0]["status"], "ok")
+        mock_started.assert_called_once_with("open_url_in_browser", "https://youtube.com")
+        mock_finished.assert_called_once_with("open_url_in_browser", "ok", "Opened YouTube")
+        mock_speak.assert_called_once_with("Opening YouTube.")
+        mock_followup.assert_not_called()
 
     def test_contextualize_create_file_uses_workspace(self):
         action = {"type": "create_file_in_editor", "filename": "demo.py", "editor": "Cursor"}
@@ -430,10 +529,12 @@ class ButlerPipelineTests(unittest.TestCase):
     @patch("butler.note_memory_recall")
     @patch("butler.note_tool_started")
     @patch("memory.store.semantic_search", return_value=[{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}])
+    @patch("brain.agentscope_backbone.run_agentscope_turn", return_value={"speech": "", "actions": [], "results": [], "metadata": {}})
     @patch("brain.ollama_client.chat_with_ollama")
     def test_tool_chat_response_executes_recall_memory_before_final_reply(
         self,
         mock_chat,
+        _mock_backbone,
         _mock_semantic,
         mock_tool_started,
         mock_memory_recall,
@@ -475,6 +576,7 @@ class ButlerPipelineTests(unittest.TestCase):
     @patch("butler.note_memory_recall")
     @patch("butler.note_tool_started")
     @patch("memory.store.semantic_search", return_value=[{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}])
+    @patch("brain.agentscope_backbone.run_agentscope_turn", return_value={"speech": "", "actions": [], "results": [], "metadata": {}})
     @patch(
         "brain.ollama_client.chat_with_ollama",
         return_value={
@@ -488,6 +590,7 @@ class ButlerPipelineTests(unittest.TestCase):
     def test_tool_chat_response_falls_back_to_memory_when_model_skips_tool_call(
         self,
         _mock_chat,
+        _mock_backbone,
         _mock_semantic,
         mock_tool_started,
         mock_memory_recall,
@@ -512,10 +615,12 @@ class ButlerPipelineTests(unittest.TestCase):
             "data": {"tool": "browser_search", "sources": ["searxng"]},
         },
     )
+    @patch("brain.agentscope_backbone.run_agentscope_turn", return_value={"speech": "", "actions": [], "results": [], "metadata": {}})
     @patch("brain.ollama_client.chat_with_ollama")
     def test_tool_chat_response_executes_browse_web_via_browser_agent(
         self,
         mock_chat,
+        _mock_backbone,
         _mock_search,
         mock_tool_started,
         mock_tool_finished,

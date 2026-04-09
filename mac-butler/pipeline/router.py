@@ -35,9 +35,12 @@ INSTANT_LANE_INTENTS = {
     "spotify_next",
     "spotify_prev",
     "spotify_volume",
+    "play_music",
     "spotify_mode",
     "pause_video",
     "volume_set",
+    "volume_up",
+    "volume_down",
     "system_volume",
     "create_file",
     "create_folder",
@@ -47,6 +50,9 @@ INSTANT_LANE_INTENTS = {
     "whatsapp_open",
     "whatsapp_send",
     "screenshot",
+    "lock_screen",
+    "show_desktop",
+    "sleep_mac",
     "set_reminder",
     "obsidian_note",
     "butler_sleep",
@@ -352,6 +358,46 @@ def _looks_like_followup_reference(text: str) -> bool:
             r"\bthem\b",
         )
     )
+
+
+def _clarification_question_for_intent(intent) -> str:
+    name = str(getattr(intent, "name", getattr(intent, "intent", "")) or "").strip()
+    params = getattr(intent, "params", {}) if isinstance(getattr(intent, "params", {}), dict) else {}
+
+    if name == "unknown":
+        return "What do you want me to do?"
+    if name == "open_app":
+        app = str(params.get("app", "") or params.get("name", "")).strip()
+        return f"Open {app}?" if app else "Which app should I open?"
+    if name == "play_music":
+        song = str(params.get("song", "") or "").strip()
+        return f"Play {song}?" if song else "What should I play?"
+    if name == "compose_email":
+        recipient = str(params.get("recipient", "") or params.get("to", "")).strip()
+        return f"Email {recipient}?" if recipient else "Who is the email to?"
+    if name == "create_folder":
+        folder = str(params.get("name", "") or "").strip()
+        return f"Create {folder}?" if folder else "What should I name the folder?"
+    if name == "create_file":
+        filename = str(params.get("name", "") or params.get("filename", "")).strip()
+        return f"Create {filename}?" if filename else "What should I name the file?"
+    if name == "news":
+        topic = str(params.get("topic", "") or params.get("region", "")).strip()
+        return f"News on {topic}?" if topic else "What news topic?"
+    if name == "web_search":
+        query = str(params.get("query", "") or "").strip()
+        return f"Search for {query}?" if query else "What should I search for?"
+    if name == "open_url":
+        return "Which website should I open?"
+    if name == "browser_tab":
+        return "Open, close, or search?"
+    if name == "run_command":
+        cmd = str(params.get("cmd", "") or "").strip()
+        return f"Run {cmd}?" if cmd else "Which command should I run?"
+    if name == "system_info":
+        query = str(params.get("query", "") or "").strip()
+        return f"Check {query}?" if query else "Battery, wifi, or storage?"
+    return "What exactly do you want?"
 
 
 def _handle_meta_intent(intent, test_mode: bool = False) -> bool:
@@ -697,7 +743,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     b.ctx.add_user(text)
 
     lowered_raw = " ".join(text.lower().split()).strip()
-    if lowered_raw in {"stop", "sleep", "quiet", "be quiet", "go quiet", "shut up", "stop listening", "go to sleep", "bye", "goodbye"}:
+    if lowered_raw in {"quiet", "be quiet", "go quiet", "shut up", "stop listening", "go to sleep burry", "burry sleep", "bye", "goodbye"}:
         b.note_heard_text(text)
         b.add_event("stt.complete", {"text": text[:100]})
         b._clear_pending_command_state()
@@ -714,7 +760,20 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     early_intent = _route_initial_intent(text)
-    semantic_task = plan_semantic_task(text, current_intent=early_intent.name)
+    semantic_task = plan_semantic_task(text, current_intent=early_intent.name) if early_intent.name in {"unknown", "question"} else None
+
+    if 0.4 <= float(getattr(early_intent, "confidence", 0.0) or 0.0) <= 0.7 and early_intent.name != "conversation":
+        b.note_heard_text(text)
+        b.add_event("stt.complete", {"text": text[:100]})
+        b.note_intent(early_intent.name, early_intent.params, early_intent.confidence, raw=text)
+        b._reply_without_action(
+            text,
+            _clarification_question_for_intent(early_intent),
+            test_mode=test_mode,
+            intent_name="clarify_intent",
+            learning_meta={"task_type": "clarify_intent", "original_intent": early_intent.name},
+        )
+        return
 
     if semantic_task is not None and getattr(semantic_task, "force_override", False):
         b.note_heard_text(text)
@@ -822,6 +881,41 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             test_mode=test_mode,
             intent_name=intent.name,
             learning_meta=base_learning_meta,
+        )
+        return
+
+    if intent.name == "conversation":
+        smart = b._smart_reply(effective_text, {}, model=model)
+        if smart in {"NEEDS_TOOLS", "NEEDS_CONTEXT", ""}:
+            ctx = b._get_cached_context() if smart == "NEEDS_CONTEXT" else {}
+            tool_reply = b._safe_tool_chat_response(
+                effective_text,
+                ctx,
+                model=model,
+                intent_name=intent.name,
+                intent_confidence=intent.confidence,
+                stream_speech=not test_mode,
+                test_mode=test_mode,
+            )
+            speech = tool_reply.get("speech", "") or "Say it straight. What are we actually doing?"
+            if not tool_reply.get("spoken"):
+                b._speak_or_print(speech, test_mode=test_mode)
+            b._record(
+                text,
+                speech,
+                tool_reply.get("actions", []),
+                results=tool_reply.get("results", []),
+                intent_name=intent.name,
+                learning_meta=brain_learning_meta,
+            )
+            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+            return
+        b._reply_without_action(
+            text,
+            smart,
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=brain_learning_meta,
         )
         return
 
