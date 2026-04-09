@@ -9,6 +9,7 @@ import threading
 
 import brain.agentscope_backbone as backbone
 import brain.toolkit as toolkit_module
+from capabilities import build_action, get_tool_spec, plan_semantic_task
 from runtime.tracing import trace_command
 
 
@@ -85,26 +86,32 @@ _DETERMINISTIC_CASUAL_RESPONSES = {
 
 _RESEARCH_RE = re.compile(r"\b(research|look up|look into|find out|investigate)\b")
 _RESEARCH_STRIP_RE = re.compile(r"^(research|look up|look into|find out|investigate)\s+")
+_GENERIC_UNKNOWN_REPLY = "I'm not sure what you want done yet. Tell me the outcome you want, and I'll handle it or ask one quick question."
+_GENERIC_QUESTION_REPLY = "I couldn't answer that cleanly yet. Ask it another way or tell me to look it up."
 
 
 def _set_pending_dialogue(kind: str, **metadata) -> None:
     b = _butler()
-    with b._PENDING_DIALOGUE_LOCK:
-        b._PENDING_DIALOGUE = {"kind": kind, **metadata}
+    b.ctx.set_pending(kind, **metadata)
 
 
 def _get_pending_dialogue() -> dict | None:
     b = _butler()
-    with b._PENDING_DIALOGUE_LOCK:
-        if b._PENDING_DIALOGUE is None:
-            return None
-        return dict(b._PENDING_DIALOGUE)
+    return b.ctx.get_pending()
 
 
 def _clear_pending_dialogue() -> None:
     b = _butler()
-    with b._PENDING_DIALOGUE_LOCK:
-        b._PENDING_DIALOGUE = None
+    b.ctx.clear_pending()
+
+
+def _route_initial_intent(text: str):
+    b = _butler()
+    if b.ctx.has_pending():
+        pending_intent = _resolve_pending_dialogue(text)
+        if pending_intent is not None:
+            return pending_intent
+    return b.route(text)
 
 
 def _filename_from_follow_up(text: str) -> str:
@@ -124,6 +131,33 @@ def _filename_from_follow_up(text: str) -> str:
     if len(candidate.split()) > 6:
         return ""
     return candidate
+
+
+def _email_followup_value(text: str, field: str) -> str:
+    candidate = _normalize_email_followup(text, field)
+    return candidate.strip().strip("\"'.,!?")
+
+
+def _normalize_email_followup(text: str, field: str) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+
+    if field == "subject":
+        cleaned = re.sub(
+            r"^(?:with\s+subject|subject\s+is|the\s+subject(?:\s+is)?|subject)\s+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    else:
+        cleaned = re.sub(
+            r"^(?:with\s+body|body\s+is|the\s+body\s+says|body\s+should\s+say|the\s+body|body|message\s+is|message|saying)\s+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    return cleaned.strip()
 
 
 def get_quick_response(intent) -> str:
@@ -176,6 +210,33 @@ def _resolve_pending_dialogue(text: str):
             confidence=0.3,
             raw=text,
         )
+
+    if pending.get("kind") == "pending_email":
+        recipient = str(pending.get("recipient", "") or "").strip()
+        subject = str(pending.get("subject", "") or "").strip()
+        body = str(pending.get("body", "") or "").strip()
+        if recipient:
+            if not subject:
+                subject = _email_followup_value(text, "subject")
+                if subject:
+                    _set_pending_dialogue("pending_email", recipient=recipient, subject=subject, body=body)
+                    return b.IntentResult(
+                        "clarify_email_body",
+                        {"recipient": recipient, "subject": subject},
+                        confidence=0.85,
+                        raw=text,
+                    )
+            elif not body:
+                body = _email_followup_value(text, "body")
+                if body:
+                    _clear_pending_dialogue()
+                    return b.IntentResult(
+                        "compose_email",
+                        {"recipient": recipient, "subject": subject, "body": body},
+                        confidence=0.85,
+                        raw=text,
+                    )
+        return b.IntentResult("unknown", confidence=0.0, raw=text)
 
     return None
 
@@ -335,6 +396,25 @@ def _execute_instant(intent, text: str, *, test_mode: bool = False) -> None:
         b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
         return
 
+    if intent.name == "compose_email":
+        recipient = str(intent.params.get("recipient", "") or "").strip()
+        subject = str(intent.params.get("subject", "") or "").strip()
+        body = str(intent.params.get("body", "") or "").strip()
+        if recipient and not subject:
+            _set_pending_dialogue("pending_email", recipient=recipient, subject="", body="")
+            response = "Got it. What's the subject?"
+            b._speak_or_print(response, test_mode=test_mode)
+            b._record(text, response, [], intent_name=intent.name)
+            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+            return
+        if recipient and subject and not body:
+            _set_pending_dialogue("pending_email", recipient=recipient, subject=subject, body="")
+            response = f"Subject: {subject}. What should the body say?"
+            b._speak_or_print(response, test_mode=test_mode)
+            b._record(text, response, [], intent_name=intent.name)
+            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+            return
+
     action = intent.to_action()
     response = get_quick_response(intent) or "Done."
     results: list[dict] = []
@@ -396,24 +476,39 @@ def _run_background_action(action: dict) -> None:
 
 def _execute_background(intent, text: str, *, test_mode: bool = False) -> None:
     b = _butler()
-    response = get_quick_response(intent) or "Working on it."
-    b._speak_or_print(response, test_mode=test_mode)
-
     action_seed = intent.to_action()
     action = b._contextualize_action(action_seed, intent, {}) if action_seed else None
     if action:
         if action.get("type") == "run_agent":
             try:
-                from agents.runner import run_agent_async
+                from agents.runner import run_agent, run_agent_async
 
                 agent_name = str(action.get("agent", "")).strip()
+                agent_payload = {key: value for key, value in action.items() if key not in ("type", "agent")}
+                if agent_name == "news":
+                    result = run_agent(agent_name, agent_payload)
+                    response = str(result.get("result", "") or "No news found.").strip() or "No news found."
+                    b._speak_or_print(response, test_mode=test_mode)
+                    b._record(
+                        text,
+                        response,
+                        [action],
+                        results=[result],
+                        intent_name=intent.name,
+                    )
+                    b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+                    return
+                response = get_quick_response(intent) or "Working on it."
+                b._speak_or_print(response, test_mode=test_mode)
                 run_agent_async(
                     agent_name,
-                    {key: value for key, value in action.items() if key not in ("type", "agent")},
+                    agent_payload,
                 )
             except Exception as exc:
                 print(f"[Background] Agent dispatch failed: {exc}")
         else:
+            response = get_quick_response(intent) or "Working on it."
+            b._speak_or_print(response, test_mode=test_mode)
             worker = threading.Thread(
                 target=_run_background_action,
                 args=(action,),
@@ -421,9 +516,113 @@ def _execute_background(intent, text: str, *, test_mode: bool = False) -> None:
                 name=f"bg-{intent.name}",
             )
             worker.start()
+    else:
+        response = get_quick_response(intent) or "Working on it."
+        b._speak_or_print(response, test_mode=test_mode)
 
     b._record(text, response, [action] if action else [], intent_name=intent.name)
     b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+
+
+def _semantic_learning_meta(learning_meta: dict | None, task) -> dict:
+    payload = dict(learning_meta or {})
+    payload["semantic_goal"] = str(task.goal or "")[:160]
+    payload["semantic_source"] = str(task.source or "semantic_planner")
+    if task.tool:
+        payload["semantic_tool"] = task.tool
+    return payload
+
+
+def _execute_semantic_task(task, text: str, *, test_mode: bool = False, learning_meta: dict | None = None) -> bool:
+    b = _butler()
+    intent_name = str(task.intent_name or task.tool or task.kind or "semantic_task").strip()
+    meta = _semantic_learning_meta(learning_meta, task)
+
+    if getattr(task, "needs_clarification", False):
+        question = str(task.clarification or "Can you clarify that?").strip() or "Can you clarify that?"
+        b.note_intent(intent_name, getattr(task, "args", {}), getattr(task, "confidence", 0.0), raw=text)
+        b._reply_without_action(
+            text,
+            question,
+            test_mode=test_mode,
+            intent_name=intent_name,
+            learning_meta=meta,
+        )
+        return True
+
+    if getattr(task, "answer", "") and not getattr(task, "tool", ""):
+        answer = str(task.answer).strip()
+        if not answer:
+            return False
+        b.note_intent(intent_name, getattr(task, "args", {}), getattr(task, "confidence", 0.0), raw=text)
+        b._reply_without_action(
+            text,
+            answer,
+            test_mode=test_mode,
+            intent_name=intent_name,
+            learning_meta=meta,
+        )
+        return True
+
+    tool_name = str(getattr(task, "tool", "") or "").strip()
+    spec = get_tool_spec(tool_name)
+    action = build_action(tool_name, getattr(task, "args", {}))
+    if spec is None or action is None:
+        return False
+
+    b.note_intent(intent_name, getattr(task, "args", {}), getattr(task, "confidence", 0.0), raw=text)
+    b.add_event("semantic.accepted", {"intent": intent_name, "tool": spec.name, "goal": str(task.goal or "")[:140]})
+
+    if spec.sync_execution:
+        b.note_tool_started(b._action_trace_name(action), b._action_trace_detail(action))
+        try:
+            results = b.executor.run([action])
+        except Exception as exc:
+            b.note_tool_finished(b._action_trace_name(action), "error", str(exc)[:180])
+            failure = b._normalize_response(str(exc), max_words=18, single_sentence=True) or "That failed."
+            b._reply_without_action(
+                text,
+                failure,
+                test_mode=test_mode,
+                intent_name=intent_name,
+                learning_meta=meta,
+            )
+            return True
+
+        result = results[0] if results else {}
+        status = str(result.get("status", "ok") or "ok").strip().lower()
+        b.note_tool_finished(
+            b._action_trace_name(action),
+            status or "ok",
+            b._action_trace_result_detail(result, b._action_trace_detail(action)),
+        )
+        if status == "ok":
+            raw_result = str(result.get("result", "") or "").strip()
+            response = b._normalize_response(raw_result, max_words=48) or str(task.quick_response or spec.quick_response or "Done.").strip()
+        else:
+            response = b._normalize_response(str(result.get("error", "") or ""), max_words=18, single_sentence=True) or "That failed."
+        b._speak_or_print(response, test_mode=test_mode)
+        b._record(
+            text,
+            response,
+            [action],
+            results=results,
+            intent_name=intent_name,
+            learning_meta=meta,
+        )
+        b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+        return True
+
+    response = str(task.quick_response or spec.quick_response or "On it.").strip() or "On it."
+    b._run_actions_with_response(
+        text=text,
+        response=response,
+        actions=[action],
+        intent_name=intent_name,
+        test_mode=test_mode,
+        learning_meta=meta,
+    )
+    return True
 
 
 def _dispatch_research(
@@ -474,6 +673,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
 
     if not text or len(text.strip()) < 2:
         return
+    b.ctx.add_user(text)
 
     lowered_raw = " ".join(text.lower().split()).strip()
     if lowered_raw in {"stop", "sleep", "quiet", "be quiet", "go quiet", "shut up", "stop listening", "go to sleep", "bye", "goodbye"}:
@@ -489,7 +689,30 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         b.state.transition(b.State.IDLE)
         return
 
-    early_intent = b.route(text)
+    if not b.ctx.has_pending():
+        try:
+            from skills import match_skill
+
+            skill, entities = match_skill(text)
+            if skill:
+                result = skill["execute"](text, entities)
+                speech = result.get("speech", "Done.")
+                b.note_heard_text(text)
+                b.add_event("stt.complete", {"text": text[:100]})
+                b._speak_or_print(speech, test_mode=test_mode)
+                b._record(text, speech, result.get("actions", []), intent_name=skill.get("name", "skill"))
+                return
+        except Exception as exc:
+            print(f"[Butler] silent error: {exc}")
+
+    early_intent = _route_initial_intent(text)
+    semantic_task = plan_semantic_task(text, current_intent=early_intent.name)
+
+    if semantic_task is not None and getattr(semantic_task, "force_override", False):
+        b.note_heard_text(text)
+        b.add_event("stt.complete", {"text": text[:100]})
+        if _execute_semantic_task(semantic_task, text, test_mode=test_mode):
+            return
 
     if early_intent.name in INSTANT_LANE_INTENTS:
         b.note_heard_text(text)
@@ -529,23 +752,11 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             b._speak_or_print("Still busy, please wait.", test_mode=test_mode)
         return
 
-    try:
-        from skills import match_skill
-
-        skill, entities = match_skill(text)
-        if skill:
-            result = skill["execute"](text, entities)
-            b._speak_or_print(result.get("speech", "Done."), test_mode=test_mode)
-            b._record(text, result.get("speech", ""), result.get("actions", []))
-            return
-    except Exception as exc:
-        print(f"[Butler] silent error: {exc}")
-
     b.note_heard_text(text)
     b.add_event("stt.complete", {"text": text[:100]})
     b.state.transition(b.State.THINKING)
     effective_text = text
-    intent = _resolve_pending_dialogue(text) or early_intent
+    intent = early_intent
     if _looks_like_followup_reference(text):
         resolved_text = b._resolve_followup_text(text, model=model)
         normalized_original = " ".join(str(text or "").lower().split())
@@ -594,8 +805,23 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         )
         return
 
+    if intent.name == "clarify_email_body":
+        subject = str(intent.params.get("subject", "") or "").strip()
+        response = f"Subject: {subject}. What should the body say?" if subject else "What should the body say?"
+        b._reply_without_action(
+            text,
+            response,
+            test_mode=test_mode,
+            intent_name=intent.name,
+            learning_meta=base_learning_meta,
+        )
+        return
+
     if intent.name == "unknown":
         response = _unknown_response_for_text(effective_text)
+        if not response and semantic_task is not None:
+            if _execute_semantic_task(semantic_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
+                return
         if not response and _should_use_brain_for_unknown(effective_text):
             smart = b._smart_reply(effective_text, {}, model=model)
             if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
@@ -638,7 +864,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
             return
         if not response:
-            response = "I didn't catch that. Say open, search, compose mail, or latest news."
+            response = _GENERIC_UNKNOWN_REPLY
         b._reply_without_action(
             text,
             response,
@@ -728,6 +954,9 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "question":
+        if semantic_task is not None:
+            if _execute_semantic_task(semantic_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
+                return
         if _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="question"):
             return
         tool_reply = b._safe_tool_chat_response(
@@ -739,7 +968,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             stream_speech=not test_mode,
             test_mode=test_mode,
         )
-        speech = tool_reply.get("speech", "") or "I don't know yet. Ask again in a shorter way."
+        speech = tool_reply.get("speech", "") or _GENERIC_QUESTION_REPLY
         if not tool_reply.get("spoken"):
             b._speak_or_print(speech, test_mode=test_mode)
         b._record(
@@ -771,7 +1000,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             max_words=24,
         )
     if not response or response == "Something went wrong.":
-        response = "I don't know yet. Ask again in a shorter way."
+        response = _GENERIC_QUESTION_REPLY
     if not tool_reply.get("spoken"):
         b._speak_or_print(response, test_mode=test_mode)
     b._record(
