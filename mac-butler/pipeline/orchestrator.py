@@ -13,6 +13,7 @@ import brain.agentscope_backbone as backbone
 import brain.ollama_client as ollama_client
 import brain.toolkit as toolkit_module
 import memory.store as memory_store
+from brain.mood_engine import get_mood, get_mood_instruction
 from brain.query_analyzer import analyze_query
 from brain.tools_registry import TOOLS
 
@@ -380,6 +381,16 @@ Rules:
 """
 
 
+def _tool_system_prompt() -> str:
+    try:
+        instruction = " ".join(str(get_mood_instruction(get_mood()) or "").split()).strip()
+    except Exception:
+        instruction = ""
+    if not instruction:
+        return TOOL_SYSTEM_PROMPT
+    return f"{TOOL_SYSTEM_PROMPT}\nCurrent mood guidance: {instruction}"
+
+
 def _tool_chat_messages(ctx: dict, user_text: str) -> list[dict]:
     b = _butler()
     formatted = str(ctx.get("formatted", "") or "").strip()
@@ -394,7 +405,7 @@ def _tool_chat_messages(ctx: dict, user_text: str) -> list[dict]:
         prompt_parts.append(hint)
     prompt_parts.append(f"[CURRENT REQUEST]\n  {user_text}")
     return [
-        {"role": "system", "content": TOOL_SYSTEM_PROMPT},
+        {"role": "system", "content": _tool_system_prompt()},
         {"role": "user", "content": "\n\n".join(part for part in prompt_parts if part)},
     ]
 
@@ -638,7 +649,7 @@ def _tool_chat_response(
         backbone_reply = backbone.run_agentscope_turn(
             text,
             ctx,
-            system_prompt=TOOL_SYSTEM_PROMPT,
+            system_prompt=_tool_system_prompt(),
             model_name=voice_model,
             intent_name=intent_name or "default",
             stream_speech=stream_speech,
