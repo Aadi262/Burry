@@ -1,93 +1,108 @@
-# Sprint Log — what was done, what broke, what was learned
+Sprint Log — what was done, what broke, what was learned
+Sprint: AgentScope Integration (Apr 2026)
+Commits: 5c97615 → f0c97d5
+Done
 
-## Sprint: AgentScope Integration (Apr 2026)
-Commits: 5c97615 → 4211471
+AgentScope Toolkit replacing 200-line if/elif
+MsgHub fanout in agents/runner.py
+Streaming TTS via stream_printing_messages
+Skills auto-loader (skills/ directory)
+Memory compression (get_compressed_context)
+QPM rate limiter (brain/rate_limiter.py)
+OTel tracing (runtime/tracing.py)
+iMessage channel (channels/imessage_channel.py)
+async httpx client for daemons
+Pydantic structured output (brain/structured_output.py)
+MCP tool cache at startup
+Persistent event loop (no per-turn asyncio.run)
+Intent-scaled num_ctx (greeting=1024, research=8192)
+Single agentscope.init (ensure_agentscope_initialized)
+All 5 lifecycle hooks registered
+Frontend WS handlers for all AgentScope events
+Full TOOL_MAP (15+ tools with icons)
+New HUD panels (agent-trace, tool-exec, plan-steps)
+PlanNotebook → WS plan_update events
+OTel tracing URL auto-detect (Phoenix at :4318)
+AgentScope RAG with SimpleKnowledge + MilvusLite
+Session persistence (save_session_state on SIGTERM)
+RL episode wrapper
+A2A server with AgentScope native fallback
+iMessage AppleScript fallback fix (7539bd7)
+_ws_broadcast made non-blocking (f0c97d5)
+pre_reply_hook LLM call removed (f0c97d5)
+.claude/ docs added and pushed (3ade1de)
 
-### Done
-- AgentScope Toolkit replacing 200-line if/elif
-- MsgHub fanout in agents/runner.py
-- Streaming TTS via stream_printing_messages
-- Skills auto-loader (skills/ directory)
-- Memory compression (get_compressed_context)
-- QPM rate limiter (brain/rate_limiter.py)
-- OTel tracing (runtime/tracing.py)
-- iMessage channel (channels/imessage_channel.py)
-- async httpx client for daemons
-- Pydantic structured output (brain/structured_output.py)
-- MCP tool cache at startup
-- Persistent event loop (no per-turn asyncio.run)
-- Intent-scaled num_ctx (greeting=1024, research=8192)
-- Single agentscope.init (ensure_agentscope_initialized)
-- All 5 lifecycle hooks registered
-- Frontend WS handlers for all AgentScope events
-- Full TOOL_MAP (15+ tools with icons)
-- New HUD panels (agent-trace, tool-exec, plan-steps)
-- PlanNotebook → WS plan_update events
-- OTel tracing URL auto-detect (Phoenix at :4318)
-- AgentScope RAG with SimpleKnowledge + MilvusLite
-- Session persistence (save_session_state on SIGTERM)
-- RL episode wrapper (record_episode_with_agentscope_feedback)
-- A2A server with AgentScope native fallback
-- Butler tool dispatch consolidated to Toolkit-only execution
-- _tool_chat_response() hardened with broad fallback for Ollama/tool failures
-- Native A2A port moved from 8080 to 3335
-- Native HUD made the default startup path
-- Browser HUD fallback made opt-in only
+Broken and fixed
 
-### Broken and fixed
-- _compression_config returned None → moved dead code into function
-- call_server_tool wrong arg order → fixed to keyword args
-- asyncio.run() in planner/research → thread pool dispatch
-- double agentscope.init() → consolidated to ensure_agentscope_initialized
-- intent_name not threaded → added to run_agentscope_turn signature
-- TIMING REGRESSION 7.9s→61.9s → pre_reply_hook was calling LLM
-  Fix: hooks must ONLY do WS broadcast, never call LLM
-  Fix: _ws_broadcast must be non-blocking (background thread)
-- HUD startup created duplicate windows during live testing
-  Cause: retrying launcher without verifying existing GUI/process state
-  Fix: single-instance startup rule, no retry without ps/port/user verification
+pre_reply_hook was calling LLM → 70s response time
+Fix: hooks must ONLY do WS broadcast, never call LLM
+Fix: _ws_broadcast must be non-blocking (background thread)
+double agentscope.init() → consolidated to ensure_agentscope_initialized
+asyncio.run() in planner/research → thread pool dispatch
+iMessage AppleScript crash → osascript -e 'return ""' fallback
 
-### Package gaps (Apr 2026)
-- agentscope.agents → no BrowserAgent/DeepResearchAgent
-- agentscope.server → no AgentService
-- agentscope.tuner → no record_feedback
-- agentscope.rag → no KnowledgeBank (use SimpleKnowledge)
-- All have fallbacks wired
+Package gaps (Apr 2026)
 
-### Remaining (next sprint)
-- Fix timing regression (hooks blocking LLM)
-- agentscope.agents when package updated
-- agentscope.server when agentscope-runtime installs
-- SearXNG local instance for web search
-- Email multi-turn flow still fragile
+agentscope.agents → no BrowserAgent/DeepResearchAgent
+agentscope.server → no AgentService
+agentscope.tuner → no record_feedback
+agentscope.rag → no KnowledgeBank (use SimpleKnowledge)
+All have fallbacks wired
 
-## Sprint: Performance + Memory Bus (Apr 8 2026)
+What is NOT done yet (next sprints)
 
-### Done
-- Audited Phase 0: all 6 quick wins already implemented (double route, TTL=120, poll=500ms, embed dim=768, no model unload, _dispatch_research)
-- Phase 1: _smart_reply(text, ctx) — single 80-token LLM call before AgentScope path
-  Timing: 15.5s → 6.35s for greeting/question commands
-  Flow: Instant lane → Smart reply (→ NEEDS_TOOLS/NEEDS_CONTEXT escalate) → Brain lane
-- Phase 2: memory/bus.py — batched async event log
-  record(event): non-blocking queue, background flush every 2s to memory/event_log.json
-  recall(query): keyword + optional semantic recall via nomic-embed-text
-  _record() in butler.py now calls bus.record() first; 9 sync writes preserved but off hot path
-- Phase 2b: runner model carousel removed
-  _prepare_model_request() now keeps only the memory check and no longer unloads other models before each agent turn
-- Phase 2c: dashboard operator polling finalized
-  _watch_operator_state now sleeps 0.5s and SearXNG status is cached at dashboard startup instead of checked inside every operator snapshot
-- Phase 3: butler.py split completed
-  Extracted pipeline/recorder.py, pipeline/router.py, and pipeline/orchestrator.py
-  butler.py reduced to 1693 lines and now acts as a thin facade
-- Tests: 419 passing, 0 failures on one clean buffered run
-- Timing: greeting command holds at ~2.15s total on the cleaned split tree
+gemma4:e4b as primary intent classifier (NOT done)
+session_context wired into trigger.py (NOT done)
+mood_engine wired into prompts (NOT done)
+startup briefing (brain/briefing.py) (NOT done)
+YouTube vs Spotify platform detection (NOT done)
+create_folder path parsing bug (NOT done)
+terminal double-open bug (NOT done)
+email PyAutoGUI fill (NOT done)
+conversation mode (NOT done)
+file CRUD by voice (NOT done)
+volume/brightness osascript (NOT done)
+SearXNG running (OFFLINE — bash scripts/start_searxng.sh)
+calendar osascript (NOT done)
+GitHub MCP token (NOT SET)
 
-### Broken and fixed
-- Timing went 15.5s→6.35s (Phase 1) and held ~7-9s (Phase 2, Ollama variance)
-- Memory bus flush is background-only; no blocking on command hot path
-- The previously “background only” test claim is now confirmed with one clean run
-- Speech extraction initially broke some monkeypatched tests; thin wrappers restore patchability without re-inlining the speech path
+[Add new sprint entries here after each session]
 
-### Remaining
-- Phase 4: Frontend fully event-driven (stop polling runtime_state.json)
-- runtime_state.json remains the acceptable full-file rewrite for dashboard state
+Architecture Cleanup Session — 2026-04-09
+
+Commits
+1a87c2b cleanup 1 remove dead modules and write architecture diagnosis
+cfe5af3 cleanup 2 consolidate tool registry
+a6bd32a cleanup 3 simplify router orchestration
+48e4b39 cleanup 4 wire session context
+2ff139f cleanup 5 wire skills before intent routing
+802d488 cleanup 6 wire mood engine into tool prompt
+7f5dc01 cleanup 7 remove write-only recorder memory writes
+
+Deleted
+context/tasks_context.py
+vault/__init__.py
+vault/loader.py
+brain/tools.py
+capabilities/resolver.py removed from the working tree after planner inlining
+
+Wired
+brain/session_context.py added and connected in butler.py, trigger.py, pipeline/router.py, pipeline/recorder.py
+skills/email_skill.py and skills/calendar_skill.py now checked before intent routing
+brain/mood_engine.py now injects mood guidance into the active tool-chat system prompt
+
+Memory cleanup
+Stopped writing add_to_working_memory() on every turn
+Stopped writing record_episode_with_agentscope_feedback() on every turn
+Stopped writing append_to_index() on every turn
+
+Validation
+Baseline timing captured before cleanup: butler.py --command 'hi how are you' = 2.482s total
+Post-cleanup timing: butler.py --command 'hi' = 1.859s total
+Full suite: 437 tests OK
+top -l 1: PhysMem 15G used, 64M unused
+
+Still not fixed in this cleanup pass
+create_folder path parsing bug
+terminal double-open bug
+name-to-contact resolution for email recipient aliases
