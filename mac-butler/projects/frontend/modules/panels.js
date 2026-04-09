@@ -4,6 +4,19 @@ const FOCUS_STORAGE_KEY = "burry.focusKind";
 const VALID_FOCUS_KINDS = new Set(["mood", "session", "state"]);
 
 export const TOOL_MAP = {
+  open_app: { label: "Opening App", icon: "🪟" },
+  quit_app: { label: "Closing App", icon: "✖️" },
+  open_url: { label: "Opening Link", icon: "🔗" },
+  open_url_in_browser: { label: "Browser Open", icon: "🌐" },
+  open_editor: { label: "Editor", icon: "🧠" },
+  open_terminal: { label: "Terminal", icon: "⌘" },
+  run_command: { label: "Command", icon: "⌘" },
+  create_file_in_editor: { label: "Creating File", icon: "📄" },
+  create_folder: { label: "Creating Folder", icon: "📁" },
+  browser_new_tab: { label: "New Tab", icon: "🗂" },
+  browser_search: { label: "Browser Search", icon: "🔎" },
+  browser_close_tab: { label: "Close Tab", icon: "🧷" },
+  browser_close_window: { label: "Close Window", icon: "🪟" },
   browse_web: { label: "Browsing Web", icon: "🌐" },
   web_search_summarize: { label: "Searching", icon: "🔍" },
   browse_and_act: { label: "Browser Agent", icon: "🤖" },
@@ -99,6 +112,7 @@ function vpsChip(data) {
 }
 
 export function normalizeMode(data) {
+  if (data && data.telemetry_fresh === false) return "idle";
   if (Array.isArray(data.active_tools) && data.active_tools.length) return "executing";
   const state = String(data.state || "").toLowerCase();
   if (["idle", "listening", "thinking", "executing", "speaking"].includes(state)) return state;
@@ -106,6 +120,9 @@ export function normalizeMode(data) {
 }
 
 export function pillNote(data, mode) {
+  if (data && data.telemetry_fresh === false) {
+    return "Waiting for live runtime telemetry from Butler.";
+  }
   if (mode === "listening") return "Mic is hot. Burry is listening for the next move.";
   if (mode === "thinking") return "Context, tools, and memory are routing through the operator stack.";
   if (mode === "executing") return "Tool calls are running now. Watch the stream and memory panels for live progress.";

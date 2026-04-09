@@ -1,84 +1,165 @@
 {
   "working": [
     {
-      "heard": "can you hear me when i talk got it finishing current task first",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:26:09"
+      "heard": "startup briefing",
+      "spoken": "Something went wrong.",
+      "at": "2026-04-09T00:57:14"
     },
     {
-      "heard": "what should I work on",
-      "spoken": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first step?",
-      "at": "2026-04-06T21:03:11"
+      "heard": "latest news on claude mythos",
+      "spoken": "What Is Claude Mythos? Anthropic Unveils Advanced AI Model Capable of Discovering Cybersecurity Vulnerabilities (ibtimes.sg); Claude Mythos: The Model Anthropic Was Too Afraid to Ship (allthingsai00.s",
+      "at": "2026-04-09T01:30:15"
     },
     {
-      "heard": "browse github.com/agentscope-ai/agentscope and tell me the latest commit message",
-      "spoken": "Browser unavailable: Page.goto: Timeout 10000ms exceeded. Call log: - navigating to \"https://github.com/agentscope-ai/agentscope\", waiting until \"networkidle",
-      "at": "2026-04-06T23:27:11"
+      "heard": "write mail to vedang2803@gmail.com",
+      "spoken": "Got it. What's the subject?",
+      "at": "2026-04-09T01:32:38"
+    },
+    {
+      "heard": "project update",
+      "spoken": "Subject: project update. What should the body say?",
+      "at": "2026-04-09T01:32:52"
+    },
+    {
+      "heard": "startup briefing",
+      "spoken": "Something went wrong.",
+      "at": "2026-04-09T01:34:40"
     },
     {
       "heard": "hi how are you",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-07T00:52:36"
-    },
-    {
-      "heard": "hi how are you",
-      "spoken": "I'm here and ready to help with your tasks. What can I assist you with right now?",
-      "at": "2026-04-07T00:56:51"
-    },
-    {
-      "heard": "hi how are you",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-07T00:59:59"
+      "spoken": "I'm good. What do you need?",
+      "at": "2026-04-09T22:51:01"
     }
   ],
   "recent": [
     {
-      "heard": "startup briefing",
-      "spoken": "Something went wrong.",
-      "at": "2026-04-06T20:19:53"
-    },
-    {
-      "heard": "hello how are u?",
+      "heard": "who is president of america?",
       "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:20:21"
+      "at": "2026-04-08T23:46:26"
     },
     {
-      "heard": "i just asked u how are u thtas it nothing else",
+      "heard": "who is president of america tell me please",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-08T23:46:44"
+    },
+    {
+      "heard": "how mcuh time u will think about this ?",
+      "spoken": "I'm here and ready to help right away. What can I assist you with?",
+      "at": "2026-04-08T23:47:23"
+    },
+    {
+      "heard": "how mcuh time u will think about this ?",
+      "spoken": "I don't know yet. Ask again in a shorter way.",
+      "at": "2026-04-08T23:47:52"
+    },
+    {
+      "heard": "then tell m presiden tof ameria please",
       "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
-      "at": "2026-04-06T20:20:39"
+      "at": "2026-04-08T23:47:55"
     },
     {
-      "heard": "what ??? can we have a conversation ?",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:21:21"
-    },
-    {
-      "heard": "research what is agentscope",
+      "heard": "president of america who he is",
       "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
-      "at": "2026-04-06T20:22:06"
+      "at": "2026-04-08T23:47:56"
     },
     {
-      "heard": "what can u do ?",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:23:13"
+      "heard": "open new tab",
+      "spoken": "Opening a new tab.",
+      "at": "2026-04-08T23:50:03"
     },
     {
-      "heard": "what do you mean",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:24:21"
+      "heard": "minimize this window",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-08T23:50:22"
     },
     {
-      "heard": "what do you mean",
-      "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:24:42"
+      "heard": "open a new chrome window",
+      "spoken": "Opening Google Chrome.",
+      "at": "2026-04-08T23:52:21"
     },
     {
-      "heard": "what do you mean",
+      "heard": "make a new file on desktop",
+      "spoken": "Created on desktop.",
+      "at": "2026-04-08T23:52:43"
+    },
+    {
+      "heard": "make one more folder on desktop with name aditya test",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-08T23:53:06"
+    },
+    {
+      "heard": "latest news in ai",
+      "spoken": "Checking the latest news.",
+      "at": "2026-04-08T23:53:32"
+    },
+    {
+      "heard": "open command",
+      "spoken": "Opening Command.",
+      "at": "2026-04-08T23:54:57"
+    },
+    {
+      "heard": "open terminal",
+      "spoken": "Opening Terminal.",
+      "at": "2026-04-08T23:55:13"
+    },
+    {
+      "heard": "cehck my vps",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-08T23:55:22"
+    },
+    {
+      "heard": "tell me my pending task can u check calender",
       "spoken": "I'm still thinking, give me a moment.",
-      "at": "2026-04-06T20:25:13"
+      "at": "2026-04-08T23:58:08"
+    },
+    {
+      "heard": "check calender and tell me my meetings",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-08T23:58:31"
+    },
+    {
+      "heard": "transcribe a short english voice assistant command preserve proper nouns and app names",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-08T23:59:57"
+    },
+    {
+      "heard": "what are you doing",
+      "spoken": "I'm still thinking, give me a moment.",
+      "at": "2026-04-09T00:00:12"
+    },
+    {
+      "heard": "fuck u",
+      "spoken": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "at": "2026-04-09T00:00:57"
+    },
+    {
+      "heard": "latest news",
+      "spoken": "Checking the latest news.",
+      "at": "2026-04-09T00:01:12"
+    },
+    {
+      "heard": "latest news on claude mythos",
+      "spoken": "Checking the latest news.",
+      "at": "2026-04-09T00:01:46"
+    },
+    {
+      "heard": "make a folder on desktop",
+      "spoken": "Folder created.",
+      "at": "2026-04-09T00:04:01"
     }
   ],
-  "archive": [],
+  "archive": [
+    {
+      "summary": "I'm still thinking, give me a moment.",
+      "compressed_at": "2026-04-08T22:53:04",
+      "turns_count": 51
+    },
+    {
+      "summary": "I'm still thinking, give me a moment.",
+      "compressed_at": "2026-04-08T23:58:28",
+      "turns_count": 51
+    }
+  ],
   "facts": {},
-  "updated_at": "2026-04-07T00:59:59"
+  "updated_at": "2026-04-09T22:51:01"
 }

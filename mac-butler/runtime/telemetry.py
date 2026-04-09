@@ -11,9 +11,35 @@ from uuid import uuid4
 
 from utils import _clip_text, _now_iso
 
+try:
+    from .log_store import append_runtime_event
+except Exception:  # pragma: no cover - package/script fallback
+    from runtime.log_store import append_runtime_event
+
 RUNTIME_STATE_PATH = Path(__file__).resolve().parent.parent / "memory" / "runtime_state.json"
 MAX_EVENTS = 18
 _RUNTIME_LOCK = threading.Lock()
+
+
+def _default_metrics(now: str | None = None) -> dict:
+    stamp = now or _now_iso()
+    return {
+        "heard_commands": 0,
+        "intents_resolved": 0,
+        "spoken_responses": 0,
+        "tool_runs_started": 0,
+        "tool_runs_completed": 0,
+        "tool_run_errors": 0,
+        "agent_runs_started": 0,
+        "agent_runs_completed": 0,
+        "agent_errors": 0,
+        "memory_recalls": 0,
+        "confirmations_requested": 0,
+        "confirmations_resolved": 0,
+        "updated_at": stamp,
+        "last_reset_at": stamp,
+    }
+
 
 def _default_runtime_state() -> dict:
     now = _now_iso()
@@ -69,6 +95,7 @@ def _default_runtime_state() -> dict:
             "at": "",
         },
         "ambient_context": [],
+        "metrics": _default_metrics(now),
         "events": [],
     }
 def _load_unlocked() -> dict:
@@ -98,6 +125,10 @@ def _load_unlocked() -> dict:
         default["pending_confirmation"] = _default_runtime_state()["pending_confirmation"]
     if not isinstance(default.get("project_context_hint"), dict):
         default["project_context_hint"] = _default_runtime_state()["project_context_hint"]
+    metrics = default.get("metrics") if isinstance(default.get("metrics"), dict) else {}
+    merged_metrics = _default_metrics()
+    merged_metrics.update(metrics)
+    default["metrics"] = merged_metrics
     return default
 
 
@@ -121,11 +152,32 @@ def _append_event(data: dict, kind: str, message: str, metadata: dict | None = N
     events = list(data.get("events") or [])
     events.append(event)
     data["events"] = events[-MAX_EVENTS:]
+    append_runtime_event(kind, cleaned, metadata)
+
+
+def _bump_metric(data: dict, name: str, delta: int = 1) -> None:
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else _default_metrics()
+    try:
+        current = int(metrics.get(name, 0) or 0)
+    except Exception:
+        current = 0
+    metrics[name] = current + int(delta)
+    metrics["updated_at"] = _now_iso()
+    data["metrics"] = metrics
 
 
 def load_runtime_state() -> dict:
     with _RUNTIME_LOCK:
         return _load_unlocked()
+
+
+def load_metrics() -> dict:
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+        merged = _default_metrics()
+        merged.update(metrics)
+        return merged
 
 
 def note_session_active(active: bool, source: str = "") -> None:
@@ -163,6 +215,7 @@ def note_heard_text(text: str) -> None:
         data = _load_unlocked()
         data["last_heard_text"] = cleaned
         data["last_heard_at"] = _now_iso()
+        _bump_metric(data, "heard_commands")
         _append_event(data, "heard", f"Heard: {cleaned}")
         _save_unlocked(data)
 
@@ -186,6 +239,7 @@ def note_intent(name: str, params: dict | None = None, confidence: float | None 
             "raw": _clip_text(raw, limit=200),
             "at": _now_iso(),
         }
+        _bump_metric(data, "intents_resolved")
         _append_event(
             data,
             "intent",
@@ -206,6 +260,7 @@ def note_spoken_text(text: str) -> None:
         data = _load_unlocked()
         data["last_spoken_text"] = cleaned
         data["last_spoken_at"] = _now_iso()
+        _bump_metric(data, "spoken_responses")
         _append_event(data, "spoken", f"Said: {cleaned}")
         _save_unlocked(data)
 
@@ -269,6 +324,12 @@ def note_agent_result(agent: str, status: str, result: str) -> None:
     with _RUNTIME_LOCK:
         data = _load_unlocked()
         data["last_agent_result"] = payload
+        if payload["status"] == "start":
+            _bump_metric(data, "agent_runs_started")
+        elif payload["status"] == "ok":
+            _bump_metric(data, "agent_runs_completed")
+        elif payload["status"] == "error":
+            _bump_metric(data, "agent_errors")
         _append_event(
             data,
             "agent_result",
@@ -297,6 +358,7 @@ def note_tool_started(tool: str, detail: str = "") -> None:
         stream = list(data.get("tool_stream") or [])
         stream.append(payload)
         data["tool_stream"] = stream[-10:]
+        _bump_metric(data, "tool_runs_started")
         _append_event(
             data,
             "tool",
@@ -320,6 +382,9 @@ def note_tool_finished(tool: str, status: str, detail: str = "") -> None:
         stream = list(data.get("tool_stream") or [])
         stream.append(payload)
         data["tool_stream"] = stream[-10:]
+        _bump_metric(data, "tool_runs_completed")
+        if payload["status"] not in {"ok", "success", "skipped"}:
+            _bump_metric(data, "tool_run_errors")
         _append_event(
             data,
             "tool",
@@ -351,6 +416,7 @@ def note_memory_recall(query: str, matches: list[dict] | None = None) -> None:
     with _RUNTIME_LOCK:
         data = _load_unlocked()
         data["last_memory_recall"] = payload
+        _bump_metric(data, "memory_recalls")
         _append_event(
             data,
             "memory",
@@ -389,6 +455,7 @@ def request_confirmation(prompt: str, action: str = "", timeout_s: int = 30) -> 
     with _RUNTIME_LOCK:
         data = _load_unlocked()
         data["pending_confirmation"] = payload
+        _bump_metric(data, "confirmations_requested")
         _append_event(data, "confirmation", payload["prompt"], {"action": payload["action"], "timeout_s": timeout_s})
         _save_unlocked(data)
     return payload
@@ -406,6 +473,7 @@ def resolve_confirmation(request_id: str, status: str) -> None:
         pending["status"] = decision
         pending["resolved_at"] = _now_iso()
         data["pending_confirmation"] = pending
+        _bump_metric(data, "confirmations_resolved")
         _append_event(data, "confirmation", f"Confirmation {decision}.", {"action": pending.get("action", "")})
         _save_unlocked(data)
 

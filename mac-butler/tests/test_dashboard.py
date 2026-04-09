@@ -4,18 +4,28 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from projects import dashboard
 from projects.dashboard import (
+    _command_status_label,
     _event_stream_message,
+    _logs_payload,
+    _metrics_payload,
     _spawn_native_shell,
+    _traces_payload,
     _wait_for_dashboard_health,
     generate_dashboard,
 )
 
 
 class DashboardTests(unittest.TestCase):
+    @patch("state.StateMachine.is_busy", new_callable=PropertyMock, return_value=True)
+    def test_command_status_label_uses_lane_statuses(self, _mock_is_busy):
+        self.assertEqual(_command_status_label("open youtube"), "executing")
+        self.assertEqual(_command_status_label("latest ai news"), "acknowledged")
+        self.assertEqual(_command_status_label("what is agentscope"), "queued")
+
     def test_mac_activity_payload_reads_memory_file(self):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "mac_state.json"
@@ -205,6 +215,22 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('"state":"listening"', frame)
         self.assertTrue(frame.endswith("\n\n"))
 
+    @patch("runtime.load_metrics", return_value={"heard_commands": 4, "tool_runs_completed": 2})
+    def test_metrics_payload_reads_runtime_metrics(self, _mock_metrics):
+        payload = _metrics_payload()
+        self.assertEqual(payload["heard_commands"], 4)
+        self.assertEqual(payload["tool_runs_completed"], 2)
+
+    @patch("runtime.log_store.load_recent_runtime_events", return_value=[{"kind": "tool", "message": "Tool open_url_in_browser"}])
+    def test_logs_payload_reads_recent_runtime_events(self, _mock_logs):
+        payload = _logs_payload(limit=5)
+        self.assertEqual(payload[0]["kind"], "tool")
+
+    @patch("runtime.log_store.load_recent_trace_spans", return_value=[{"name": "handle_input", "trace_id": "abc"}])
+    def test_traces_payload_reads_recent_trace_spans(self, _mock_traces):
+        payload = _traces_payload(limit=5)
+        self.assertEqual(payload[0]["name"], "handle_input")
+
     @patch("projects.dashboard._dashboard_projects", return_value=[{"name": "mac-butler"}])
     @patch("projects.dashboard.operator_snapshot", return_value={"state": "listening"})
     def test_ws_handler_sends_operator_and_projects_payloads(self, _mock_operator, _mock_projects):
@@ -218,21 +244,21 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payloads[0], {"type": "operator", "payload": {"state": "listening"}})
         self.assertEqual(payloads[1], {"type": "projects", "payload": [{"name": "mac-butler"}]})
 
-    @patch("projects.dashboard.subprocess.run")
+    @patch("projects.dashboard._open_browser_window")
     @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
     @patch("projects.dashboard._spawn_native_shell")
-    def test_show_dashboard_window_prefers_browser_until_native_is_enabled(
+    def test_show_dashboard_window_prefers_native_hud_and_skips_browser_fallback_by_default(
         self,
         mock_spawn_native,
         _mock_health,
-        mock_run,
+        mock_open_browser,
     ):
-        mock_run.return_value = MagicMock(returncode=0)
-        with patch.object(dashboard, "USE_NATIVE_HUD", False):
+        mock_spawn_native.return_value = False
+        with patch.object(dashboard, "USE_NATIVE_HUD", True), patch.object(dashboard, "ALLOW_BROWSER_HUD", False):
             dashboard.show_dashboard_window(force=True)
 
-        mock_spawn_native.assert_not_called()
-        self.assertTrue(mock_run.called)
+        mock_spawn_native.assert_called_once()
+        mock_open_browser.assert_not_called()
 
     @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
     @patch("voice.describe_tts", return_value={"backend": "edge", "voice": "Ava"})
@@ -254,7 +280,7 @@ class DashboardTests(unittest.TestCase):
         mock_runtime_state.return_value = {
             "state": "listening",
             "session_active": True,
-            "updated_at": "2026-04-06T12:00:00",
+            "updated_at": "2999-04-06T12:00:00",
             "workspace": {
                 "focus_project": "mac-butler",
                 "frontmost_app": "Terminal",
@@ -272,6 +298,10 @@ class DashboardTests(unittest.TestCase):
                 "email-infra depends on VPS stability",
                 "Adpilot shares deploy resources with staging",
             ],
+            "metrics": {
+                "heard_commands": 7,
+                "tool_runs_completed": 3,
+            },
             "events": [],
             "last_intent": {},
         }
@@ -289,7 +319,43 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["workspace"], "/Users/adityatiwari/Burry/mac-butler")
         self.assertEqual(payload["active_tools"], ["recall_memory"])
         self.assertEqual(payload["memory_recall"]["query"], "auth decision")
+        self.assertEqual(payload["metrics"]["heard_commands"], 7)
+        self.assertEqual(payload["observability"]["metrics_path"], "/api/metrics")
         self.assertEqual(len(payload["ambient_context"]), 3)
+
+    @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
+    @patch("voice.describe_tts", return_value={"backend": "say", "voice": "Samantha"})
+    @patch("voice.describe_stt", return_value={"backend": "faster", "active_model": "small.en"})
+    @patch("tasks.get_active_tasks", return_value=[])
+    @patch("runtime.load_runtime_state")
+    @patch("context.mac_activity.load_state", return_value={})
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_operator_snapshot_downgrades_stale_runtime_state(
+        self,
+        _mock_url_ok,
+        _mock_mac_state,
+        mock_runtime_state,
+        _mock_tasks,
+        _mock_stt,
+        _mock_tts,
+        _mock_mood,
+    ):
+        mock_runtime_state.return_value = {
+            "state": "speaking",
+            "session_active": True,
+            "updated_at": "2000-01-01T00:00:00",
+            "active_tools": ["open_url_in_browser"],
+            "tool_stream": [{"tool": "open_url_in_browser", "status": "running", "detail": "https://youtube.com"}],
+            "events": [],
+            "last_intent": {},
+        }
+
+        payload = dashboard.operator_snapshot(projects=[])
+
+        self.assertFalse(payload["telemetry_fresh"])
+        self.assertFalse(payload["session_active"])
+        self.assertEqual(payload["state"], "idle")
+        self.assertEqual(payload["active_tools"], [])
 
 
 if __name__ == "__main__":

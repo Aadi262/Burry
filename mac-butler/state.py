@@ -35,7 +35,7 @@ STATE_ICONS = {
     State.WAITING: "⏳",
 }
 
-BUSY_STATES = {State.LISTENING, State.THINKING, State.SPEAKING}
+BUSY_STATES = {State.THINKING, State.SPEAKING}
 
 
 class StateMachine:

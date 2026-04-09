@@ -37,12 +37,13 @@ APP_MAP = {
     "discord": "Discord",
     "telegram": "Telegram",
     "whatsapp": "WhatsApp",
-    "google sheet": ("browser", "https://sheets.google.com"),
-    "google sheets": ("browser", "https://sheets.google.com"),
-    "google doc": ("browser", "https://docs.google.com"),
-    "google docs": ("browser", "https://docs.google.com"),
+    "google sheet": ("browser", "https://sheets.new"),
+    "google sheets": ("browser", "https://sheets.new"),
+    "google doc": ("browser", "https://docs.new"),
+    "google docs": ("browser", "https://docs.new"),
     "google drive": ("browser", "https://drive.google.com"),
-    "google meet": ("browser", "https://meet.google.com"),
+    "google meet": ("browser", "https://meet.new"),
+    "google slides": ("browser", "https://slides.new"),
     "postman": "Postman",
     "tableplus": "TablePlus",
     "antigravity": "Antigravity",
@@ -51,12 +52,13 @@ APP_MAP = {
     "prime": ("browser", "https://primevideo.com"),
     "hotstar": ("browser", "https://hotstar.com"),
     "twitch": ("browser", "https://twitch.tv"),
-    "github": ("browser", "https://github.com"),
+    "github": ("browser", "https://github.com/Aadi262"),
     "gmail": ("browser", "https://mail.google.com"),
     "twitter": ("browser", "https://x.com"),
     "x": ("browser", "https://x.com"),
     "linear": ("browser", "https://linear.app"),
-    "vercel": ("browser", "https://vercel.com"),
+    "vercel": ("browser", "https://vercel.com/dashboard"),
+    "railway": ("browser", "https://railway.app"),
     "chatgpt": ("browser", "https://chat.openai.com"),
     "perplexity": ("browser", "https://perplexity.ai"),
 }
@@ -328,7 +330,11 @@ class IntentResult:
         if name == "close_app":
             return {"type": "quit_app", "app": params.get("app")}
         if name == "open_project":
-            return {"type": "open_project", "name": params.get("name")}
+            return {
+                "type": "open_project",
+                "name": params.get("name"),
+                "editor": params.get("editor", "auto"),
+            }
         if name == "open_editor_window":
             action = {
                 "type": "open_editor",
@@ -339,13 +345,24 @@ class IntentResult:
                 action["path"] = params["path"]
             return action
         if name == "create_file":
+            file_path = str(params.get("path", "") or "").strip()
+            if file_path:
+                return {
+                    "type": "create_file",
+                    "path": file_path,
+                    "content": params.get("content", ""),
+                }
             return {
                 "type": "create_file_in_editor",
                 "filename": params.get("filename", "untitled"),
                 "editor": params.get("editor", "auto"),
             }
         if name == "create_folder":
-            return {"type": "create_folder", "path": params.get("path", "~/Developer/new-folder")}
+            return {
+                "type": "create_folder",
+                "path": params.get("path", ""),
+                "name": params.get("name", ""),
+            }
         if name == "git_status":
             return {
                 "type": "run_command",
@@ -418,12 +435,10 @@ class IntentResult:
             }
         if name == "compose_email":
             return {
-                "type": "open_url_in_browser",
-                "url": _gmail_compose_url(
-                    params.get("recipient", ""),
-                    params.get("subject", ""),
-                    params.get("body", ""),
-                ),
+                "type": "compose_email",
+                "recipient": params.get("recipient", ""),
+                "subject": params.get("subject", ""),
+                "body": params.get("body", ""),
             }
         if name == "whatsapp_open":
             return {

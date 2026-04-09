@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -62,35 +63,24 @@ VSCODE_CLI_CANDIDATES = [
 
 ALLOWED_COMMANDS = [
     "git",
-    "npm",
-    "npx",
-    "node",
-    "python3",
-    "pip",
-    "pip3",
     "ls",
+    "pwd",
     "cat",
     "echo",
     "mkdir",
-    "touch",
     "cp",
     "mv",
-    "open",
-    "code",
-    "cursor",
-    "brew",
-    "ollama",
-    "systemctl",
-    "nginx",
-    "pm2",
+    "rm",
+    "python",
+    "python3",
+    "pip",
+    "pip3",
+    "npm",
+    "npx",
+    "node",
     "docker",
-    "ssh",
-    "scp",
     "curl",
-    "ping",
-    "df",
-    "free",
-    "uptime",
+    "open",
 ]
 
 CONFIRM_REQUIRED_PATTERNS = [
@@ -103,6 +93,46 @@ CONFIRM_REQUIRED_PATTERNS = [
 ]
 
 DEFAULT_BROWSER_APP = "Google Chrome"
+URL_MAP = {
+    "google docs": "https://docs.new",
+    "google sheets": "https://sheets.new",
+    "google meet": "https://meet.new",
+    "google slides": "https://slides.new",
+    "notion": "https://notion.so",
+    "linear": "https://linear.app",
+    "figma": "https://figma.com",
+    "github": "https://github.com/Aadi262",
+    "vercel": "https://vercel.com/dashboard",
+    "railway": "https://railway.app",
+}
+LOCATION_ROOTS = {
+    "on the desktop": "~/Desktop",
+    "on desktop": "~/Desktop",
+    "in documents": "~/Documents",
+    "in the documents": "~/Documents",
+    "in downloads": "~/Downloads",
+    "in the downloads": "~/Downloads",
+    "in home": "~",
+    "in the home": "~",
+}
+BROWSER_APP_CANDIDATES = {
+    "Google Chrome": [
+        Path("/Applications/Google Chrome.app"),
+        Path.home() / "Applications" / "Google Chrome.app",
+    ],
+    "Brave Browser": [
+        Path("/Applications/Brave Browser.app"),
+        Path.home() / "Applications" / "Brave Browser.app",
+    ],
+    "Chromium": [
+        Path("/Applications/Chromium.app"),
+        Path.home() / "Applications" / "Chromium.app",
+    ],
+    "Safari": [
+        Path("/Applications/Safari.app"),
+        Path.home() / "Applications" / "Safari.app",
+    ],
+}
 
 try:
     from butler_config import OBSIDIAN_VAULT_NAME, OBSIDIAN_VAULT_PATH
@@ -145,6 +175,158 @@ class Executor:
             message = " ".join((result.stderr or result.stdout or "AppleScript failed").split()).strip()
             raise RuntimeError(message or "AppleScript failed")
         return result
+
+    def _is_app_running(self, app_name: str) -> bool:
+        script = (
+            'tell application "System Events"\n'
+            f"    return (name of processes) contains {self._applescript_string(app_name)}\n"
+            "end tell"
+        )
+        try:
+            result = self._run_osascript(script, timeout=3)
+            return str(result.stdout or "").strip().lower() == "true"
+        except Exception:
+            try:
+                from executor.app_state import is_app_running
+
+                return bool(is_app_running(app_name))
+            except Exception:
+                return False
+
+    @staticmethod
+    def _collapse_text(value: str) -> str:
+        return " ".join(str(value or "").split()).strip()
+
+    def _map_url(self, value: str) -> str:
+        cleaned = self._collapse_text(value).lower()
+        if cleaned in URL_MAP:
+            return URL_MAP[cleaned]
+        return str(value or "").strip()
+
+    def _speak(self, text: str) -> None:
+        try:
+            from voice import speak
+
+            speak(text)
+        except Exception:
+            return
+
+    def _listen_followup(self, timeout: float = 6.0) -> str:
+        try:
+            from voice.stt import listen_for_command
+
+            return self._collapse_text(listen_for_command(timeout=timeout) or "")
+        except Exception:
+            return ""
+
+    def _summarize_text(self, text: str, instruction: str) -> str:
+        cleaned = self._collapse_text(text)
+        if not cleaned:
+            return ""
+        try:
+            from brain.ollama_client import _call
+
+            prompt = f"{instruction}\n\n{cleaned[:12000]}"
+            return self._collapse_text(_call(prompt, "gemma4:e4b", temperature=0.1, max_tokens=220))
+        except Exception:
+            return cleaned[:500]
+
+    def _gmail_compose_url(self, recipient: str = "", subject: str = "", body: str = "") -> str:
+        params: list[tuple[str, str]] = []
+        if self._collapse_text(recipient):
+            params.append(("to", self._collapse_text(recipient)))
+        if self._collapse_text(subject):
+            params.append(("su", self._collapse_text(subject)))
+        if self._collapse_text(body):
+            params.append(("body", self._collapse_text(body)))
+        base = "https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1"
+        return f"{base}&{urllib.parse.urlencode(params)}" if params else base
+
+    def _current_chrome_url(self) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return \"\"\n"
+            "    return URL of active tab of front window\n"
+            "end tell"
+        )
+        try:
+            result = self._run_osascript(script, timeout=4)
+            return self._collapse_text(result.stdout)
+        except Exception:
+            return ""
+
+    def _fetch_jina_reader(self, url: str) -> str:
+        target = self._normalize_browser_url(url)
+        try:
+            import requests
+
+            response = requests.get(
+                f"https://r.jina.ai/{target}",
+                headers={"Accept": "text/plain", "X-Return-Format": "text"},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                return ""
+            return str(response.text or "")
+        except Exception:
+            return ""
+
+    def _folder_base_path(self, raw: str) -> str:
+        lowered = self._collapse_text(raw).lower()
+        for phrase, target in LOCATION_ROOTS.items():
+            if phrase in lowered:
+                return target
+        return "~/Desktop"
+
+    def _clean_folder_name(self, raw: str) -> str:
+        cleaned = self._collapse_text(raw)
+        lowered = cleaned.lower()
+        for phrase in LOCATION_ROOTS:
+            lowered = lowered.replace(phrase, " ")
+        cleaned = re.sub(
+            r"\b(?:create|make|new|another|one more|folder|called|named|with name|with the name)\b",
+            " ",
+            lowered,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" .!/?")
+        return cleaned
+
+    def _resolve_folder_target(self, path: str = "", name: str = "") -> Path:
+        explicit = self._collapse_text(path)
+        if explicit and (explicit.startswith("~") or explicit.startswith("/") or os.sep in explicit):
+            return Path(os.path.expanduser(explicit))
+
+        raw = name or path
+        base = Path(os.path.expanduser(self._folder_base_path(raw)))
+        folder_name = self._clean_folder_name(raw)
+        if not folder_name:
+            folder_name = "new-folder"
+        return base / folder_name
+
+    def _project_launch_order(self, preferred: str = "auto") -> list[str]:
+        normalized = str(preferred or "auto").strip().lower()
+        if normalized == "vscode":
+            normalized = "code"
+        ordered = ["claude", "codex", "cursor", "code"]
+        if normalized in ordered:
+            return [normalized] + [item for item in ordered if item != normalized]
+        return ordered
+
+    def _project_launch_command(self, launcher: str, path: str) -> list[str] | None:
+        if launcher == "claude":
+            cli = self._safe_which("claude")
+            return [cli, path] if cli else None
+        if launcher == "codex":
+            cli = self._safe_which("codex")
+            return [cli, path] if cli else None
+        if launcher == "cursor":
+            cli = self._cursor_cli_path()
+            return [cli, path] if cli else None
+        if launcher == "code":
+            cli = self._vscode_cli_path()
+            return [cli, path] if cli else None
+        return None
 
     def run(self, actions: list) -> list:
         self.results = []
@@ -214,11 +396,32 @@ class Executor:
             return self.play_music(action.get("mode", "focus"))
         if t == "search_and_play":
             return self.search_and_play_spotify(action.get("query", ""))
+        if t == "create_file":
+            return self.create_file(
+                action.get("path", ""),
+                action.get("content", ""),
+            )
+        if t == "read_file":
+            return self.read_file(action.get("path", ""))
         if t == "write_file":
             return self.write_file(
-                action["path"],
-                action["content"],
-                action.get("mode", "append"),
+                action.get("path", ""),
+                action.get("content", ""),
+                action.get("mode", "overwrite"),
+            )
+        if t == "delete_file":
+            return self.delete_file(action.get("path", ""))
+        if t == "find_file":
+            return self.find_file(
+                action.get("query", ""),
+                action.get("path", "~"),
+            )
+        if t == "list_files":
+            return self.list_files(action.get("path", "~"))
+        if t == "move_file":
+            return self.move_file(
+                action.get("from", ""),
+                action.get("to", ""),
             )
         if t == "obsidian_note":
             return self.obsidian_note(
@@ -231,13 +434,25 @@ class Executor:
         if t == "ssh_command":
             return self.ssh_command(action["host"], action["cmd"])
         if t == "open_url":
-            return self.open_url(action["url"])
+            return self.open_url(action.get("url", ""))
         if t == "focus_app":
             return self.focus_app(action["app"])
         if t == "minimize_app":
             return self.minimize_app(action["app"])
         if t == "hide_app":
             return self.hide_app(action["app"])
+        if t == "compose_email":
+            return self.compose_email(
+                action.get("recipient", "") or action.get("to", ""),
+                action.get("subject", ""),
+                action.get("body", ""),
+            )
+        if t == "compose_whatsapp":
+            return self.compose_whatsapp(
+                action.get("contact", ""),
+                action.get("phone", ""),
+                action.get("message", ""),
+            )
         if t == "chrome_open_tab":
             return self.chrome_open_tab(action["url"])
         if t == "chrome_close_tab":
@@ -258,18 +473,10 @@ class Executor:
                 {k: v for k, v in action.items() if k not in ("type", "agent")},
             )
         if t == "open_project":
-            from memory.layered import get_project_detail
-            from projects import open_project
-            from runtime import note_project_context_hint
-
-            result = open_project(action["name"])
-            if result.get("status") != "ok":
-                raise RuntimeError(f"could not open project: {action.get('name', '')}")
-            project_name = str(result.get("project_name") or action.get("name", "")).strip()
-            detail = get_project_detail(project_name)
-            if detail:
-                note_project_context_hint(project_name, detail[-1000:])
-            return f"opened {result.get('project_name')} in {result.get('editor_used')}"
+            return self.open_project(
+                action.get("name", ""),
+                action.get("editor", "auto"),
+            )
         if t == "open_dashboard":
             from projects import open_dashboard
 
@@ -314,7 +521,10 @@ class Executor:
         if t == "spotify_now_playing":
             return self.spotify_now_playing()
         if t == "create_folder":
-            return self.create_folder(action["path"])
+            return self.create_folder(
+                action.get("path", ""),
+                action.get("name", ""),
+            )
         if t == "open_url_in_browser":
             return self.open_url_in_browser(
                 action["url"],
@@ -331,14 +541,68 @@ class Executor:
             return self.browser_close_tab()
         if t == "browser_close_window":
             return self.browser_close_window()
+        if t == "browser_window":
+            return self.browser_window(action.get("url", ""))
+        if t == "browser_go_back":
+            return self.browser_go_back()
+        if t == "browser_refresh":
+            return self.browser_refresh()
+        if t == "browser_go_to":
+            return self.browser_go_to(action.get("url", ""))
         if t == "pause_video":
             return self.pause_video()
         if t == "volume_set":
-            return self.system_volume_set(action.get("level", 50))
+            return self.volume_set(action.get("level", 50))
+        if t == "volume_up":
+            return self.volume_up()
+        if t == "volume_down":
+            return self.volume_down()
         if t == "system_volume":
             return self.system_volume_adjust(action.get("direction", "up"))
+        if t == "brightness_up":
+            return self.brightness_up()
+        if t == "brightness_down":
+            return self.brightness_down()
+        if t == "brightness":
+            direction = str(action.get("direction", "") or "").strip().lower()
+            if direction == "down":
+                return self.brightness_down()
+            return self.brightness_up()
+        if t == "lock_screen":
+            return self.lock_screen()
+        if t == "sleep_mac":
+            return self.sleep_mac()
+        if t == "show_desktop":
+            return self.show_desktop()
+        if t == "dark_mode":
+            return self.dark_mode(action.get("enable"))
+        if t == "do_not_disturb":
+            return self.do_not_disturb(action.get("enable"))
+        if t == "system_info":
+            return self.system_info(action.get("query", ""))
         if t == "screenshot":
             return self.take_screenshot()
+        if t == "take_screenshot":
+            return self.take_screenshot(
+                save=bool(action.get("save", True)),
+                describe=bool(action.get("describe", True)),
+            )
+        if t == "read_screen":
+            return self.read_screen()
+        if t == "summarize_page":
+            return self.summarize_page(action.get("url", ""))
+        if t == "summarize_video":
+            return self.summarize_video(
+                action.get("url", ""),
+                save_to_obsidian=bool(action.get("save_to_obsidian", False)),
+            )
+        if t == "git_action":
+            return self.git_action(
+                action.get("cmd", ""),
+                cwd=action.get("cwd"),
+                message=action.get("message", ""),
+                push=bool(action.get("push", False)),
+            )
         if t == "whatsapp_open":
             return self.whatsapp_open(
                 action.get("contact", ""),
@@ -455,6 +719,35 @@ class Executor:
             return any(path.exists() for path in VSCODE_APP_CANDIDATES)
         return False
 
+    @staticmethod
+    def _browser_app_available(app_name: str) -> bool:
+        if not app_name:
+            return False
+        candidates = list(BROWSER_APP_CANDIDATES.get(app_name, []))
+        candidates.append(Path("/Applications") / f"{app_name}.app")
+        candidates.append(Path.home() / "Applications" / f"{app_name}.app")
+        return any(path.exists() for path in candidates)
+
+    @classmethod
+    def _resolve_browser_app(cls, preferred: str = DEFAULT_BROWSER_APP) -> str:
+        ordered = [preferred, DEFAULT_BROWSER_APP, "Google Chrome", "Brave Browser", "Chromium", "Safari"]
+        seen: set[str] = set()
+        for candidate in ordered:
+            clean = str(candidate or "").strip()
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            if cls._browser_app_available(clean):
+                return clean
+        return str(preferred or DEFAULT_BROWSER_APP).strip() or DEFAULT_BROWSER_APP
+
+    @staticmethod
+    def _browser_family(app_name: str) -> str:
+        lowered = str(app_name or "").lower()
+        if "safari" in lowered:
+            return "safari"
+        return "chrome"
+
     def _resolve_editor(self, editor: str = "auto") -> tuple[str | None, str | None]:
         normalized = (editor or "auto").lower()
         if normalized == "auto":
@@ -550,9 +843,34 @@ class Executor:
     # GENERIC APP OPEN
     # ─────────────────────────────────────────────────────
 
-    def open_app(self, app_name: str, mode: str = "smart") -> str:
-        from executor.app_state import is_app_running
+    def open_project(self, name: str, editor: str = "auto") -> str:
+        from memory.layered import get_project_detail
+        from projects import get_project
+        from runtime import note_project_context_hint
 
+        project = get_project(name, hydrate_blurb=True)
+        if not project:
+            raise RuntimeError(f"could not find project: {name}")
+
+        expanded = os.path.expanduser(str(project.get("path", "") or ""))
+        if not expanded or not os.path.exists(expanded):
+            raise RuntimeError(f"missing project path: {expanded or name}")
+
+        for launcher in self._project_launch_order(editor):
+            command = self._project_launch_command(launcher, expanded)
+            if not command:
+                continue
+            subprocess.Popen(command)
+            project_name = str(project.get("name", "") or Path(expanded).name).strip()
+            detail = get_project_detail(project_name)
+            if detail:
+                note_project_context_hint(project_name, detail[-1000:])
+            return f"opened {project_name} in {launcher}"
+
+        subprocess.Popen(["open", expanded])
+        return f"opened {Path(expanded).name} in Finder"
+
+    def open_app(self, app_name: str, mode: str = "smart") -> str:
         if isinstance(app_name, tuple) and len(app_name) == 2 and app_name[0] == "browser":
             return self.open_url_in_browser(str(app_name[1]), DEFAULT_BROWSER_APP)
 
@@ -566,13 +884,19 @@ class Executor:
 
         lowered = app_name.lower()
         if lowered in {"terminal", "iterm", "iterm2"}:
-            return self.open_terminal("tab" if mode != "new" else "window")
+            if mode == "new":
+                return self.open_terminal("window")
+            if self._is_app_running("Terminal"):
+                self._run_osascript('tell application "Terminal" to activate', timeout=4)
+                return "focused Terminal"
+            subprocess.Popen(["open", "-a", "Terminal"])
+            return "launched Terminal"
         if lowered in {"cursor", "vscode", "visual studio code", "code"}:
             editor = "cursor" if "cursor" in lowered else "vscode"
             editor_mode = "focus" if mode == "focus" else ("new_window" if mode == "new" else "smart")
             return self.open_editor(editor=editor, mode=editor_mode)
 
-        running = is_app_running(app_name)
+        running = self._is_app_running(app_name)
 
         if mode == "new":
             subprocess.Popen(["open", "-n", "-a", app_name])
@@ -807,11 +1131,30 @@ class Executor:
             return f"failed to create: {expanded}"
         return self.open_editor(path=expanded, editor=editor, mode="smart")
 
-    def create_folder(self, path: str) -> str:
+    def create_folder(self, path: str = "", name: str = "") -> str:
+        target = self._resolve_folder_target(path=path, name=name)
+        target.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen(["open", str(target)])
+        return f"created {target}"
+
+    def create_file(self, path: str, content: str = "") -> str:
         expanded = os.path.expanduser(path)
-        Path(expanded).mkdir(parents=True, exist_ok=True)
-        subprocess.Popen(["open", expanded])
+        if not expanded:
+            raise ValueError("File path is required")
+        Path(expanded).parent.mkdir(parents=True, exist_ok=True)
+        with open(expanded, "w", encoding="utf-8") as handle:
+            handle.write(content or "")
         return f"created {expanded}"
+
+    def read_file(self, path: str) -> str:
+        expanded = os.path.expanduser(path)
+        with open(expanded, "r", encoding="utf-8") as handle:
+            content = handle.read()
+        cleaned = self._collapse_text(content)
+        if len(cleaned) <= 500:
+            return cleaned or f"{expanded} is empty"
+        summary = self._summarize_text(cleaned, "Summarize this file in under 120 words.")
+        return summary or cleaned[:500]
 
     def run_command(
         self,
@@ -819,10 +1162,13 @@ class Executor:
         cwd: str = None,
         in_terminal: bool = False,
     ) -> str:
-        stripped = cmd.strip()
+        stripped = self._collapse_text(cmd)
         if not stripped:
             raise ValueError("Command is empty")
-        first = stripped.split()[0]
+        try:
+            first = shlex.split(stripped)[0]
+        except Exception:
+            first = stripped.split()[0]
         if first not in ALLOWED_COMMANDS:
             raise PermissionError(f"'{first}' not in allowlist")
 
@@ -876,7 +1222,7 @@ class Executor:
             editor_name = "auto"
         return self.open_editor(path=path, editor=editor_name, mode="smart")
 
-    def write_file(self, path: str, content: str, mode: str = "append") -> str:
+    def write_file(self, path: str, content: str, mode: str = "overwrite") -> str:
         expanded = os.path.expanduser(path)
         Path(expanded).parent.mkdir(parents=True, exist_ok=True)
         file_mode = "a" if mode == "append" else "w"
@@ -887,8 +1233,49 @@ class Executor:
                 )
             else:
                 handle.write(content)
-        self.open_editor(path=expanded, editor="cursor", mode="smart")
         return f"wrote to {expanded}"
+
+    def delete_file(self, path: str) -> str:
+        expanded = os.path.expanduser(path)
+        if not os.path.isfile(expanded):
+            raise FileNotFoundError(expanded)
+        filename = Path(expanded).name
+        self._speak(f"delete {filename} are you sure")
+        heard = self._listen_followup(timeout=5.0).lower()
+        if heard not in {"yes", "yeah", "yep", "confirm", "do it"}:
+            return "skipped - user cancelled"
+        os.remove(expanded)
+        return f"deleted {expanded}"
+
+    def find_file(self, query: str, root: str = "~") -> str:
+        cleaned = self._collapse_text(query)
+        if not cleaned:
+            raise ValueError("Search query is required")
+        expanded_root = os.path.expanduser(root or "~")
+        result = subprocess.run(
+            ["find", expanded_root, "-iname", f"*{cleaned}*"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        matches = [line.strip() for line in str(result.stdout or "").splitlines() if line.strip()]
+        if not matches:
+            return "no files found"
+        return ", ".join(matches[:8])
+
+    def list_files(self, path: str = "~") -> str:
+        expanded = os.path.expanduser(path or "~")
+        items = sorted(os.listdir(expanded))[:8]
+        spoken = ", ".join(items) if items else "no files"
+        self._speak(spoken)
+        return spoken
+
+    def move_file(self, source: str, destination: str) -> str:
+        expanded_source = os.path.expanduser(source)
+        expanded_destination = os.path.expanduser(destination)
+        Path(expanded_destination).parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(expanded_source, expanded_destination)
+        return f"moved {expanded_source} to {expanded_destination}"
 
     def obsidian_note(self, title: str, content: str, folder: str = "Daily") -> str:
         if not OBSIDIAN_VAULT:
@@ -963,25 +1350,85 @@ class Executor:
     # ─────────────────────────────────────────────────────
 
     def open_url(self, url: str) -> str:
-        subprocess.Popen(["open", url])
-        return f"opened {url}"
+        target = self._map_url(url)
+        normalized = self._normalize_browser_url(target)
+        subprocess.Popen(["open", normalized])
+        return f"opened {normalized}"
 
     def open_url_in_browser(self, url: str, app: str = "Google Chrome") -> str:
-        subprocess.Popen(["open", "-a", app, url])
-        return f"opened {url}"
+        target = self._normalize_browser_url(self._map_url(url))
+        app_name = self._resolve_browser_app(app)
+        result = subprocess.run(
+            ["open", "-a", app_name, target],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode != 0:
+            subprocess.run(["open", target], capture_output=True, text=True, timeout=8)
+        return f"opened {target}"
+
+    def compose_email(self, recipient: str, subject: str = "", body: str = "") -> str:
+        url = self._gmail_compose_url(recipient, subject, body)
+        self.open_url_in_browser(url, DEFAULT_BROWSER_APP)
+        if self._collapse_text(subject) and self._collapse_text(body):
+            time.sleep(3)
+            try:
+                import pyautogui
+
+                pyautogui.press("tab")
+                pyautogui.write(subject)
+                pyautogui.press("tab")
+                pyautogui.write(body)
+            except Exception:
+                pass
+        return f"opened Gmail compose for {self._collapse_text(recipient) or 'draft'}"
+
+    def compose_whatsapp(self, contact: str = "", phone: str = "", message: str = "") -> str:
+        digits = "".join(ch for ch in str(phone) if ch.isdigit() or ch == "+")
+        if digits:
+            try:
+                import pywhatkit
+
+                pywhatkit.sendwhatmsg_instantly(digits, message or "", tab_close=True, close_time=2)
+                return f"sent WhatsApp message to {contact or phone}"
+            except Exception:
+                return self.whatsapp_send(contact, phone, message)
+
+        base = "https://wa.me/"
+        if message:
+            base = f"{base}?text={urllib.parse.quote_plus(self._collapse_text(message))}"
+        self.open_url(base)
+        return f"opened WhatsApp compose for {contact or 'the contact'}"
 
     def browser_new_tab(self, url: str = "") -> str:
-        target = str(url or "").strip() or "chrome://newtab"
-        script = (
-            'tell application "Google Chrome"\n'
-            "    activate\n"
-            "    if (count of windows) = 0 then make new window\n"
-            f"    make new tab at end of tabs of front window with properties {{URL:{json.dumps(target)}}}\n"
-            "    set active tab index of front window to (count of tabs of front window)\n"
-            "end tell"
-        )
-        subprocess.run(["osascript", "-e", script], timeout=10)
-        return f"opened new browser tab: {target}"
+        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
+        family = self._browser_family(app_name)
+        target = str(url or "").strip()
+        if family == "safari":
+            target = target or "https://www.google.com"
+            script = (
+                f'tell application "{app_name}"\n'
+                "    activate\n"
+                "    if (count of windows) = 0 then make new document\n"
+                f"    tell front window to set current tab to (make new tab with properties {{URL:{json.dumps(target)}}})\n"
+                "end tell"
+            )
+        else:
+            target = target or "chrome://newtab"
+            script = (
+                f'tell application "{app_name}"\n'
+                "    activate\n"
+                "    if (count of windows) = 0 then make new window\n"
+                f"    make new tab at end of tabs of front window with properties {{URL:{json.dumps(target)}}}\n"
+                "    set active tab index of front window to (count of tabs of front window)\n"
+                "end tell"
+            )
+        try:
+            self._run_osascript(script, timeout=10)
+            return f"opened new browser tab: {target}"
+        except Exception:
+            return self.open_url_in_browser(target or "https://www.google.com", app_name)
 
     def browser_search(self, query: str, *, new_tab: bool = True) -> str:
         cleaned = " ".join(str(query or "").split()).strip()
@@ -993,24 +1440,78 @@ class Executor:
         return self.open_url_in_browser(url, DEFAULT_BROWSER_APP)
 
     def browser_close_tab(self) -> str:
-        script = (
-            'tell application "Google Chrome"\n'
-            "    if (count of windows) = 0 then return\n"
-            "    if (count of tabs of front window) > 0 then close active tab of front window\n"
-            "end tell"
-        )
-        subprocess.run(["osascript", "-e", script], timeout=10)
+        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
+        if self._browser_family(app_name) == "safari":
+            script = (
+                f'tell application "{app_name}"\n'
+                "    if (count of windows) = 0 then return\n"
+                "    tell front window to close current tab\n"
+                "end tell"
+            )
+        else:
+            script = (
+                f'tell application "{app_name}"\n'
+                "    if (count of windows) = 0 then return\n"
+                "    if (count of tabs of front window) > 0 then close active tab of front window\n"
+                "end tell"
+            )
+        self._run_osascript(script, timeout=10)
         return "closed current browser tab"
 
     def browser_close_window(self) -> str:
+        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
         script = (
-            'tell application "Google Chrome"\n'
+            f'tell application "{app_name}"\n'
             "    if (count of windows) = 0 then return\n"
             "    close front window\n"
             "end tell"
         )
-        subprocess.run(["osascript", "-e", script], timeout=10)
+        self._run_osascript(script, timeout=10)
         return "closed current browser window"
+
+    def browser_window(self, url: str = "") -> str:
+        target = self._normalize_browser_url(url) if self._collapse_text(url) else ""
+        script = (
+            'tell application "Google Chrome"\n'
+            "    activate\n"
+            "    make new window\n"
+            f'    if {self._applescript_string(target)} is not "" then set URL of active tab of front window to {self._applescript_string(target)}\n'
+            "end tell"
+        )
+        self._run_osascript(script, timeout=10)
+        return f"opened browser window{f': {target}' if target else ''}"
+
+    def browser_go_back(self) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return\n"
+            "    tell active tab of front window to go back\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return "went back in browser"
+
+    def browser_refresh(self) -> str:
+        script = (
+            'tell application "Google Chrome"\n'
+            "    if (count of windows) = 0 then return\n"
+            "    tell active tab of front window to reload\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=5)
+        return "reloaded browser tab"
+
+    def browser_go_to(self, url: str) -> str:
+        target = self._normalize_browser_url(url)
+        script = (
+            'tell application "Google Chrome"\n'
+            "    activate\n"
+            "    if (count of windows) = 0 then make new window\n"
+            f"    set URL of active tab of front window to {self._applescript_string(target)}\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=8)
+        return f"navigated browser to {target}"
 
     def pause_video(self) -> str:
         javascript = (
@@ -1020,36 +1521,200 @@ class Executor:
             "return media.length.toString();"
             "})()"
         )
-        script = (
-            'tell application "Google Chrome"\n'
-            "    if (count of windows) = 0 then return\n"
-            f"    tell active tab of front window to execute javascript {json.dumps(javascript)}\n"
-            "end tell"
+        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
+        if self._browser_family(app_name) == "safari":
+            script = (
+                f'tell application "{app_name}"\n'
+                "    if (count of windows) = 0 then return\n"
+                f"    do JavaScript {json.dumps(javascript)} in current tab of front window\n"
+                "end tell"
+            )
+        else:
+            script = (
+                f'tell application "{app_name}"\n'
+                "    if (count of windows) = 0 then return\n"
+                f"    tell active tab of front window to execute javascript {json.dumps(javascript)}\n"
+                "end tell"
         )
-        subprocess.run(["osascript", "-e", script], timeout=10)
+        self._run_osascript(script, timeout=10)
         return "paused media in browser"
 
-    def system_volume_set(self, level: int) -> str:
+    def volume_set(self, level: int) -> str:
         safe_level = max(0, min(100, int(level)))
-        subprocess.run(["osascript", "-e", f"set volume output volume {safe_level}"], timeout=5)
+        self._run_osascript(f"set volume output volume {safe_level}", timeout=5)
         return f"set system volume to {safe_level}"
 
-    def system_volume_adjust(self, direction: str) -> str:
-        delta = 10 if str(direction).lower() == "up" else -10
+    def system_volume_set(self, level: int) -> str:
+        return self.volume_set(level)
+
+    def volume_up(self) -> str:
         script = (
             "set currentVolume to output volume of (get volume settings)\n"
-            f"set targetVolume to currentVolume + ({delta})\n"
+            "set targetVolume to currentVolume + 10\n"
             "if targetVolume > 100 then set targetVolume to 100\n"
+            "set volume output volume targetVolume"
+        )
+        self._run_osascript(script, timeout=5)
+        return "adjusted system volume up"
+
+    def volume_down(self) -> str:
+        script = (
+            "set currentVolume to output volume of (get volume settings)\n"
+            "set targetVolume to currentVolume - 10\n"
             "if targetVolume < 0 then set targetVolume to 0\n"
             "set volume output volume targetVolume"
         )
-        subprocess.run(["osascript", "-e", script], timeout=5)
-        return f"adjusted system volume {str(direction).lower()}"
+        self._run_osascript(script, timeout=5)
+        return "adjusted system volume down"
 
-    def take_screenshot(self) -> str:
-        path = f"/tmp/butler_screenshot_{int(time.time())}.png"
-        subprocess.run(["screencapture", "-x", path], timeout=10)
-        return path
+    def system_volume_adjust(self, direction: str) -> str:
+        return self.volume_up() if str(direction).lower() == "up" else self.volume_down()
+
+    def brightness_up(self) -> str:
+        self._run_osascript('tell application "System Events" to key code 144', timeout=5)
+        return "brightness up"
+
+    def brightness_down(self) -> str:
+        self._run_osascript('tell application "System Events" to key code 145', timeout=5)
+        return "brightness down"
+
+    def lock_screen(self) -> str:
+        self._run_osascript('tell application "System Events" to keystroke "q" using {control down, command down}', timeout=5)
+        return "screen locked"
+
+    def sleep_mac(self) -> str:
+        self._run_osascript('tell application "Finder" to sleep', timeout=5)
+        return "mac sleeping"
+
+    def show_desktop(self) -> str:
+        self._run_osascript('tell application "System Events" to key code 103', timeout=5)
+        return "showed desktop"
+
+    def dark_mode(self, enable: bool | None = None) -> str:
+        if enable is None:
+            script = 'tell app "System Events" to tell appearance preferences to set dark mode to not dark mode'
+        else:
+            script = (
+                'tell app "System Events" to tell appearance preferences '
+                f'to set dark mode to {"true" if enable else "false"}'
+            )
+        self._run_osascript(script, timeout=5)
+        return "toggled dark mode"
+
+    def do_not_disturb(self, enable: bool | None = None) -> str:
+        target_value = ""
+        if enable is not None:
+            target_value = " on" if enable else " off"
+        script = (
+            'tell application "System Events"\n'
+            '    tell process "ControlCenter"\n'
+            "        set frontmost to true\n"
+            '        click first menu bar item of menu bar 1 whose description contains "Control Center"\n'
+            "        delay 0.6\n"
+            "        try\n"
+            '            click first checkbox of group 1 of window 1 whose description contains "Do Not Disturb"\n'
+            "        on error\n"
+            '            click first checkbox of window 1 whose description contains "Do Not Disturb"\n'
+            "        end try\n"
+            "        key code 53\n"
+            "    end tell\n"
+            "end tell"
+        )
+        self._run_osascript(script, timeout=8)
+        return f"toggled do not disturb{target_value}"
+
+    def system_info(self, query: str) -> str:
+        lowered = self._collapse_text(query).lower()
+        if "batt" in lowered:
+            result = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=8)
+            return self._collapse_text(result.stdout or result.stderr)
+        if "wifi" in lowered or "wi-fi" in lowered:
+            hardware = subprocess.run(
+                ["networksetup", "-listallhardwareports"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            device_match = re.search(r"Hardware Port: Wi-Fi\s+Device: (\w+)", hardware.stdout, flags=re.MULTILINE)
+            device = device_match.group(1) if device_match else "en0"
+            result = subprocess.run(
+                ["networksetup", "-getairportnetwork", device],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            return self._collapse_text(result.stdout or result.stderr)
+        if "storage" in lowered or "disk" in lowered:
+            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=8)
+            lines = [self._collapse_text(line) for line in str(result.stdout or "").splitlines() if self._collapse_text(line)]
+            return lines[-1] if lines else "storage unavailable"
+        return "ask for battery, wifi, or storage"
+
+    def take_screenshot(self, save: bool = True, describe: bool = False) -> str:
+        path = Path("/tmp/burry_screen.png")
+        subprocess.run(["screencapture", "-x", str(path)], timeout=10)
+        if not describe:
+            return str(path)
+        description = self.read_screen()
+        if not save:
+            path.unlink(missing_ok=True)
+        return description
+
+    def read_screen(self) -> str:
+        subprocess.run(["screencapture", "-x", "/tmp/burry_screen.png"], timeout=10)
+        try:
+            from agents.vision import describe_screen
+
+            summary = self._collapse_text(describe_screen("Describe the screen briefly.") or "")
+        except Exception:
+            summary = ""
+        if not summary:
+            try:
+                import pytesseract
+                from PIL import Image
+
+                text = pytesseract.image_to_string(Image.open("/tmp/burry_screen.png"))
+                summary = self._summarize_text(text, "Summarize what is visible on screen in under 80 words.")
+            except Exception:
+                summary = "I couldn't read the screen clearly right now."
+        self._speak(summary)
+        return summary
+
+    def summarize_page(self, url: str = "") -> str:
+        target = self._collapse_text(url) or self._current_chrome_url()
+        if not target:
+            return "no browser page available"
+        content = self._fetch_jina_reader(target)
+        if not content:
+            return "could not fetch the current page"
+        summary = self._summarize_text(content, "Summarize this web page in under 120 words.")
+        if summary:
+            self._speak(summary)
+        return summary or "could not summarize the page"
+
+    def summarize_video(self, url: str = "", save_to_obsidian: bool = False) -> str:
+        target = self._collapse_text(url) or self._current_chrome_url()
+        if not target:
+            return "no video url available"
+        transcript_text = ""
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+
+            video_id_match = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", target)
+            if video_id_match:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id_match.group(1))
+                transcript_text = " ".join(str(item.get("text", "")).strip() for item in transcript)
+        except Exception:
+            transcript_text = ""
+        if not transcript_text:
+            transcript_text = self._fetch_jina_reader(target)
+        if not transcript_text:
+            return "could not fetch a transcript for that video"
+        summary = self._summarize_text(transcript_text, "Summarize this video transcript in under 140 words.")
+        if save_to_obsidian and summary:
+            title = f"Video Summary {datetime.now().strftime('%Y-%m-%d %H-%M')}"
+            self.obsidian_note(title, summary, folder="Daily")
+        return summary or "could not summarize the video"
 
     def whatsapp_open(self, contact: str = "", phone: str = "") -> str:
         if phone:
@@ -1088,6 +1753,35 @@ class Executor:
         threading.Thread(target=_remind, daemon=True).start()
         return f"reminder set for {minutes} min"
 
+    def git_action(self, command: str, cwd: str | None = None, message: str = "", push: bool = False) -> str:
+        normalized = self._collapse_text(command).lower()
+        cwd_expanded = os.path.expanduser(cwd) if cwd else os.path.expanduser("~/Burry/mac-butler")
+        if normalized == "status":
+            return self.run_command("git status --short", cwd=cwd_expanded)
+        if normalized == "log":
+            return self.run_command("git log --oneline -5", cwd=cwd_expanded)
+        if normalized == "diff":
+            return self.run_command("git diff", cwd=cwd_expanded)
+        if normalized == "push":
+            return self.run_command("git push", cwd=cwd_expanded)
+        if normalized == "commit":
+            commit_message = self._collapse_text(message) or "Update changes"
+            result = subprocess.run(
+                ["git", "commit", "-m", commit_message],
+                cwd=cwd_expanded,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = self._collapse_text(result.stdout or result.stderr)
+            if push:
+                push_output = self.run_command("git push", cwd=cwd_expanded)
+                output = f"{output}. {push_output}"
+            return output or commit_message
+        if normalized in {"commit_push", "commit and push"}:
+            return self.git_action("commit", cwd=cwd_expanded, message=message, push=True)
+        raise ValueError(f"unsupported git action: {command}")
+
     # ─────────────────────────────────────────────────────
     # SPECIALIST AGENTS
     # ─────────────────────────────────────────────────────
@@ -1110,6 +1804,9 @@ class Executor:
         cmd = str(action.get("cmd", "")).lower()
         if t == "run_command":
             return any(pattern in cmd for pattern in CONFIRM_REQUIRED_PATTERNS)
+        if t == "git_action":
+            normalized = self._collapse_text(action.get("cmd", "")).lower()
+            return normalized in {"push", "commit_push", "commit and push"} or bool(action.get("push"))
         if t == "ssh_command":
             lowered = str(action.get("cmd", "")).lower()
             return any(token in lowered for token in ["restart", "stop", "rm", "delete", "drop"])

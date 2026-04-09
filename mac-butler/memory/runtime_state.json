@@ -1,143 +1,108 @@
 {
-  "updated_at": "2026-04-07T01:11:12",
-  "session_active": true,
-  "session_changed_at": "2026-04-06T02:27:06",
-  "state": "thinking",
-  "state_changed_at": "2026-04-07T01:11:06",
-  "last_heard_text": "hi how are you",
-  "last_heard_at": "2026-04-07T01:11:06",
+  "updated_at": "2026-04-09T23:46:55",
+  "session_active": false,
+  "session_changed_at": "",
+  "state": "listening",
+  "state_changed_at": "2026-04-09T23:46:55",
+  "last_heard_text": "play shape of you on youtube",
+  "last_heard_at": "2026-04-09T23:46:54",
   "last_intent": {
-    "name": "greeting",
-    "params": {},
-    "confidence": 0.95,
-    "raw": "hi how are you",
-    "at": "2026-04-07T01:11:06"
+    "name": "conversation",
+    "params": {
+      "topic": "adpilot architecture"
+    },
+    "confidence": 0.92,
+    "raw": "let's brainstorm adpilot architecture",
+    "at": "2026-04-09T23:46:52"
   },
-  "last_spoken_text": "What can I assist you with right now?",
-  "last_spoken_at": "2026-04-07T00:56:51",
+  "last_spoken_text": "hello",
+  "last_spoken_at": "2026-04-09T23:46:55",
   "workspace": {
-    "focus_project": "mac-butler",
+    "focus_project": "",
     "frontmost_app": "",
-    "workspace": "/Users/adityatiwari/Burry/mac-butler",
-    "at": "2026-04-07T01:01:10"
+    "workspace": "",
+    "at": ""
   },
   "last_agent_result": {
-    "agent": "research",
-    "status": "ok",
-    "result": "AgentScope is a platform or concept related to managing and defining the scope of AI agents. It generally refers to the",
-    "at": "2026-04-07T00:39:32"
+    "agent": "imessage",
+    "status": "received",
+    "result": "from me@icloud.com: Check VPS",
+    "at": "2026-04-09T23:46:55"
   },
   "active_tools": [],
   "tool_stream": [
     {
-      "tool": "web_search_summarize",
+      "tool": "open_url_in_browser",
       "status": "running",
-      "detail": "{'query': 'What is AgentScope?'}",
-      "at": "2026-04-07T00:11:21"
+      "detail": "https://youtube.com",
+      "at": "2026-04-09T23:46:02"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "open_url_in_browser",
       "status": "ok",
-      "detail": "<system-reminder>Tool 'web_search_summarize' is executing asynchronously. Task ID: FG254CMz2CbV4Dq4gqYNxW. Use view_task('FG254CMz2CbV4Dq4gqYNxW') to check status, wait_task('FG...",
-      "at": "2026-04-07T00:11:21"
+      "detail": "Opened YouTube",
+      "at": "2026-04-09T23:46:02"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "run_agent",
       "status": "running",
-      "detail": "{'query': 'AgentScope github.com/agentscope-ai/agentscope'}",
-      "at": "2026-04-07T00:27:22"
+      "detail": "run_agent",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "run_agent",
       "status": "ok",
-      "detail": "<system-reminder>Tool 'web_search_summarize' is executing asynchronously. Task ID: MtRSVU7f4bcYuNK4MpUhct. Use view_task('MtRSVU7f4bcYuNK4MpUhct') to check status, wait_task('Mt...",
-      "at": "2026-04-07T00:27:27"
+      "detail": "CPU is healthy and memory is stable.",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "run_agent",
       "status": "running",
-      "detail": "{'query': 'what is AgentScope'}",
-      "at": "2026-04-07T00:32:04"
+      "detail": "weather in mumbai",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "run_agent",
       "status": "ok",
-      "detail": "<system-reminder>Tool 'web_search_summarize' is executing asynchronously. Task ID: caWvLTdygqypbMLKndwqTM. Use view_task('caWvLTdygqypbMLKndwqTM') to check status, wait_task('ca...",
-      "at": "2026-04-07T00:32:09"
+      "detail": "Mumbai is 31 degrees and hazy.",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "create_folder",
       "status": "running",
-      "detail": "{'query': 'what is AgentScope'}",
-      "at": "2026-04-07T00:34:01"
+      "detail": "~/Developer/on",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "create_folder",
       "status": "ok",
-      "detail": "<system-reminder>Tool 'web_search_summarize' is executing asynchronously. Task ID: JjA4APqod4KBHR7E8crZ7E. Use view_task('JjA4APqod4KBHR7E8crZ7E') to check status, wait_task('Jj...",
-      "at": "2026-04-07T00:34:05"
+      "detail": "created /Users/adityatiwari/Developer/on",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "open_url_in_browser",
       "status": "running",
-      "detail": "{'query': 'What is AgentScope?'}",
-      "at": "2026-04-07T00:38:38"
+      "detail": "https://www.youtube.com/results?search_query=shape+of+you",
+      "at": "2026-04-09T23:46:54"
     },
     {
-      "tool": "web_search_summarize",
+      "tool": "open_url_in_browser",
       "status": "ok",
-      "detail": "<system-reminder>Tool 'web_search_summarize' is executing asynchronously. Task ID: EDdeq8LZdT8Mww2iv6DiKS. Use view_task('EDdeq8LZdT8Mww2iv6DiKS') to check status, wait_task('ED...",
-      "at": "2026-04-07T00:38:38"
+      "detail": "opened https://www.youtube.com/results?search_query=shape+of+you",
+      "at": "2026-04-09T23:46:54"
     }
   ],
   "last_memory_recall": {
-    "query": "what was the last task or discussion in the mac-butler project",
-    "matches": [
-      {
-        "timestamp": "2026-04-06T11:22",
-        "context": "what should i do next on mac-butler",
-        "speech": "You're already in mac-butler. Next move is Upgrade live STT to a stronger local path. Want the first step?",
-        "score": 0.6333
-      },
-      {
-        "timestamp": "2026-04-06T11:05",
-        "context": "what should I do next on mac-butler",
-        "speech": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first step?",
-        "score": 0.6323
-      },
-      {
-        "timestamp": "2026-04-06T11:18",
-        "context": "whats next",
-        "speech": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first step?",
-        "score": 0.6234
-      }
-    ],
-    "at": "2026-04-06T16:26:23"
+    "query": "",
+    "matches": [],
+    "at": ""
   },
   "turns": [
     {
-      "heard": "browse github.com/agentscope-ai/agentscope and tell me the latest commit message",
-      "intent": "unknown",
-      "spoken": "Browser unavailable: Page.goto: Timeout 10000ms exceeded. Call log: - navigating to \"https://github.com/agentscope-ai/agentscope\", waiting until \"networkidle",
-      "time": "2026-04-06T23:27:11.506468"
-    },
-    {
-      "heard": "hi how are you",
-      "intent": "greeting",
-      "spoken": "I'm still thinking, give me a moment.",
-      "time": "2026-04-07T00:52:36.655797"
-    },
-    {
-      "heard": "hi how are you",
-      "intent": "greeting",
-      "spoken": "I'm here and ready to help with your tasks. What can I assist you with right now?",
-      "time": "2026-04-07T00:56:51.326356"
-    },
-    {
-      "heard": "hi how are you",
-      "intent": "greeting",
-      "spoken": "I'm still thinking, give me a moment.",
-      "time": "2026-04-07T00:59:59.099427"
+      "heard": "minimize this window",
+      "intent": "minimize_app",
+      "spoken": "Minimizing Google Chrome.",
+      "time": "2026-04-09T23:46:54.702488"
     }
   ],
   "pending_confirmation": {
@@ -154,156 +119,165 @@
     "detail": "",
     "at": ""
   },
-  "ambient_context": [
-    "Last session: Browser unavailable: Page.goto: Timeout 10000ms exceeded. Call log: - navigating to \"...",
-    "mac-butler [active] blocker: Butler still uses macOS TTS by default, not a true neural local TTS yet",
-    "Adpilot [active] blocker: Mirror to Meta/Google needs OAuth or paid API setup"
-  ],
+  "ambient_context": [],
+  "metrics": {
+    "heard_commands": 36,
+    "intents_resolved": 8,
+    "spoken_responses": 8,
+    "tool_runs_started": 22,
+    "tool_runs_completed": 22,
+    "tool_run_errors": 0,
+    "agent_runs_started": 0,
+    "agent_runs_completed": 0,
+    "agent_errors": 0,
+    "memory_recalls": 0,
+    "confirmations_requested": 0,
+    "confirmations_resolved": 0,
+    "updated_at": "2026-04-09T23:46:55",
+    "last_reset_at": "2026-04-09T23:42:59"
+  },
   "events": [
     {
-      "at": "2026-04-07T00:56:47",
-      "kind": "spoken",
-      "message": "Said: I'm here and ready to help with your tasks."
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool run_agent: weather in mumbai",
+      "meta": {
+        "tool": "run_agent",
+        "status": "running"
+      }
     },
     {
-      "at": "2026-04-07T00:56:47",
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool run_agent: Mumbai is 31 degrees and hazy.",
+      "meta": {
+        "tool": "run_agent",
+        "status": "ok"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:54",
       "kind": "state",
-      "message": "Speaking to Speaking",
-      "meta": {
-        "from": "speaking",
-        "to": "speaking"
-      }
-    },
-    {
-      "at": "2026-04-07T00:56:51",
-      "kind": "spoken",
-      "message": "Said: What can I assist you with right now?"
-    },
-    {
-      "at": "2026-04-07T00:56:53",
-      "kind": "state",
-      "message": "Speaking to Waiting",
-      "meta": {
-        "from": "speaking",
-        "to": "waiting"
-      }
-    },
-    {
-      "at": "2026-04-07T00:58:31",
-      "kind": "heard",
-      "message": "Heard: hi how are you"
-    },
-    {
-      "at": "2026-04-07T00:58:31",
-      "kind": "state",
-      "message": "Idle to Thinking",
-      "meta": {
-        "from": "idle",
-        "to": "thinking"
-      }
-    },
-    {
-      "at": "2026-04-07T00:58:31",
-      "kind": "intent",
-      "message": "Intent: greeting",
-      "meta": {
-        "confidence": 0.95,
-        "params": {}
-      }
-    },
-    {
-      "at": "2026-04-07T00:58:32",
-      "kind": "workspace",
-      "message": "Workspace: mac-butler \u00b7 Electron",
-      "meta": {
-        "focus_project": "mac-butler",
-        "frontmost_app": "Electron",
-        "workspace": "/Users/adityatiwari/Burry/mac-butler"
-      }
-    },
-    {
-      "at": "2026-04-07T00:59:03",
-      "kind": "workspace",
-      "message": "Workspace: mac-butler \u00b7 Google Chrome",
-      "meta": {
-        "focus_project": "mac-butler",
-        "frontmost_app": "Google Chrome",
-        "workspace": "/Users/adityatiwari/Burry/mac-butler"
-      }
-    },
-    {
-      "at": "2026-04-07T00:59:59",
-      "kind": "state",
-      "message": "Thinking to Speaking",
+      "message": "Thinking to Idle",
       "meta": {
         "from": "thinking",
-        "to": "speaking"
-      }
-    },
-    {
-      "at": "2026-04-07T01:00:02",
-      "kind": "state",
-      "message": "Speaking to Idle",
-      "meta": {
-        "from": "speaking",
         "to": "idle"
       }
     },
     {
-      "at": "2026-04-07T01:01:09",
+      "at": "2026-04-09T23:46:54",
       "kind": "heard",
-      "message": "Heard: hi how are you"
+      "message": "Heard: latest ai news"
     },
     {
-      "at": "2026-04-07T01:01:09",
+      "at": "2026-04-09T23:46:54",
       "kind": "state",
-      "message": "Idle to Thinking",
+      "message": "Idle to Idle",
       "meta": {
         "from": "idle",
-        "to": "thinking"
+        "to": "idle"
       }
     },
     {
-      "at": "2026-04-07T01:01:09",
-      "kind": "intent",
-      "message": "Intent: greeting",
-      "meta": {
-        "confidence": 0.95,
-        "params": {}
-      }
-    },
-    {
-      "at": "2026-04-07T01:01:10",
-      "kind": "workspace",
-      "message": "Workspace: mac-butler \u00b7 unknown",
-      "meta": {
-        "focus_project": "mac-butler",
-        "frontmost_app": "",
-        "workspace": "/Users/adityatiwari/Burry/mac-butler"
-      }
-    },
-    {
-      "at": "2026-04-07T01:11:06",
+      "at": "2026-04-09T23:46:54",
       "kind": "heard",
-      "message": "Heard: hi how are you"
+      "message": "Heard: create a folder on desktop with name aditya test"
     },
     {
-      "at": "2026-04-07T01:11:06",
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool create_folder: ~/Developer/on",
+      "meta": {
+        "tool": "create_folder",
+        "status": "running"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool create_folder: created /Users/adityatiwari/Developer/on",
+      "meta": {
+        "tool": "create_folder",
+        "status": "ok"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:54",
       "kind": "state",
-      "message": "Idle to Thinking",
+      "message": "Idle to Idle",
       "meta": {
         "from": "idle",
-        "to": "thinking"
+        "to": "idle"
       }
     },
     {
-      "at": "2026-04-07T01:11:06",
-      "kind": "intent",
-      "message": "Intent: greeting",
+      "at": "2026-04-09T23:46:54",
+      "kind": "heard",
+      "message": "Heard: play shape of you on youtube"
+    },
+    {
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool open_url_in_browser: https://www.youtube.com/results?search_query=shape+of+you",
       "meta": {
-        "confidence": 0.95,
-        "params": {}
+        "tool": "open_url_in_browser",
+        "status": "running"
       }
+    },
+    {
+      "at": "2026-04-09T23:46:54",
+      "kind": "tool",
+      "message": "Tool open_url_in_browser: opened https://www.youtube.com/results?search_query=shape+of+you",
+      "meta": {
+        "tool": "open_url_in_browser",
+        "status": "ok"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:54",
+      "kind": "state",
+      "message": "Idle to Idle",
+      "meta": {
+        "from": "idle",
+        "to": "idle"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:55",
+      "kind": "agent_result",
+      "message": "Agent imessage: from me@icloud.com: Check VPS",
+      "meta": {
+        "agent": "imessage",
+        "status": "received"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:55",
+      "kind": "state",
+      "message": "Idle to Waiting",
+      "meta": {
+        "from": "idle",
+        "to": "waiting"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:55",
+      "kind": "state",
+      "message": "Waiting to Listening",
+      "meta": {
+        "from": "waiting",
+        "to": "listening"
+      }
+    },
+    {
+      "at": "2026-04-09T23:46:55",
+      "kind": "spoken",
+      "message": "Said: Good morning. mac-butler is ready."
+    },
+    {
+      "at": "2026-04-09T23:46:55",
+      "kind": "spoken",
+      "message": "Said: hello"
     }
   ]
 }

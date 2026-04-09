@@ -106,3 +106,36 @@ Still not fixed in this cleanup pass
 create_folder path parsing bug
 terminal double-open bug
 name-to-contact resolution for email recipient aliases
+
+Session Progress Snapshot — 2026-04-09
+
+Status
+User halted implementation mid-session. This entry records uncommitted progress only.
+
+Done in this session
+executor/engine.py partially expanded:
+open_app now checks whether an app is already running and activates it instead of blindly reopening
+added executor handlers for folder/file CRUD, browser controls, volume controls, brightness controls, screen lock/sleep/show desktop, dark mode, do not disturb, system_info, summarize_page, summarize_video, screenshot/read_screen, git_action, and open_project fallback launching
+create_folder logic now strips location phrases from the spoken name and defaults to ~/Desktop
+run_command allowlist was expanded
+open_url mappings were updated to include docs.new, sheets.new, meet.new, slides.new, notion, linear, figma, GitHub, Vercel, and Railway
+compose_email executor path was added with Gmail compose plus PyAutoGUI subject/body filling when both fields are present
+compose_whatsapp executor path was added
+intents/router.py partially updated:
+compose_email now routes to a dedicated executor action instead of a raw Gmail URL
+create_folder and create_file action payloads were adjusted toward the new executor methods
+open_project action payload now carries editor selection
+
+Not done yet
+session_context multi-turn pending-slot flow is not implemented end to end
+brain/briefing.py was not created
+trigger.py was not updated to speak briefing on every session before STT
+dashboard WebSocket broadcasts for pending_update, mood_update, memory_read, classifier_result, and briefing_spoken were not wired
+frontend stream/events feed updates were not completed
+projects/open_project.py was not aligned with the requested fallback chain
+docs/ARCHITECTURE_CLEANUP.md was not updated
+tests were not updated for the new executor/router behavior
+no automated smoke tests were run
+no manual voice tests were run
+no per-change commits were created
+no push for the implementation work was performed

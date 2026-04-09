@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Tests for remaining AgentScope integration items."""
+import json
 import pathlib
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 
 class TestSkillMdFiles(unittest.TestCase):
@@ -48,6 +52,34 @@ class TestSessionPersistence(unittest.TestCase):
             "SIGTERM handler not registered")
         self.assertIn("atexit.register", src,
             "atexit handler not registered")
+
+    def test_save_session_state_handles_async_memory_snapshot(self):
+        from memory import long_term
+
+        class FakeMessage:
+            role = "assistant"
+
+            def get_text_content(self):
+                return "All good."
+
+        class FakeMemory:
+            def state_dict(self):
+                return {"saved": True}
+
+            async def get_memory(self):
+                return [FakeMessage()]
+
+        class FakeAgent:
+            memory = FakeMemory()
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_path = Path(tempdir) / "burry_session.json"
+            with patch.object(long_term, "SESSION_FILE", session_path):
+                long_term.save_session_state(FakeAgent())
+                payload = json.loads(session_path.read_text())
+
+        self.assertEqual(payload["memory"][0]["content"], "All good.")
+        self.assertEqual(payload["memory_state"], {"saved": True})
 
 
 class TestRLLoop(unittest.TestCase):

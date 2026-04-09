@@ -1,0 +1,49 @@
+{
+  "active_plans": [
+    {
+      "id": "plan_20260408_architecture_remediation",
+      "title": "Mac Butler architecture remediation",
+      "steps": [
+        {
+          "text": "Phase 1 - Audit harness and baseline verification",
+          "done": true,
+          "started_at": "2026-04-08T00:00:00",
+          "completed_at": "2026-04-08T00:00:00"
+        },
+        {
+          "text": "Phase 2 - Quick wins on route reuse, polling, model churn, embedding dimensions, and research dispatch",
+          "done": true,
+          "started_at": "2026-04-08T03:30:00",
+          "completed_at": "2026-04-08T03:45:00"
+        },
+        {
+          "text": "Phase 3 - Add a lightweight LLM lane for unknown and question paths",
+          "done": false,
+          "started_at": null,
+          "completed_at": null
+        },
+        {
+          "text": "Phase 4 - Build the unified memory bus and reduce write fanout",
+          "done": false,
+          "started_at": null,
+          "completed_at": null
+        },
+        {
+          "text": "Phase 5 - Split butler.py into pipeline modules",
+          "done": false,
+          "started_at": null,
+          "completed_at": null
+        },
+        {
+          "text": "Phase 6 - Modernize frontend, telemetry, and operator observability",
+          "done": false,
+          "started_at": null,
+          "completed_at": null
+        }
+      ],
+      "created_at": "2026-04-08T00:00:00",
+      "status": "active"
+    }
+  ],
+  "completed_plans": []
+}

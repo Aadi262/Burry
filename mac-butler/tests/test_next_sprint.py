@@ -45,6 +45,12 @@ class TestFrontendEventHandlers(unittest.TestCase):
         self.assertIn("agent_reply", src)
         self.assertIn("plan_update", src)
 
+    def test_stream_js_rehydrates_trace_from_operator_payload(self):
+        src = pathlib.Path("projects/frontend/modules/stream.js").read_text()
+        self.assertIn("tool_stream", src)
+        self.assertIn("last_agent_result", src)
+        self.assertIn("telemetry_fresh", src)
+
     def test_tool_map_has_all_tools(self):
         src = pathlib.Path("projects/frontend/modules/panels.js").read_text()
         required_tools = [

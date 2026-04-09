@@ -1,0 +1,55 @@
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:33:15.219323"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:33:20.462016"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:49:19.060028"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:49:26.755773"}
+{"text":"stop","intent":"butler_sleep","speech":"Going quiet. Say wake up to start again.","model":"","outcome":"success","timestamp":"2026-04-08T22:50:10.933739"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:52:32.413132"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T22:52:44.652328"}
+{"text":"stop","intent":"butler_sleep","speech":"Going quiet. Say wake up to start again.","model":"","outcome":"success","timestamp":"2026-04-08T22:53:40.072190"}
+{"text":"hi how are you","intent":"greeting","speech":"I'm good. What do you need?","model":"","outcome":"success","timestamp":"2026-04-08T22:58:28.558665"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T23:30:28.455306"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-08T23:30:29.548587"}
+{"text":"hi how are u >?","intent":"question","speech":"I'm good. What do you need?","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:37:02.969527"}
+{"text":"can u open youtube and play chikni Chameli?","intent":"spotify_play","speech":"Playing chikni chameli.","model":"","outcome":"success","timestamp":"2026-04-08T23:37:22.158354"}
+{"text":"latest ai news","intent":"news","speech":"Checking the latest news.","model":"","outcome":"success","timestamp":"2026-04-08T23:39:15.199883"}
+{"text":"still checking?","intent":"question","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:40:02.285957"}
+{"text":"how cuh time will it take","intent":"question","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:42:22.907410"}
+{"text":"oaky open youtube and play a song on youtube","intent":"clarify_song","speech":"Which song should I play?","model":"","outcome":"success","timestamp":"2026-04-08T23:43:03.560845"}
+{"text":"play shape of you on youtube","intent":"spotify_play","speech":"Playing shape of you.","model":"","outcome":"success","timestamp":"2026-04-08T23:43:11.500936"}
+{"text":"not on spotify play it on youtube","intent":"clarify_song","speech":"Which song should I play?","model":"","outcome":"success","timestamp":"2026-04-08T23:43:22.343621"}
+{"text":"smile again on youtube","intent":"spotify_play","speech":"Playing smile again.","model":"","outcome":"success","timestamp":"2026-04-08T23:43:41.531655"}
+{"text":"open gmail","intent":"open_app","speech":"Opening gmail.","model":"","outcome":"success","timestamp":"2026-04-08T23:44:09.775699"}
+{"text":"now write a mail to vedang2803@gmail.com with subject test gmail and body how are u ?","intent":"greeting","speech":"I'm good. What do you need?","model":"","outcome":"success","timestamp":"2026-04-08T23:44:41.558137"}
+{"text":"whast teh weather today in mumbai","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:45:27.375726"}
+{"text":"search weather in mumbai","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:45:39.195367"}
+{"text":"who is president of america?","intent":"question","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:46:26.952777"}
+{"text":"who is president of america tell me please","intent":"question","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:46:44.186499"}
+{"text":"how mcuh time u will think about this ?","intent":"question","speech":"I don't know yet. Ask again in a shorter way.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:47:52.773617"}
+{"text":"then tell m presiden tof ameria please","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:47:55.778318"}
+{"text":"president of america who he is","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:47:56.369890"}
+{"text":"open new tab","intent":"browser_new_tab","speech":"Opening a new tab.","model":"","outcome":"success","timestamp":"2026-04-08T23:50:03.966907"}
+{"text":"minimize this window","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:50:22.732721"}
+{"text":"open a new chrome window","intent":"open_app","speech":"Opening Google Chrome.","model":"","outcome":"success","timestamp":"2026-04-08T23:52:21.751994"}
+{"text":"make a new file on desktop","intent":"create_file","speech":"Created on desktop.","model":"","outcome":"success","timestamp":"2026-04-08T23:52:43.662146"}
+{"text":"make one more folder on desktop with name aditya test","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:53:06.072576"}
+{"text":"latest news in ai","intent":"news","speech":"Checking the latest news.","model":"","outcome":"success","timestamp":"2026-04-08T23:53:32.191610"}
+{"text":"open command","intent":"open_app","speech":"Opening Command.","model":"","outcome":"success","timestamp":"2026-04-08T23:54:57.373312"}
+{"text":"open terminal","intent":"open_app","speech":"Opening Terminal.","model":"","outcome":"success","timestamp":"2026-04-08T23:55:13.292467"}
+{"text":"cehck my vps","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:55:22.166895"}
+{"text":"tell me my pending task can u check calender","intent":"unknown","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:58:08.840394"}
+{"text":"check calender and tell me my meetings","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:58:31.411407"}
+{"text":"transcribe a short english voice assistant command preserve proper nouns and app names","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-08T23:59:57.436603"}
+{"text":"what are you doing","intent":"question","speech":"I'm still thinking, give me a moment.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-09T00:00:12.542593"}
+{"text":"fuck u","intent":"unknown","speech":"I didn't catch that. Say open, search, compose mail, or latest news.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-09T00:00:57.427909"}
+{"text":"latest news","intent":"news","speech":"Checking the latest news.","model":"","outcome":"success","timestamp":"2026-04-09T00:01:11.980301"}
+{"text":"latest news on claude mythos","intent":"news","speech":"Checking the latest news.","model":"","outcome":"success","timestamp":"2026-04-09T00:01:46.899067"}
+{"text":"make a folder on desktop","intent":"create_folder","speech":"Folder created.","model":"","outcome":"success","timestamp":"2026-04-09T00:04:01.213310"}
+{"text":"latest news on claude mythos","intent":"news","speech":"What Is Claude Mythos? Anthropic Unveils Advanced AI Model Capable of Discovering Cybersecurity Vulnerabilities (ibtimes.sg); Claude Mythos: The Model Anthropic Was Too Afraid to Ship (allthingsai00.s","model":"","outcome":"success","timestamp":"2026-04-09T01:30:15.828056"}
+{"text":"write mail to vedang2803@gmail.com","intent":"compose_email","speech":"Got it. What's the subject?","model":"","outcome":"success","timestamp":"2026-04-09T01:32:38.208975"}
+{"text":"project update","intent":"clarify_email_body","speech":"Subject: project update. What should the body say?","model":"","outcome":"success","timestamp":"2026-04-09T01:32:52.230175"}
+{"text":"startup briefing","intent":"briefing","speech":"Something went wrong.","model":"gemma4:e4b","outcome":"success","timestamp":"2026-04-09T01:34:40.957562"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-09T23:10:06.415588"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-09T23:10:07.387815"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-09T23:11:45.553235"}
+{"text":"open youtube","intent":"open_app","speech":"Opening youtube.","model":"","outcome":"success","timestamp":"2026-04-09T23:11:46.491148"}
+{"text":"stop","intent":"butler_sleep","speech":"Going quiet. Say wake up to start again.","model":"","outcome":"success","timestamp":"2026-04-09T23:11:47.529884"}

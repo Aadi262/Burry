@@ -53,7 +53,7 @@ def _chain(*models: str) -> list[str]:
 
 
 BUTLER_MODEL_CHAINS = {
-    "voice": _chain(BUTLER_MODELS["voice"], "phi4-mini:latest", "llama3.2:3b", "deepseek-r1:7b", OLLAMA_MODEL),
+    "voice": _chain(BUTLER_MODELS["voice"], "phi4-mini:latest", "llama3.2:3b"),
     "planning": _chain(BUTLER_MODELS["planning"], "gemma4:e4b", "deepseek-r1:14b", "qwen2.5-coder:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
     "vision": _chain(BUTLER_MODELS["vision"], BUTLER_MODELS["voice"], "llama3.2-vision", BUTLER_MODELS["planning"], OLLAMA_MODEL),
     "review": _chain(BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
@@ -122,7 +122,7 @@ AUTO_PLAY_MUSIC = True
 DEFAULT_MUSIC_MODE = "focus"
 
 # --- Voice output ---
-TTS_ENGINE = "edge"       # "edge" | "kokoro" | "say" | "auto"
+TTS_ENGINE = "say"        # "edge" | "kokoro" | "say" | "auto"
 TTS_VOICE = "af_bella"    # Kokoro voice when using the kokoro backend
 EDGE_TTS_VOICE = "en-US-AvaMultilingualNeural"
 EDGE_TTS_RATE = "+0%"

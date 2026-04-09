@@ -7,20 +7,25 @@
     "path": "~/Burry/mac-butler",
     "repo": null,
     "description": "Local AI operator agent for macOS with voice, context, actions, and memory.",
-    "blurb": "",
+    "blurb": "mac-butler is Local AI operator agent for macOS with voice, context, actions, and memory. Next up is Configure Brave MCP and GitHub MCP secrets if you want live web and repo awareness, while Butler still uses macOS TTS by default, not a.",
     "status": "active",
-    "completion": 84,
+    "completion": 86,
     "deploy_target": "Local Mac + Ollama",
     "live": true,
     "live_url": "http://localhost:3333",
     "blockers": [
-      "Project OS layer is not fully wired yet."
+      "Unknown-intent and memory paths still enter slow brain flows too often.",
+      "Model routing and docs still contain stale fallbacks relative to installed local models.",
+      "Telemetry and recording still create avoidable churn."
     ],
     "next_tasks": [
-      "Ship the project registry, dashboard, and GitHub sync layer.",
-      "Tighten follow-up voice behavior so briefing lines do not repeat."
+      "Phase 3: add the lightweight LLM lane from docs/phases/2026-04-08-architecture-remediation-roadmap.md.",
+      "Clean up the remaining raw OLLAMA_FALLBACK and OLLAMA_MODEL default paths while Phase 3 is open.",
+      "Decide whether gemma4:26b should own local planning and review before model cleanup."
     ],
     "status_files": [
+      "docs/phases/2026-04-08-architecture-remediation-roadmap.md",
+      "docs/phases/2026-04-08-architecture-remediation-status.md",
       "BUTLER_STATUS.md",
       "tasks/tasks.json",
       "memory/layers/MEMORY.md"
@@ -28,9 +33,9 @@
     "last_commit": null,
     "open_issues": 0,
     "readme_excerpt": "",
-    "last_opened": "2026-04-06T02:16:38",
+    "last_opened": "2026-04-07T23:50:22",
     "last_error": null,
-    "updated_at": "2026-04-06T02:16:38"
+    "updated_at": "2026-04-08T03:45:00"
   },
   {
     "name": "Adpilot",

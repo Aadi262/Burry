@@ -844,14 +844,9 @@ class AgentScopeBackbone:
         self._active_loop = asyncio.get_running_loop()
         self._ensure_model(model_name, stream=stream_speech, intent_name=intent_name)
         self.agent._sys_prompt = self._system_prompt(ctx, system_prompt)  # noqa: SLF001
-        compressed = get_compressed_context(max_tokens=1800)
-        if compressed:
-            try:
-                result = self.memory.update_compressed_summary(compressed)
-                if asyncio.iscoroutine(result):
-                    await result
-            except (AttributeError, TypeError):
-                pass
+        # NOTE: Context compression moved to background — never blocks live turns.
+        # The agent's system prompt already contains compressed context from _get_cached_context().
+        # Background compression is triggered after the turn completes (see run_agentscope_turn).
 
         tool_log: list[dict[str, Any]] = []
         token = _TURN_TOOL_LOG.set(tool_log)
@@ -956,7 +951,34 @@ def run_agentscope_turn(
         ),
         loop,
     )
-    return future.result(timeout=90)
+    result = future.result(timeout=30)
+    # Schedule background compression after turn completes (non-blocking)
+    try:
+        import threading as _bg_threading
+        _bg_threading.Thread(
+            target=_background_compress,
+            daemon=True,
+            name="burry-compress",
+        ).start()
+    except Exception:
+        pass
+    return result
+
+
+def _background_compress() -> None:
+    """Run context compression in background — never on the live path."""
+    try:
+        compressed = get_compressed_context(max_tokens=1800)
+        if not compressed:
+            return
+        backbone = get_backbone()
+        if backbone and backbone.memory:
+            result = backbone.memory.update_compressed_summary(compressed)
+            if asyncio.iscoroutine(result):
+                loop = _get_persistent_loop()
+                asyncio.run_coroutine_threadsafe(result, loop).result(timeout=10)
+    except Exception:
+        pass
 
 
 def interrupt_agentscope_turn(new_command: str) -> bool:

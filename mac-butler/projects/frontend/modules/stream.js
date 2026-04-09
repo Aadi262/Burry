@@ -41,13 +41,56 @@ export function createOperatorStream({
     return refs?.planStepsFeed || document.getElementById("plan-steps-feed");
   }
 
-  function appendTraceStep(text) {
-    const cleaned = normalizeText(text);
+  function presentTool(tool) {
+    const normalized = String(tool || "").trim();
+    return TOOL_MAP[normalized] || { label: normalized || "Executing", icon: "⚡" };
+  }
+
+  function renderTraceFeed() {
     const el = traceFeedEl();
-    if (!el || !cleaned) return;
-    traceItems = [...traceItems, cleaned].slice(-16);
-    el.innerHTML = traceItems.map((item) => `<div class="trace-step">${escapeHtml(item)}</div>`).join("");
+    if (!el) return;
+    if (!traceItems.length) {
+      el.innerHTML = '<span class="trace-idle">Waiting for the next live operator event.</span>';
+      return;
+    }
+    el.innerHTML = traceItems.map((item) => `
+      <div class="trace-step trace-${escapeHtml(item.tone || "info")}${item.live ? " is-live" : ""}">
+        ${escapeHtml(item.text)}
+      </div>
+    `).join("");
     el.scrollTop = el.scrollHeight;
+  }
+
+  function replaceTraceSteps(items) {
+    const nextItems = [];
+    for (const item of items) {
+      const text = normalizeText(item?.text || item);
+      if (!text) continue;
+      const normalized = {
+        text,
+        tone: normalizeText(item?.tone || "info").toLowerCase() || "info",
+        live: Boolean(item?.live),
+      };
+      const previous = nextItems[nextItems.length - 1];
+      if (previous && previous.text === normalized.text && previous.tone === normalized.tone) {
+        previous.live = previous.live || normalized.live;
+        continue;
+      }
+      nextItems.push(normalized);
+    }
+    traceItems = nextItems.slice(-16);
+    renderTraceFeed();
+  }
+
+  function appendTraceStep(text, tone = "info", options = {}) {
+    replaceTraceSteps([
+      ...traceItems,
+      {
+        text,
+        tone,
+        live: Boolean(options.live),
+      },
+    ]);
   }
 
   function clearToolExecResetTimer() {
@@ -58,7 +101,7 @@ export function createOperatorStream({
 
   function onAgentThinking() {
     setButlerState("thinking", "Reasoning through your request...");
-    appendTraceStep("Reasoning through the current request.");
+    appendTraceStep("Reasoning through the current request.", "thinking", { live: true });
   }
 
   function onAgentReply(payload) {
@@ -67,7 +110,7 @@ export function createOperatorStream({
       refs.transcriptSpoken.textContent = speech;
     }
     if (speech) {
-      appendTraceStep(`Reply ready: ${speech}`);
+      appendTraceStep(`Reply ready: ${speech}`, "agent");
     }
     setButlerState("idle", "");
   }
@@ -83,19 +126,19 @@ export function createOperatorStream({
   function onToolStart(payload) {
     const tool = String(payload?.tool || "tool").trim() || "tool";
     const input = normalizeText(payload?.input || "");
-    const info = TOOL_MAP[tool] || { label: tool, icon: "⚡" };
+    const info = presentTool(tool);
     setButlerState("executing", `Running ${tool}...`);
     updateLiveToolExec(tool, input, "running");
-    appendTraceStep(`Tool started: ${info.label}`);
+    appendTraceStep(`Running ${info.label}${input ? ` - ${input}` : ""}`, "running", { live: true });
   }
 
   function onToolEnd(payload) {
     const tool = String(payload?.tool || "tool").trim() || "tool";
     const result = normalizeText(payload?.result || "");
     const status = String(payload?.status || "ok").trim().toLowerCase() || "ok";
-    const info = TOOL_MAP[tool] || { label: tool, icon: "⚡" };
+    const info = presentTool(tool);
     updateLiveToolExec(tool, result, status);
-    appendTraceStep(`Tool ${status}: ${info.label}${result ? ` - ${result}` : ""}`);
+    appendTraceStep(`Tool ${status}: ${info.label}${result ? ` - ${result}` : ""}`, status === "error" ? "error" : "ok");
     clearToolExecResetTimer();
     liveToolExecResetTimer = window.setTimeout(() => updateLiveToolExec("", "", "idle"), 3000);
   }
@@ -104,24 +147,116 @@ export function createOperatorStream({
     const steps = Array.isArray(payload?.steps) ? payload.steps : [];
     const title = normalizeText(payload?.title || "Active Plan") || "Active Plan";
     renderPlanSteps(title, steps);
-    appendTraceStep(`Plan updated: ${title}`);
+    appendTraceStep(`Plan updated: ${title}`, "plan");
   }
 
   function updateLiveToolExec(tool, result, status) {
     const el = toolExecEl();
     if (!el) return;
     if (status === "idle" || !tool) {
+      el.classList.remove("is-live");
       el.innerHTML = '<span class="tool-exec-idle">No active tool call.</span>';
       return;
     }
-    const info = TOOL_MAP[tool] || { label: tool, icon: "⚡" };
+    const info = presentTool(tool);
     const safeStatus = escapeHtml(String(status || "ok").toLowerCase());
+    el.classList.toggle("is-live", safeStatus === "running");
     el.innerHTML = `
       <span class="tool-exec-icon">${info.icon}</span>
       <span class="tool-exec-label">${escapeHtml(info.label)}</span>
       <span class="tool-exec-status ${safeStatus}">${safeStatus}</span>
       <span class="tool-exec-result">${escapeHtml(String(result || "").slice(0, 120))}</span>
     `;
+  }
+
+  function buildTraceFromOperator(payload) {
+    if (payload?.telemetry_fresh === false) {
+      return [{ text: "Waiting for live operator telemetry.", tone: "stale" }];
+    }
+    const items = [];
+    const state = normalizeText(payload?.state || "").toLowerCase();
+    const heard = normalizeText(payload?.last_heard_text || "");
+    if (heard && ["thinking", "executing", "speaking"].includes(state)) {
+      items.push({ text: `Command: ${heard}`, tone: "input", live: state !== "speaking" });
+    }
+
+    const stream = Array.isArray(payload?.tool_stream) ? payload.tool_stream.slice(-6) : [];
+    for (const entry of stream) {
+      const tool = normalizeText(entry?.tool || "");
+      if (!tool) continue;
+      const info = presentTool(tool);
+      const status = normalizeText(entry?.status || "ok").toLowerCase() || "ok";
+      const detail = normalizeText(entry?.detail || "");
+      const prefix = status === "running" ? "Running" : status === "error" ? "Error" : "Finished";
+      items.push({
+        text: `${prefix} ${info.label}${detail ? ` - ${detail}` : ""}`,
+        tone: status === "running" ? "running" : status === "error" ? "error" : "ok",
+        live: status === "running",
+      });
+    }
+
+    const agent = payload?.last_agent_result && typeof payload.last_agent_result === "object"
+      ? payload.last_agent_result
+      : {};
+    const agentStatus = normalizeText(agent.status || "").toLowerCase();
+    const agentResult = normalizeText(agent.result || "");
+    if (agentResult) {
+      items.push({
+        text: `Agent ${normalizeText(agent.agent || "operator")}: ${agentResult}`,
+        tone: agentStatus === "error" ? "error" : agentStatus === "start" ? "running" : "agent",
+        live: agentStatus === "start",
+      });
+    }
+
+    const spoken = normalizeText(payload?.last_spoken_text || "");
+    if (spoken && state === "speaking") {
+      items.push({ text: `Replying: ${spoken}`, tone: "agent", live: true });
+    }
+
+    return items.length ? items : [{ text: "Waiting for the next live action.", tone: "stale" }];
+  }
+
+  function syncTraceFromOperator(payload) {
+    replaceTraceSteps(buildTraceFromOperator(payload || {}));
+  }
+
+  function syncToolExecFromOperator(payload) {
+    if (payload?.telemetry_fresh === false) {
+      updateLiveToolExec("", "", "idle");
+      return;
+    }
+
+    const stream = Array.isArray(payload?.tool_stream) ? payload.tool_stream.slice(-6) : [];
+    const activeTools = Array.isArray(payload?.active_tools) ? payload.active_tools : [];
+    if (activeTools.length) {
+      const currentTool = String(activeTools[activeTools.length - 1] || "").trim();
+      const runningEntry = [...stream].reverse().find((entry) => (
+        normalizeText(entry?.tool || "") === currentTool
+        && normalizeText(entry?.status || "").toLowerCase() === "running"
+      ));
+      updateLiveToolExec(currentTool, normalizeText(runningEntry?.detail || ""), "running");
+      return;
+    }
+
+    const lastEntry = [...stream].reverse().find((entry) => normalizeText(entry?.tool || ""));
+    if (!lastEntry) {
+      updateLiveToolExec("", "", "idle");
+      return;
+    }
+
+    const lastTool = normalizeText(lastEntry.tool || "");
+    const lastStatus = normalizeText(lastEntry.status || "ok").toLowerCase() || "ok";
+    updateLiveToolExec(lastTool, normalizeText(lastEntry.detail || ""), lastStatus);
+    if (lastStatus !== "running") {
+      clearToolExecResetTimer();
+      liveToolExecResetTimer = window.setTimeout(() => updateLiveToolExec("", "", "idle"), 3000);
+    }
+  }
+
+  function applyOperatorPayload(payload) {
+    syncTraceFromOperator(payload);
+    syncToolExecFromOperator(payload);
+    onOperator(payload);
   }
 
   function renderPlanSteps(title, steps) {
@@ -193,14 +328,14 @@ export function createOperatorStream({
         return;
       }
       if (parsed && parsed.type === "operator" && parsed.payload) {
-        onOperator(parsed.payload);
+        applyOperatorPayload(parsed.payload);
         return;
       }
       if (parsed && parsed.type === "projects") {
         onProjects(Array.isArray(parsed.payload) ? parsed.payload : []);
         return;
       }
-      onOperator(parsed && parsed.payload ? parsed.payload : parsed);
+      applyOperatorPayload(parsed && parsed.payload ? parsed.payload : parsed);
     } catch (error) {
       console.error(error);
     }
@@ -210,7 +345,7 @@ export function createOperatorStream({
     try {
       const response = await fetch("/api/operator");
       if (!response.ok) return;
-      onOperator(await response.json());
+      applyOperatorPayload(await response.json());
     } catch (error) {
       console.error(error);
     }
@@ -306,6 +441,11 @@ export function createOperatorStream({
       operatorStreamRetryTimer = null;
     }
     updateConnectionStatus(false);
+  }
+
+  if (bootstrap?.operator) {
+    syncTraceFromOperator(bootstrap.operator);
+    syncToolExecFromOperator(bootstrap.operator);
   }
 
   return {

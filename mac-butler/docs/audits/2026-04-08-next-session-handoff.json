@@ -1,0 +1,144 @@
+{
+  "project": "mac-butler",
+  "updated_at": "2026-04-08T03:45:00",
+  "current_phase": {
+    "id": 3,
+    "name": "Lightweight LLM Lane",
+    "status": "pending"
+  },
+  "completed_phases": [
+    {
+      "id": 1,
+      "name": "Audit Harness and Baseline Verification",
+      "status": "completed",
+      "completed_at": "2026-04-08T00:00:00"
+    },
+    {
+      "id": 2,
+      "name": "Quick Wins",
+      "status": "completed",
+      "completed_at": "2026-04-08T03:45:00"
+    }
+  ],
+  "known_bottlenecks": [
+    {
+      "id": "unknown_intent_black_hole",
+      "severity": "critical",
+      "summary": "Unknown intents still cascade through slow brain and tool-chat paths.",
+      "files": [
+        "butler.py"
+      ]
+    },
+    {
+      "id": "sync_embedding_recall",
+      "severity": "critical",
+      "summary": "Semantic recall still pays synchronous embedding or model-swap costs.",
+      "files": [
+        "memory/store.py",
+        "memory/knowledge_base.py"
+      ]
+    },
+    {
+      "id": "context_over_injection",
+      "severity": "high",
+      "summary": "Structured context gathering still does too much work for the live path.",
+      "files": [
+        "context/__init__.py",
+        "butler.py"
+      ]
+    },
+    {
+      "id": "record_write_fanout",
+      "severity": "high",
+      "summary": "Recording a turn still fans out to too many stores and file writes.",
+      "files": [
+        "butler.py",
+        "memory/store.py",
+        "memory/long_term.py",
+        "memory/layered.py",
+        "memory/graph.py"
+      ]
+    },
+    {
+      "id": "dashboard_polling",
+      "severity": "medium",
+      "summary": "Dashboard polling was reduced in Phase 2, but the operator surfaces are still not event-driven end to end.",
+      "files": [
+        "projects/dashboard.py",
+        "runtime/telemetry.py"
+      ]
+    },
+    {
+      "id": "god_object_butler",
+      "severity": "medium",
+      "summary": "butler.py still owns routing, orchestration, speech, and recording in one file.",
+      "files": [
+        "butler.py"
+      ]
+    },
+    {
+      "id": "model_drift",
+      "severity": "high",
+      "summary": "Configured model chains still contain uninstalled fallbacks and one bad default path.",
+      "files": [
+        "butler_config.py",
+        "brain/ollama_client.py",
+        "brain/agentscope_backbone.py"
+      ]
+    }
+  ],
+  "known_blockers": [
+    "Model routing docs and setup docs are stale relative to the installed Ollama inventory.",
+    "Unknown-intent and question paths still need a lightweight single-call lane before a deeper refactor.",
+    "Memory recall and recording still pay too much synchronous work on the live path.",
+    "The Ollama CLI inventory command can crash with an MLX-backed macOS exception on this host; the audit script records it as a non-fatal environment issue."
+  ],
+  "next_files_to_edit": [
+    "butler.py",
+    "brain/ollama_client.py",
+    "intents/router.py",
+    "brain/agentscope_backbone.py",
+    "butler_config.py",
+    "tests/test_butler_pipeline.py"
+  ],
+  "local_models": [
+    "gemma4:26b",
+    "gemma4:e4b",
+    "deepseek-r1:14b",
+    "nomic-embed-text:latest"
+  ],
+  "configured_but_missing_models": [
+    "deepseek-r1:7b",
+    "phi4-mini:latest",
+    "llama3.2:3b",
+    "llama3.2-vision",
+    "qwen2.5-coder:14b",
+    "deepseek-coder:6.7b",
+    "glm-4.7-flash:latest"
+  ],
+  "installed_but_underused_models": [
+    "gemma4:26b"
+  ],
+  "bad_default_paths": [
+    "brain/agentscope_backbone.py:_default_model_name prefers OLLAMA_FALLBACK before OLLAMA_MODEL",
+    "butler.py:_unknown_brain_response uses OLLAMA_FALLBACK or OLLAMA_MODEL directly",
+    "butler.py:_resolve_followup_text uses OLLAMA_FALLBACK or OLLAMA_MODEL directly"
+  ],
+  "audit_commands": [
+    "scripts/run_architecture_audit.sh",
+    "ollama list",
+    "venv/bin/python -c 'from brain.ollama_client import pick_butler_model,pick_agent_model; ...'"
+  ],
+  "latest_audit_report": "docs/audits/reports/architecture-audit-2026-04-08T03-15-30.md",
+  "phase_2_verification": {
+    "tests_passed": 283,
+    "test_command": "venv/bin/pytest tests/test_architecture_phase2.py tests/test_instant_lane.py tests/test_background_lane.py tests/test_intent_router.py tests/test_dashboard.py tests/test_ollama_client.py tests/test_executor.py tests/test_runtime_telemetry.py tests/test_remaining_items.py tests/test_project_store.py tests/test_agents.py tests/test_butler_pipeline.py -q",
+    "audit_refreshed": true
+  },
+  "test_commands": [
+    "venv/bin/pytest tests/test_architecture_phase2.py tests/test_instant_lane.py tests/test_background_lane.py tests/test_intent_router.py tests/test_dashboard.py tests/test_ollama_client.py tests/test_executor.py tests/test_runtime_telemetry.py tests/test_remaining_items.py tests/test_project_store.py -q",
+    "venv/bin/python butler.py -c \"how are you\" --test",
+    "venv/bin/python butler.py -c \"latest AI news\" --test",
+    "venv/bin/python butler.py -c \"stop\" --test"
+  ]
+}

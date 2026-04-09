@@ -25,6 +25,12 @@ async function postCommand(body) {
   return await response.json().catch(() => ({}));
 }
 
+function commandStatusNote(status) {
+  if (status === "queued") return "Queued behind the current task.";
+  if (status === "acknowledged") return "Acknowledged. Result will stream when it lands.";
+  return "Executing now.";
+}
+
 export function createCommandController({
   refs,
   state,
@@ -67,11 +73,20 @@ export function createCommandController({
 
     try {
       const result = await postCommand({ text: clean, source: "hud" });
+      const status = String(result?.status_label || result?.status || "").trim().toLowerCase();
       if (result && result.status === "busy") {
         entry.text = clean + " (not received — Burry was busy)";
         entry.dropped = true;
         renderTranscript(state.operator);
         refs.transcriptHeard.style.opacity = "0.45";
+      } else if (status === "queued") {
+        setButlerState("thinking", commandStatusNote(status));
+      } else if (status === "acknowledged") {
+        setButlerState("listening", commandStatusNote(status));
+        kickOperatorRefreshWindow();
+      } else if (status === "executing") {
+        setButlerState("executing", commandStatusNote(status));
+        kickOperatorRefreshWindow();
       } else {
         kickOperatorRefreshWindow();
       }

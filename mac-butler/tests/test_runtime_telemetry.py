@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from runtime import log_store
 from runtime import telemetry
 
 
@@ -109,6 +110,32 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["turns"][0]["intent"], "what_next")
         self.assertEqual(hint["project"], "mac-butler")
         self.assertEqual(state["project_context_hint"]["project"], "")
+
+    def test_metrics_and_jsonl_logs_are_persisted(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            runtime_path = Path(tempdir) / "runtime_state.json"
+            log_path = Path(tempdir) / "runtime_events.jsonl"
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path), patch.object(
+                log_store,
+                "RUNTIME_EVENT_LOG_PATH",
+                log_path,
+            ):
+                telemetry.note_heard_text("open youtube")
+                telemetry.note_intent("open_app", {"app": "youtube"}, 1.0, raw="open youtube")
+                telemetry.note_spoken_text("Opening YouTube.")
+                telemetry.note_tool_started("open_url_in_browser", "https://youtube.com")
+                telemetry.note_tool_finished("open_url_in_browser", "ok", "opened https://youtube.com")
+
+                metrics = telemetry.load_metrics()
+                logs = log_store.load_recent_runtime_events(limit=10)
+
+        self.assertEqual(metrics["heard_commands"], 1)
+        self.assertEqual(metrics["intents_resolved"], 1)
+        self.assertEqual(metrics["spoken_responses"], 1)
+        self.assertEqual(metrics["tool_runs_started"], 1)
+        self.assertEqual(metrics["tool_runs_completed"], 1)
+        self.assertGreaterEqual(len(logs), 5)
+        self.assertEqual(logs[-1]["kind"], "tool")
 
 
 if __name__ == "__main__":

@@ -82,6 +82,7 @@ class OllamaClientTests(unittest.TestCase):
             temperature=0.4,
             max_tokens=40,
             system="system prompt",
+            timeout_hint="voice",
         )
 
     @patch("brain.ollama_client._call")
@@ -279,6 +280,30 @@ class OllamaClientTests(unittest.TestCase):
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["keep_alive"], "5m")
         self.assertEqual(payload["options"]["num_ctx"], 2048)
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], ollama_client.DEFAULT_TIMEOUT)
+
+    @patch("brain.ollama_client._prepare_model_request")
+    @patch("brain.ollama_client.requests.post")
+    def test_call_ollama_uses_voice_timeout_hint(
+        self,
+        mock_post,
+        _mock_prepare,
+    ):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"response": "ok"}
+        mock_post.return_value = response
+
+        result = ollama_client._call_ollama(
+            "prompt",
+            "test-model",
+            temperature=0.3,
+            max_tokens=120,
+            timeout_hint="voice",
+        )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], ollama_client.VOICE_TIMEOUT)
 
     @patch("brain.ollama_client._prepare_model_request")
     @patch("brain.ollama_client.requests.post")
@@ -305,6 +330,29 @@ class OllamaClientTests(unittest.TestCase):
         self.assertIn("tools", payload)
         self.assertEqual(payload["keep_alive"], "5m")
         self.assertEqual(payload["options"]["num_ctx"], 4096)
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], ollama_client.DEFAULT_TIMEOUT)
+
+    @patch("brain.ollama_client._prepare_model_request")
+    @patch("brain.ollama_client.requests.post")
+    def test_chat_with_ollama_uses_agent_timeout_hint(
+        self,
+        mock_post,
+        _mock_prepare,
+    ):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"message": {"role": "assistant", "content": "ok"}}
+        mock_post.return_value = response
+
+        result = ollama_client.chat_with_ollama(
+            [{"role": "user", "content": "hello"}],
+            model="test-model",
+            max_tokens=90,
+            timeout_hint="agent",
+        )
+
+        self.assertEqual(result["message"]["content"], "ok")
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], ollama_client.AGENT_TIMEOUT)
 
     @patch("brain.ollama_client.requests.get")
     def test_check_vps_connection_returns_dict(self, mock_get):

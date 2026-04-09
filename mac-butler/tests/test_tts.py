@@ -30,7 +30,8 @@ class TTSVoiceTests(unittest.TestCase):
     @patch("voice.tts._try_edge_tts", return_value=False)
     @patch("voice.tts._try_kokoro", return_value=False)
     def test_speak_falls_back_to_say(self, mock_try_kokoro, mock_try_edge_tts, mock_say_fallback):
-        tts.speak("Good morning. mac-butler is ready.")
+        with patch("voice.tts.TTS_ENGINE", "auto"):
+            tts.speak("Good morning. mac-butler is ready.")
         mock_try_edge_tts.assert_called_once()
         mock_try_kokoro.assert_called_once()
         mock_say_fallback.assert_called_once()

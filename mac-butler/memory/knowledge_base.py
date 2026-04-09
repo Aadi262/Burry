@@ -69,14 +69,9 @@ def _ollama_host() -> str:
 
 
 def _detect_embedding_dimensions() -> int:
-  try:
-    from memory.store import _embed_text
-
-    embedding = _embed_text("burry-rag-dimension-probe")
-    if isinstance(embedding, list) and embedding:
-      return len(embedding)
-  except Exception:
-    pass
+  # nomic-embed-text always produces 768-dimensional vectors.
+  # Previous implementation made a real embedding API call just to measure this,
+  # adding ~1-2s latency to every RAG initialization.
   return 768
 
 

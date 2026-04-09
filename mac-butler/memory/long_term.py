@@ -5,7 +5,10 @@ Burry remembers specific facts and compresses old conversations automatically.
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -68,6 +71,10 @@ def _compress_recent_to_archive(data: dict) -> None:
     """Compress recent memory into archive summaries using LLM."""
     try:
         from brain.ollama_client import _call
+        from butler_config import BUTLER_MODEL_CHAINS, OLLAMA_MODEL
+
+        # Use the first voice model from config, fall back to OLLAMA_MODEL
+        compress_model = (BUTLER_MODEL_CHAINS.get("voice") or [OLLAMA_MODEL])[0]
 
         recent_text = "\n".join(
             f"Q: {t['heard']} A: {t['spoken']}"
@@ -76,7 +83,7 @@ def _compress_recent_to_archive(data: dict) -> None:
 
         summary = _call(
             f"Summarize these past conversations into 3 bullet points:\n{recent_text}",
-            "gemma4:e4b",
+            compress_model,
             max_tokens=100,
             temperature=0.1,
         )
@@ -117,6 +124,43 @@ def get_full_context() -> str:
     return "\n\n".join(parts)
 
 
+def _resolve_memory_items(raw):
+    if not inspect.isawaitable(raw):
+        return raw
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(raw)
+
+    result: dict[str, object] = {}
+    error: dict[str, BaseException] = {}
+
+    def _runner() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            result["value"] = loop.run_until_complete(raw)
+        except BaseException as exc:  # pragma: no cover - defensive bridge
+            error["value"] = exc
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+    if worker.is_alive():
+        raise TimeoutError("Timed out waiting for async memory snapshot")
+    if "value" in error:
+        raise error["value"]
+    return result.get("value")
+
+
 def save_session_state(agent) -> None:
     """Persist AgentScope agent memory to disk for the next session."""
     try:
@@ -129,8 +173,8 @@ def save_session_state(agent) -> None:
             except Exception:
                 memory_state = None
         if memory is not None and hasattr(memory, "get_memory"):
-            raw = memory.get_memory()
-            for item in raw if isinstance(raw, list) else []:
+            raw = _resolve_memory_items(memory.get_memory())
+            for item in raw if isinstance(raw, (list, tuple)) else []:
                 try:
                     messages.append(
                         {

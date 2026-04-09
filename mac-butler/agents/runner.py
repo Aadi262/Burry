@@ -1399,46 +1399,55 @@ Trending repos:
     }
 
 
-def _fetch_search_text(query: str, count: int = 5) -> str:
-    """
-    Free search pipeline:
-      1. SearXNG from the local search backend
-      2. Semantic rerank via local embeddings
-      3. Jina Reader for top result content
-      4. Return ranked snippets plus top content
-    """
-    global _LAST_FETCH_DATA
-
-    raw = _searxng_search(query, num=max(8, count))
-    backend = "searxng"
-    if not raw:
-        _LAST_FETCH_DATA = {"backend": backend, "tool": "semantic", "text": ""}
-        return ""
-
+def _rerank_and_fetch(results: list[dict], query: str) -> str:
+    ranked = list(results or [])
     query_vec = _embed(query)
     if query_vec:
         scored = []
-        for result in raw:
+        for result in ranked:
             doc_text = f"{result.get('title', '')} {result.get('content', '')}"
             doc_vec = _embed(doc_text)
             score = _cosine_sim(query_vec, doc_vec) if doc_vec else 0.0
             scored.append((score, result))
         scored.sort(key=lambda item: item[0], reverse=True)
         ranked = [result for _, result in scored]
-    else:
-        ranked = raw
 
-    top_content = ""
-    if ranked:
-        top_content = _jina_fetch(str(ranked[0].get("url", "")).strip())
-
+    top_content = _jina_fetch(str(ranked[0].get("url", "")).strip()) if ranked else ""
     snippets = "\n".join(
         f"{result.get('title', '')}: {str(result.get('content', ''))[:120]}".strip(": ")
         for result in ranked[:4]
     ).strip()
-    text = f"{snippets}\n\nTop result:\n{top_content[:400]}".strip() if top_content else snippets
-    _LAST_FETCH_DATA = {"backend": backend, "tool": "semantic", "text": text}
-    return text
+    if top_content:
+        return f"{snippets}\n\n{top_content[:400]}".strip() if snippets else top_content[:400]
+    return snippets
+
+
+def _fetch_search_text(query: str, count: int = 5) -> str:
+    """
+    Search pipeline:
+      1. SearXNG from the local search backend
+      2. Exa when an API key is configured
+      3. DuckDuckGo fallback
+      4. Semantic rerank via embeddings + Jina fetch for the top result
+    """
+    global _LAST_FETCH_DATA
+
+    backends: list[tuple[str, list[dict]]] = [
+        ("searxng", _searxng_search(query, num=max(8, count))),
+    ]
+    if _get_exa_api_key():
+        backends.append(("exa", _exa_search(query, num=max(8, count))))
+    backends.append(("duckduckgo", _duckduckgo_search(query, num=max(8, count))))
+
+    for backend, results in backends:
+        if not results:
+            continue
+        text = _rerank_and_fetch(results, query)
+        _LAST_FETCH_DATA = {"backend": backend, "tool": "semantic", "text": text}
+        return text
+
+    _LAST_FETCH_DATA = {"backend": "none", "tool": "semantic", "text": ""}
+    return ""
 
 
 def _fetch_headlines(query: str) -> str:

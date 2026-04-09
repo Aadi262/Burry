@@ -70,3 +70,36 @@
 2026-04-07 00:36:19,925 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'email_compose' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/email'.
 2026-04-07 00:36:19,925 | INFO    | _toolkit:register_agent_skill:1385 - Registered agent skill 'imessage_ops' from directory '/Users/adityatiwari/Burry/mac-butler/agent_skills/imessage'.
 2026-04-07 00:38:38,332 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:02:28,029 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:02:51,001 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:02:51,002 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:19,100 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:19,101 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:19,101 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:49,819 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:49,823 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:49,823 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:03:49,823 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:11:29,106 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:23,244 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:41,021 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:41,023 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:54,935 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:54,935 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:32:54,935 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:12,849 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:12,851 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:12,851 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:12,851 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,214 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,215 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,215 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,215 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,215 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-07 23:33:39,215 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 00:46:43,117 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 03:09:47,441 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 03:12:09,702 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 03:12:14,000 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 03:12:14,001 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.
+2026-04-08 03:12:53,067 | WARNING | _ollama_formatter:_format:235 - Unsupported block type thinking in the message, skipped.

@@ -2,6 +2,7 @@ from .notify import notify
 from .telemetry import (
     clear_confirmation,
     consume_project_context_hint,
+    load_metrics,
     load_runtime_state,
     note_agent_result,
     note_ambient_context,
@@ -23,6 +24,7 @@ from .telemetry import (
 __all__ = [
     "clear_confirmation",
     "consume_project_context_hint",
+    "load_metrics",
     "load_runtime_state",
     "notify",
     "note_agent_result",

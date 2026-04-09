@@ -81,14 +81,20 @@ class ExecutorTests(unittest.TestCase):
         result = Executor().search_and_play_spotify("chikni chameli")
         self.assertIn("timed out", result)
 
-    @patch("executor.engine.subprocess.Popen")
-    def test_open_app_maps_google_sheet_to_browser_url(self, mock_popen):
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
+    @patch("executor.engine.subprocess.run")
+    def test_open_app_maps_google_sheet_to_browser_url(self, mock_run, _mock_browser):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().open_app("google sheet")
         self.assertIn("sheets.google.com", result)
-        mock_popen.assert_called_once_with(["open", "-a", "Google Chrome", "https://sheets.google.com"])
+        self.assertEqual(
+            mock_run.call_args.args[0],
+            ["open", "-a", "Google Chrome", "https://sheets.google.com"],
+        )
 
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
     @patch("executor.engine.subprocess.run")
-    def test_browser_new_tab_uses_applescript(self, mock_run):
+    def test_browser_new_tab_uses_applescript(self, mock_run, _mock_browser):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().browser_new_tab("https://example.com")
         self.assertIn("opened new browser tab", result)
@@ -168,26 +174,43 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn("opened new browser tab", result)
         self.assertIn("google.com/search", mock_new_tab.call_args.args[0])
 
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
     @patch("executor.engine.subprocess.run")
-    def test_browser_close_tab_uses_applescript(self, mock_run):
+    def test_browser_close_tab_uses_applescript(self, mock_run, _mock_browser):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().browser_close_tab()
         self.assertEqual(result, "closed current browser tab")
         self.assertIn("close active tab", mock_run.call_args.args[0][2])
 
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
     @patch("executor.engine.subprocess.run")
-    def test_browser_close_window_uses_applescript(self, mock_run):
+    def test_browser_close_window_uses_applescript(self, mock_run, _mock_browser):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().browser_close_window()
         self.assertEqual(result, "closed current browser window")
         self.assertIn("close front window", mock_run.call_args.args[0][2])
 
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
     @patch("executor.engine.subprocess.run")
-    def test_pause_video_executes_browser_javascript(self, mock_run):
+    def test_pause_video_executes_browser_javascript(self, mock_run, _mock_browser):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().pause_video()
         self.assertEqual(result, "paused media in browser")
         self.assertIn("execute javascript", mock_run.call_args.args[0][2])
+
+    @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
+    @patch("executor.engine.subprocess.run")
+    def test_open_url_in_browser_falls_back_to_system_default_when_app_missing(self, mock_run, _mock_browser):
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="Unable to find application named 'Google Chrome'"),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+
+        result = Executor().open_url_in_browser("youtube.com", "Google Chrome")
+
+        self.assertEqual(result, "opened https://youtube.com")
+        self.assertEqual(mock_run.call_args_list[0].args[0], ["open", "-a", "Google Chrome", "https://youtube.com"])
+        self.assertEqual(mock_run.call_args_list[1].args[0], ["open", "https://youtube.com"])
 
     @patch("executor.engine.subprocess.run")
     def test_volume_set_uses_osascript(self, mock_run):

@@ -1073,6 +1073,39 @@ body[data-state="executing"] .panel {
   background: rgba(79, 143, 255, 0.06);
 }
 
+.trace-step.is-live {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.trace-step.trace-running {
+  border-left-color: var(--amber);
+  background: rgba(255, 170, 0, 0.08);
+  color: #ffd37a;
+}
+
+.trace-step.trace-ok,
+.trace-step.trace-agent {
+  border-left-color: var(--success);
+  background: rgba(0, 255, 136, 0.06);
+}
+
+.trace-step.trace-error {
+  border-left-color: var(--danger);
+  background: rgba(255, 34, 68, 0.08);
+  color: #ff9fb0;
+}
+
+.trace-step.trace-input,
+.trace-step.trace-thinking,
+.trace-step.trace-plan {
+  border-left-color: var(--accent);
+}
+
+.trace-step.trace-stale {
+  border-left-color: rgba(232, 244, 255, 0.2);
+  color: var(--text-faint);
+}
+
 .tool-exec-panel {
   flex-shrink: 0;
 }
@@ -1084,6 +1117,10 @@ body[data-state="executing"] .panel {
   align-items: center;
   min-height: 32px;
   font-size: 11px;
+}
+
+.tool-exec-row.is-live {
+  animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
 .tool-exec-idle {

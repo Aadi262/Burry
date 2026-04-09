@@ -119,40 +119,1601 @@
       "response": "I'm still thinking, give me a moment.",
       "outcome": "success",
       "at": "2026-04-07T00:59:59"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T01:46:10"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T01:54:09"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T01:59:56"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:02:42"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:04:47"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:09:44"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:13:01"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:14:29"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T02:16:58"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-07T09:12:07"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T22:41:51"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T22:51:26"
+    },
+    {
+      "text": "open mac-butler project",
+      "intent": "open_project",
+      "model": "",
+      "response": "Opening mac-butler.",
+      "outcome": "success",
+      "at": "2026-04-07T22:52:02"
+    },
+    {
+      "text": "what should I work on today",
+      "intent": "what_next",
+      "model": "gemma4:e4b",
+      "response": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first s",
+      "outcome": "success",
+      "at": "2026-04-07T22:52:16"
+    },
+    {
+      "text": "email vedang@gmail.com with subject test and body hello",
+      "intent": "unknown",
+      "model": "",
+      "response": "Opening Gmail to vedang@gmail.com.",
+      "outcome": "success",
+      "at": "2026-04-07T22:52:21"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T22:52:22"
+    },
+    {
+      "text": "what should I work on today",
+      "intent": "what_next",
+      "model": "gemma4:e4b",
+      "response": "You're already in mac-butler. Next move is Upgrade live STT to a stronger local path. Want the first",
+      "outcome": "success",
+      "at": "2026-04-07T22:52:40"
+    },
+    {
+      "text": "email vedang@gmail.com with subject test and body hello",
+      "intent": "unknown",
+      "model": "",
+      "response": "Opening Gmail to vedang@gmail.com.",
+      "outcome": "success",
+      "at": "2026-04-07T22:53:35"
+    },
+    {
+      "text": "what should I work on today",
+      "intent": "what_next",
+      "model": "gemma4:e4b",
+      "response": "You're already in mac-butler. Start with Upgrade live STT to a stronger local path. Want the first s",
+      "outcome": "success",
+      "at": "2026-04-07T22:53:42"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:07:22"
+    },
+    {
+      "text": "startup briefing",
+      "intent": "briefing",
+      "model": "gemma4:e4b",
+      "response": "Something went wrong.",
+      "outcome": "success",
+      "at": "2026-04-07T23:09:37"
+    },
+    {
+      "text": "hello",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm doing well. How can I help you with your tasks today?",
+      "outcome": "success",
+      "at": "2026-04-07T23:10:43"
+    },
+    {
+      "text": "hi what are you doing",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I'm here, ready to assist. We have a few high-priority items: wiring the two-stage LLM into `mac-but",
+      "outcome": "success",
+      "at": "2026-04-07T23:12:12"
+    },
+    {
+      "text": "hi how are you something went wrong",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-07T23:12:22"
+    },
+    {
+      "text": "how are u ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm running smoothly, ready to tackle your high-priority tasks. What can I help you with today?",
+      "outcome": "success",
+      "at": "2026-04-07T23:13:20"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:36:02"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:45:17"
+    },
+    {
+      "text": "\"'hi how are you'\"",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-07T23:48:09"
+    },
+    {
+      "text": "\"'open mac-butler project'\"",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-07T23:48:14"
+    },
+    {
+      "text": "\"'email vedang@gmail.com with subject test and body hello world'\"",
+      "intent": "unknown",
+      "model": "",
+      "response": "Opening Gmail to vedang@gmail.com.",
+      "outcome": "success",
+      "at": "2026-04-07T23:48:19"
+    },
+    {
+      "text": "\"'search for latest AI news'\"",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-07T23:48:31"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:50:13"
+    },
+    {
+      "text": "email vedang@gmail.com with subject test and body hello world",
+      "intent": "unknown",
+      "model": "",
+      "response": "Opening Gmail to vedang@gmail.com.",
+      "outcome": "success",
+      "at": "2026-04-07T23:50:18"
+    },
+    {
+      "text": "open mac-butler project",
+      "intent": "open_project",
+      "model": "",
+      "response": "Opening mac-butler.",
+      "outcome": "success",
+      "at": "2026-04-07T23:50:24"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:50:53"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-07T23:51:07"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T00:20:57"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T00:24:22"
+    },
+    {
+      "text": "hello",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm doing well. How can I help you with your tasks tonight?",
+      "outcome": "success",
+      "at": "2026-04-08T00:44:59"
+    },
+    {
+      "text": "how are u ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm running smoothly, thanks for asking. What can I help you tackle with your tasks tonight?",
+      "outcome": "success",
+      "at": "2026-04-08T00:46:05"
+    },
+    {
+      "text": "what are u saying ??",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm saying I'm operating normally. I'm ready to help you with your high-priority tasks, like wiring ",
+      "outcome": "success",
+      "at": "2026-04-08T00:47:18"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T00:51:32"
+    },
+    {
+      "text": "hi",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "Hey. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T00:55:27"
+    },
+    {
+      "text": "how are u",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T00:55:37"
+    },
+    {
+      "text": "how are u?",
+      "intent": "greeting",
+      "model": "gemma4:e4b",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T00:55:43"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T00:55:50"
+    },
+    {
+      "text": "Which current task u are talking about ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm currently focused on several high-priority tasks: wiring the two-stage LLM into `mac-butler`, ad",
+      "outcome": "success",
+      "at": "2026-04-08T00:57:01"
+    },
+    {
+      "text": "can you open YouTube?",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T00:57:32"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T01:23:04"
+    },
+    {
+      "text": "hi",
+      "intent": "greeting",
+      "model": "",
+      "response": "Hey. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:31"
+    },
+    {
+      "text": "thank you",
+      "intent": "casual",
+      "model": "",
+      "response": "You're welcome.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:32"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:34"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:35"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:35"
+    },
+    {
+      "text": "sleep",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:36"
+    },
+    {
+      "text": "be quiet",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:37"
+    },
+    {
+      "text": "go quiet",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:37"
+    },
+    {
+      "text": "shut up",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:38"
+    },
+    {
+      "text": "stop listening",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:38"
+    },
+    {
+      "text": "hi",
+      "intent": "greeting",
+      "model": "",
+      "response": "Hey. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:39"
+    },
+    {
+      "text": "thank you",
+      "intent": "casual",
+      "model": "",
+      "response": "You're welcome.",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:39"
+    },
+    {
+      "text": "hey how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T01:56:40"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:18"
+    },
+    {
+      "text": "hi",
+      "intent": "greeting",
+      "model": "",
+      "response": "Hey. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:19"
+    },
+    {
+      "text": "thank you",
+      "intent": "casual",
+      "model": "",
+      "response": "You're welcome.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:19"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:21"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:21"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:22"
+    },
+    {
+      "text": "sleep",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:22"
+    },
+    {
+      "text": "be quiet",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:23"
+    },
+    {
+      "text": "go quiet",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:23"
+    },
+    {
+      "text": "shut up",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:24"
+    },
+    {
+      "text": "stop listening",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:24"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:25"
+    },
+    {
+      "text": "hi",
+      "intent": "greeting",
+      "model": "",
+      "response": "Hey. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:26"
+    },
+    {
+      "text": "thank you",
+      "intent": "casual",
+      "model": "",
+      "response": "You're welcome.",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:26"
+    },
+    {
+      "text": "hey how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T02:17:27"
+    },
+    {
+      "text": "how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T02:19:03"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T02:19:03"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:19:03"
+    },
+    {
+      "text": "latest AI news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T02:19:04"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T02:42:28"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T02:42:38"
+    },
+    {
+      "text": "how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T02:42:48"
+    },
+    {
+      "text": "latest AI news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T02:42:58"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T02:43:08"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:26"
+    },
+    {
+      "text": "how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:27"
+    },
+    {
+      "text": "latest AI news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:30"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:32"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:53"
+    },
+    {
+      "text": "how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:54"
+    },
+    {
+      "text": "latest AI news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:57"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T03:00:59"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:15:11"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:15:34"
+    },
+    {
+      "text": "how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T03:15:35"
+    },
+    {
+      "text": "latest AI news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T03:15:37"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T03:15:39"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T03:40:55"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:41:20"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:44:29"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T03:48:54"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T03:59:46"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:02:59"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:06:11"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T04:08:16"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:11:16"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:20:42"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:28:33"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:31:30"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T04:34:55"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T10:25:35"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T11:18:23"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:33:15"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:33:20"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T22:33:23"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T22:47:27"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:49:19"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:49:26"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T22:50:10"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:52:32"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T22:53:04"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T22:53:38"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T22:53:40"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T22:58:28"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T23:05:44"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:05:58"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:08:28"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T23:09:32"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T23:30:28"
+    },
+    {
+      "text": "open youtube",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening youtube.",
+      "outcome": "success",
+      "at": "2026-04-08T23:30:29"
+    },
+    {
+      "text": "stop",
+      "intent": "butler_sleep",
+      "model": "",
+      "response": "Going quiet. Say wake up to start again.",
+      "outcome": "success",
+      "at": "2026-04-08T23:30:30"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T23:31:30"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:31:44"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:33:26"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-08T23:34:21"
+    },
+    {
+      "text": "hi how are u >?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:37:02"
+    },
+    {
+      "text": "can u open youtube and play chikni Chameli?",
+      "intent": "spotify_play",
+      "model": "",
+      "response": "Playing chikni chameli.",
+      "outcome": "success",
+      "at": "2026-04-08T23:37:22"
+    },
+    {
+      "text": "latest ai news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:39:15"
+    },
+    {
+      "text": "still checking?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-08T23:40:02"
+    },
+    {
+      "text": "how cuh time will it take",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-08T23:42:22"
+    },
+    {
+      "text": "oaky open youtube and play a song on youtube",
+      "intent": "clarify_song",
+      "model": "",
+      "response": "Which song should I play?",
+      "outcome": "success",
+      "at": "2026-04-08T23:43:03"
+    },
+    {
+      "text": "play shape of you on youtube",
+      "intent": "spotify_play",
+      "model": "",
+      "response": "Playing shape of you.",
+      "outcome": "success",
+      "at": "2026-04-08T23:43:11"
+    },
+    {
+      "text": "latest ai news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:43:13"
+    },
+    {
+      "text": "not on spotify play it on youtube",
+      "intent": "clarify_song",
+      "model": "",
+      "response": "Which song should I play?",
+      "outcome": "success",
+      "at": "2026-04-08T23:43:22"
+    },
+    {
+      "text": "smile again on youtube",
+      "intent": "spotify_play",
+      "model": "",
+      "response": "Playing smile again.",
+      "outcome": "success",
+      "at": "2026-04-08T23:43:41"
+    },
+    {
+      "text": "open gmail",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening gmail.",
+      "outcome": "success",
+      "at": "2026-04-08T23:44:09"
+    },
+    {
+      "text": "now write a mail to vedang2803@gmail.com with subject test gmail and body how are u ?",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-08T23:44:41"
+    },
+    {
+      "text": "whast teh weather today in mumbai",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:45:27"
+    },
+    {
+      "text": "search weather in mumbai",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:45:39"
+    },
+    {
+      "text": "who is president of america?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-08T23:46:26"
+    },
+    {
+      "text": "who is president of america tell me please",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-08T23:46:44"
+    },
+    {
+      "text": "how mcuh time u will think about this ?",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I don't know yet. Ask again in a shorter way.",
+      "outcome": "success",
+      "at": "2026-04-08T23:47:52"
+    },
+    {
+      "text": "then tell m presiden tof ameria please",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:47:55"
+    },
+    {
+      "text": "president of america who he is",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:47:56"
+    },
+    {
+      "text": "open new tab",
+      "intent": "browser_new_tab",
+      "model": "",
+      "response": "Opening a new tab.",
+      "outcome": "success",
+      "at": "2026-04-08T23:50:03"
+    },
+    {
+      "text": "minimize this window",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:50:22"
+    },
+    {
+      "text": "open a new chrome window",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening Google Chrome.",
+      "outcome": "success",
+      "at": "2026-04-08T23:52:21"
+    },
+    {
+      "text": "make a new file on desktop",
+      "intent": "create_file",
+      "model": "",
+      "response": "Created on desktop.",
+      "outcome": "success",
+      "at": "2026-04-08T23:52:43"
+    },
+    {
+      "text": "make one more folder on desktop with name aditya test",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:53:06"
+    },
+    {
+      "text": "latest news in ai",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:53:32"
+    },
+    {
+      "text": "open command",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening Command.",
+      "outcome": "success",
+      "at": "2026-04-08T23:54:57"
+    },
+    {
+      "text": "open terminal",
+      "intent": "open_app",
+      "model": "",
+      "response": "Opening Terminal.",
+      "outcome": "success",
+      "at": "2026-04-08T23:55:13"
+    },
+    {
+      "text": "cehck my vps",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:55:22"
+    },
+    {
+      "text": "tell me my pending task can u check calender",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-08T23:58:28"
+    },
+    {
+      "text": "check calender and tell me my meetings",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:58:31"
+    },
+    {
+      "text": "transcribe a short english voice assistant command preserve proper nouns and app names",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-08T23:59:57"
+    },
+    {
+      "text": "what are you doing",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "I'm still thinking, give me a moment.",
+      "outcome": "success",
+      "at": "2026-04-09T00:00:12"
+    },
+    {
+      "text": "fuck u",
+      "intent": "unknown",
+      "model": "gemma4:e4b",
+      "response": "I didn't catch that. Say open, search, compose mail, or latest news.",
+      "outcome": "success",
+      "at": "2026-04-09T00:00:57"
+    },
+    {
+      "text": "latest news",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-09T00:01:12"
+    },
+    {
+      "text": "latest news on claude mythos",
+      "intent": "news",
+      "model": "",
+      "response": "Checking the latest news.",
+      "outcome": "success",
+      "at": "2026-04-09T00:01:46"
+    },
+    {
+      "text": "make a folder on desktop",
+      "intent": "create_folder",
+      "model": "",
+      "response": "Folder created.",
+      "outcome": "success",
+      "at": "2026-04-09T00:04:01"
+    },
+    {
+      "text": "startup briefing",
+      "intent": "briefing",
+      "model": "gemma4:e4b",
+      "response": "Something went wrong.",
+      "outcome": "success",
+      "at": "2026-04-09T00:57:14"
+    },
+    {
+      "text": "latest news on claude mythos",
+      "intent": "news",
+      "model": "",
+      "response": "What Is Claude Mythos? Anthropic Unveils Advanced AI Model Capable of Discovering Cybersecurity Vuln",
+      "outcome": "success",
+      "at": "2026-04-09T01:30:15"
+    },
+    {
+      "text": "write mail to vedang2803@gmail.com",
+      "intent": "compose_email",
+      "model": "",
+      "response": "Got it. What's the subject?",
+      "outcome": "success",
+      "at": "2026-04-09T01:32:38"
+    },
+    {
+      "text": "project update",
+      "intent": "clarify_email_body",
+      "model": "",
+      "response": "Subject: project update. What should the body say?",
+      "outcome": "success",
+      "at": "2026-04-09T01:32:52"
+    },
+    {
+      "text": "startup briefing",
+      "intent": "briefing",
+      "model": "gemma4:e4b",
+      "response": "Something went wrong.",
+      "outcome": "success",
+      "at": "2026-04-09T01:34:40"
+    },
+    {
+      "text": "hi how are you",
+      "intent": "greeting",
+      "model": "",
+      "response": "I'm good. What do you need?",
+      "outcome": "success",
+      "at": "2026-04-09T22:51:01"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:13:20"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:14:36"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:15:14"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:42:06"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:43:52"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:44:54"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:45:55"
+    },
+    {
+      "text": "test command",
+      "intent": "question",
+      "model": "gemma4:e4b",
+      "response": "test response",
+      "outcome": "success",
+      "at": "2026-04-09T23:46:55"
     }
   ],
   "intent_scores": {
     "briefing": {
-      "success": 1,
+      "success": 4,
       "failure": 0,
-      "total": 1
+      "total": 4
     },
     "question": {
-      "success": 7,
+      "success": 71,
       "failure": 0,
-      "total": 7
+      "total": 71
     },
     "unknown": {
+      "success": 22,
+      "failure": 0,
+      "total": 22
+    },
+    "what_next": {
+      "success": 4,
+      "failure": 0,
+      "total": 4
+    },
+    "greeting": {
+      "success": 30,
+      "failure": 0,
+      "total": 30
+    },
+    "open_project": {
+      "success": 2,
+      "failure": 0,
+      "total": 2
+    },
+    "news": {
+      "success": 12,
+      "failure": 0,
+      "total": 12
+    },
+    "butler_sleep": {
+      "success": 26,
+      "failure": 0,
+      "total": 26
+    },
+    "open_app": {
+      "success": 17,
+      "failure": 0,
+      "total": 17
+    },
+    "casual": {
+      "success": 4,
+      "failure": 0,
+      "total": 4
+    },
+    "spotify_play": {
       "success": 3,
       "failure": 0,
       "total": 3
     },
-    "what_next": {
+    "clarify_song": {
+      "success": 2,
+      "failure": 0,
+      "total": 2
+    },
+    "browser_new_tab": {
       "success": 1,
       "failure": 0,
       "total": 1
     },
-    "greeting": {
-      "success": 3,
+    "create_file": {
+      "success": 1,
       "failure": 0,
-      "total": 3
+      "total": 1
+    },
+    "create_folder": {
+      "success": 1,
+      "failure": 0,
+      "total": 1
+    },
+    "compose_email": {
+      "success": 1,
+      "failure": 0,
+      "total": 1
+    },
+    "clarify_email_body": {
+      "success": 1,
+      "failure": 0,
+      "total": 1
     }
   },
   "model_scores": {
     "gemma4:e4b": {
-      "success": 15,
+      "success": 106,
       "failure": 0,
-      "total": 15
+      "total": 106
+    },
+    "": {
+      "success": 96,
+      "failure": 0,
+      "total": 96
     }
   }
 }

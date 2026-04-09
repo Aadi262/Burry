@@ -12,7 +12,6 @@ import base64
 import json
 import random
 import re
-import threading
 from datetime import datetime
 from typing import Any
 
@@ -24,7 +23,6 @@ except ImportError:
 
 from butler_secrets.loader import get_ollama_secret
 from memory.graph import read_graph
-from runtime.notify import notify
 from utils import _normalize
 from butler_config import (
     AGENT_MODEL_CHAINS,
@@ -45,11 +43,13 @@ from butler_config import (
 from memory.learner import get_learned_patterns
 
 TIMEOUT = 45
+VOICE_TIMEOUT = 12
+DEFAULT_TIMEOUT = 20
+AGENT_TIMEOUT = 30
 MEMORY_WARN_GB = 1.5
 VPS_REQUEST_TIMEOUT = 8
 MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
 _MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
-LLM_THINKING_NOTIFY_SECONDS = 8
 KNOWN_OLLAMA_MODELS = {
     model
     for model in {
@@ -418,23 +418,14 @@ def _post_with_thinking_notice(
     headers: dict[str, str] | None = None,
     timeout: int | float = 60,
 ):
-    timer = threading.Timer(
-        LLM_THINKING_NOTIFY_SECONDS,
-        lambda: notify("Burry", "Still thinking...", subtitle="LLM"),
+    response = requests.post(
+        url,
+        json=json_payload,
+        headers=headers or {},
+        timeout=timeout,
     )
-    timer.daemon = True
-    timer.start()
-    try:
-        response = requests.post(
-            url,
-            json=json_payload,
-            headers=headers or {},
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        return response
-    finally:
-        timer.cancel()
+    response.raise_for_status()
+    return response
 
 
 def _pick_model_from_chain(candidates: list[str], label: str) -> str:
@@ -470,7 +461,8 @@ def pick_butler_model(role: str, override: str | None = None) -> str:
         chain.append(override)
     chain.extend(BUTLER_MODEL_CHAINS.get(role, []))
     chain.append(BUTLER_MODELS.get(role, ""))
-    chain.append(OLLAMA_MODEL)
+    if role != "voice":
+        chain.append(OLLAMA_MODEL)
     # RL-informed model selection (Phase 11)
     try:
         from memory.rl_loop import get_best_model_for_intent
@@ -692,6 +684,7 @@ def call_voice(
         temperature=temperature,
         max_tokens=max_tokens,
         system=system,
+        timeout_hint="voice",
     )
 
 
@@ -936,6 +929,7 @@ def _call_ollama(
     temperature: float,
     max_tokens: int,
     system: str | None = None,
+    timeout_hint: str | None = None,
 ) -> str:
     from brain.rate_limiter import get_limiter
     _limiter = get_limiter()
@@ -943,9 +937,28 @@ def _call_ollama(
         # Rate limit exceeded — skip rather than crash
         return ""
     try:
-        return _call_ollama_inner(prompt, model, temperature, max_tokens, system)
+        return _call_ollama_inner(
+            prompt,
+            model,
+            temperature,
+            max_tokens,
+            system,
+            timeout_hint=timeout_hint,
+        )
     finally:
         _limiter.release()
+
+
+def _resolve_request_timeout(timeout_hint: str | None, *, use_vps_backend: bool) -> int:
+    if use_vps_backend:
+        return VPS_REQUEST_TIMEOUT
+
+    hint = str(timeout_hint or "").strip().lower()
+    if hint == "voice":
+        return VOICE_TIMEOUT
+    if hint == "agent":
+        return AGENT_TIMEOUT
+    return DEFAULT_TIMEOUT
 
 
 def _call_ollama_inner(
@@ -954,11 +967,13 @@ def _call_ollama_inner(
     temperature: float,
     max_tokens: int,
     system: str | None = None,
+    timeout_hint: str | None = None,
 ) -> str:
     url, headers, backend = _get_request_target_for_model(model)
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 45
+    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
+    local_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=False)
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)
@@ -993,7 +1008,11 @@ def _call_ollama_inner(
         if url != local_url:
             print("[Brain] VPS failed mid-request, retrying local")
             try:
-                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=45)
+                local_response = _post_with_thinking_notice(
+                    local_url,
+                    json_payload=payload,
+                    timeout=local_timeout,
+                )
                 return local_response.json().get("response", "").strip()
             except requests.exceptions.Timeout:
                 return "I'm still thinking, give me a moment."
@@ -1026,6 +1045,7 @@ def _call(
     temperature: float,
     max_tokens: int,
     system: str | None = None,
+    timeout_hint: str | None = None,
 ) -> str:
     return _call_ollama(
         prompt,
@@ -1033,6 +1053,7 @@ def _call(
         temperature=temperature,
         max_tokens=max_tokens,
         system=system,
+        timeout_hint=timeout_hint,
     )
 
 
@@ -1169,12 +1190,14 @@ def chat_with_ollama(
     tools: list[dict] | None = None,
     max_tokens: int = 200,
     temperature: float = 0.2,
+    timeout_hint: str | None = None,
 ) -> dict:
     url, headers, backend = _get_request_target_for_model(model)
     local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
     request_url = url.replace("/api/generate", "/api/chat")
     use_vps_backend = backend == "vps"
-    request_timeout = VPS_REQUEST_TIMEOUT if use_vps_backend else 45
+    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
+    local_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=False)
     resolved_model = _resolve_backend_model(model, use_vps_backend)
     resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
     _prepare_model_request(resolved_model)
@@ -1207,7 +1230,11 @@ def chat_with_ollama(
     except requests.exceptions.ConnectionError:
         if request_url != local_url:
             try:
-                local_response = _post_with_thinking_notice(local_url, json_payload=payload, timeout=45)
+                local_response = _post_with_thinking_notice(
+                    local_url,
+                    json_payload=payload,
+                    timeout=local_timeout,
+                )
                 data = local_response.json()
                 return data if isinstance(data, dict) else {}
             except requests.exceptions.Timeout:

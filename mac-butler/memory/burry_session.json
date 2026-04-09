@@ -1,0 +1,245 @@
+{
+  "memory": [
+    {
+      "role": "user",
+      "content": "[2026-04-07T23:51]  \u2192 Testing uniqueword1775586065 session\n[2026-04-07T23:50]  \u2192 Testing uniqueword1775586050 session\n[2026-04-07T23:50] open mac-butler project \u2192 Opening mac-butler.\n[2026-04-07T23:50] email vedang@gmail.com with subject test and body hello worl \u2192 Opening Gmail to vedang@gmail.com.\n[2026-04-07T23:50]  \u2192 Testing uniqueword1775586010 session"
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    },
+    {
+      "role": "user",
+      "content": "hi how are you"
+    },
+    {
+      "role": "assistant",
+      "content": null
+    }
+  ],
+  "saved_at": "2026-04-09T23:41:13",
+  "memory_state": {
+    "_compressed_summary": "[2026-04-07T23:51]  \u2192 Testing uniqueword1775586065 session\n[2026-04-07T23:50]  \u2192 Testing uniqueword1775586050 session\n[2026-04-07T23:50] open mac-butler project \u2192 Opening mac-butler.\n[2026-04-07T23:50] email vedang@gmail.com with subject test and body hello worl \u2192 Opening Gmail to vedang@gmail.com.\n[2026-04-07T23:50]  \u2192 Testing uniqueword1775586010 session",
+    "content": [
+      [
+        {
+          "id": "S8TFvmx62hMAcTjxtNR4hH",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 02:17:09.477"
+        },
+        []
+      ],
+      [
+        {
+          "id": "3KrRPPK3jUuCWMTcyQs7ry",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 02:17:09.491"
+        },
+        []
+      ],
+      [
+        {
+          "id": "mPokbFHypAmheCjVbHNMhC",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 22:41:52.909"
+        },
+        []
+      ],
+      [
+        {
+          "id": "KMtDz45VFPUz2XwPDDQ9Rv",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 22:41:52.925"
+        },
+        []
+      ],
+      [
+        {
+          "id": "E5H4ytTbXtS32VA3odJkuh",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 22:59:35.970"
+        },
+        []
+      ],
+      [
+        {
+          "id": "7xsP5UHeLvT9LGMEHsiHh5",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 22:59:35.972"
+        },
+        []
+      ],
+      [
+        {
+          "id": "VDRQsfCcJvKUV3i8btDEy2",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 23:06:23.952"
+        },
+        []
+      ],
+      [
+        {
+          "id": "ESTpSd9pJFQwzQnzvmxNCB",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 23:06:23.954"
+        },
+        []
+      ],
+      [
+        {
+          "id": "2GcZc5JsZ7u2XCbPVQ7h9G",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 23:09:14.782"
+        },
+        []
+      ],
+      [
+        {
+          "id": "VXenNVz6oYhEZM22pbeaSG",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 23:09:14.784"
+        },
+        []
+      ],
+      [
+        {
+          "id": "89TiawzsytDwhorJScyWCU",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 23:45:32.531"
+        },
+        []
+      ],
+      [
+        {
+          "id": "npq8fdxxQ5BwjqYpNvHhho",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 23:45:32.533"
+        },
+        []
+      ],
+      [
+        {
+          "id": "9FcGi7KUdbnhy74sSBeBYH",
+          "name": "user",
+          "role": "user",
+          "content": "hi how are you",
+          "metadata": {
+            "focus_project": "",
+            "workspace": ""
+          },
+          "timestamp": "2026-04-07 23:52:35.334"
+        },
+        []
+      ],
+      [
+        {
+          "id": "VEmkuR6uxeSFcNx3Gpy2Ba",
+          "name": "Burry",
+          "role": "assistant",
+          "content": [],
+          "metadata": {},
+          "timestamp": "2026-04-07 23:52:35.336"
+        },
+        []
+      ]
+    ]
+  }
+}
