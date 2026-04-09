@@ -885,34 +885,15 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "conversation":
-        smart = b._smart_reply(effective_text, {}, model=model)
-        if smart in {"NEEDS_TOOLS", "NEEDS_CONTEXT", ""}:
-            ctx = b._get_cached_context() if smart == "NEEDS_CONTEXT" else {}
-            tool_reply = b._safe_tool_chat_response(
-                effective_text,
-                ctx,
-                model=model,
-                intent_name=intent.name,
-                intent_confidence=intent.confidence,
-                stream_speech=not test_mode,
-                test_mode=test_mode,
-            )
-            speech = tool_reply.get("speech", "") or "Say it straight. What are we actually doing?"
-            if not tool_reply.get("spoken"):
-                b._speak_or_print(speech, test_mode=test_mode)
-            b._record(
-                text,
-                speech,
-                tool_reply.get("actions", []),
-                results=tool_reply.get("results", []),
-                intent_name=intent.name,
-                learning_meta=brain_learning_meta,
-            )
-            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
-            return
+        try:
+            from brain.conversation import generate_conversation_reply
+        except Exception:
+            generate_conversation_reply = lambda _text: ""
+
+        speech = generate_conversation_reply(effective_text) or "Say it straight. What are we actually doing?"
         b._reply_without_action(
             text,
-            smart,
+            speech,
             test_mode=test_mode,
             intent_name=intent.name,
             learning_meta=brain_learning_meta,
