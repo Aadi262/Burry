@@ -43,7 +43,7 @@ Do not reorder this without code, tests, and docs moving together.
 - No blocking WebSocket broadcast on the hot path
 - No second router, second tool registry, second LLM caller, or second hot-path memory writer
 - No feature is shipped without `route -> tool -> verify -> narrate -> tests`
-- No stale doc is allowed to override code, tests, `.CODEX/Codex.md`, `docs/phases/PHASE.md`, or `docs/phases/PHASE_PROGRESS.md`
+- No stale doc is allowed to override code, tests, `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, `docs/phases/PHASE.md`, or `docs/phases/PHASE_PROGRESS.md`
 - No current-information feature should fall back to model-only narration if a public data fallback can be added
 - No enum-like router param should cross an owner boundary without normalization and a regression test
 
@@ -60,5 +60,5 @@ Do not reorder this without code, tests, and docs moving together.
 
 - Run targeted compile and pytest coverage for every touched owner
 - When contracts, dashboard, A2A, or telemetry change, run the relevant API/frontend regression slice
-- When host actions change, run `venv/bin/python scripts/system_check.py --json --phase1-host --phase1-host-only` or explicit manual host checks
-- Update `.CODEX/Codex.md`, `.CODEX/SPRINT_LOG.md`, `.CODEX/Learning_loop.md`, `.CODEX/Capability_Map.md` when truth changes, `docs/phases/PHASE_PROGRESS.md`, and `README.md` when user-facing behavior changes
+- When host actions change, run `venv/bin/python scripts/system_check.py --json --phase1-host --phase1-host-only`, `venv/bin/python scripts/system_check.py --json --phase3a-host --phase3a-host-only`, or explicit manual host checks
+- Update `.CODEX/AGENTS.md` when operating rules, owner maps, or validation-floor guidance change; update `.CODEX/Codex.md`, `.CODEX/SPRINT_LOG.md`, `.CODEX/Learning_loop.md`, `.CODEX/Capability_Map.md` when runtime truth changes, `docs/phases/PHASE_PROGRESS.md`, and `README.md` when user-facing behavior changes

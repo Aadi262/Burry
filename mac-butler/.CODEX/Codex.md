@@ -28,12 +28,13 @@ Do not let older planning files or deleted `.claude/*` era references override t
 
 ## AFTER EVERY SESSION (mandatory)
 1. Update `.CODEX/Codex.md` if the current runtime truth changed
-2. Update `.CODEX/SPRINT_LOG.md` with what moved, what was validated, and what remains
-3. Append `.CODEX/Learning_loop.md` with mistakes, hard lessons, and test insights from the session
-4. Update `.CODEX/Capability_Map.md` if capability status, IDs, or setup requirements changed
-5. Update `docs/phases/PHASE_PROGRESS.md` with what moved and what remains
-6. Update `README.md` if user-facing behavior or setup requirements changed
-7. Run the relevant tests and host smoke checks before claiming a phase is closed
+2. Update `.CODEX/AGENTS.md` if the routing contract, owner map, or validation-floor rules changed
+3. Update `.CODEX/SPRINT_LOG.md` with what moved, what was validated, and what remains
+4. Append `.CODEX/Learning_loop.md` with mistakes, hard lessons, and test insights from the session
+5. Update `.CODEX/Capability_Map.md` if capability status, IDs, or setup requirements changed
+6. Update `docs/phases/PHASE_PROGRESS.md` with what moved and what remains
+7. Update `README.md` if user-facing behavior or setup requirements changed
+8. Run the relevant tests and host smoke checks before claiming a phase is closed
 
 Docs-only sessions still require a readback pass across the touched `.CODEX` and phase files before handoff.
 
