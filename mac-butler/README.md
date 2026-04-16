@@ -5,7 +5,8 @@ Mac Butler is a local operator runtime for macOS.
 It reads machine context, knows active projects, routes work across local models, runs safe actions,
 speaks through a local voice, and writes execution results back into memory.
 
-No cloud dependency is required for the core system. The main runtime is built to stay local-first.
+The runtime stays local-first, but it can now route selected LLM, TTS, and STT roles through NVIDIA when configured.
+Local degraded mode still works without cloud credentials.
 
 ## What Butler Is
 
@@ -43,13 +44,38 @@ That means the product is built around:
 
 - deterministic intent router for common commands
 - local planner + response flow
-- safe executor for apps, folders, commands, notes, reminders, URLs, SSH, and music
+- verification-aware executor for apps, folders, browser, terminal, files, calendar add, URLs, reminders, SSH, and music
+- browser control for new tab, new window, back, refresh, and URL navigation on the resolved browser family
+- filesystem routing for create/open/read/write/find/list, move/copy/rename/delete, and zip flows on common local paths
+- system-control routing for common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, DND, and battery or wifi phrases
+- calendar read for today, tomorrow, next event, and this-week phrasing with truthful host-permission fallback
+- current-news lookup with search-first plus Google News RSS fallback when search backends are thin
+- page summarization and page fetch now reuse indexed page snapshots, with Jina first and direct extraction fallback when live fetch is needed
+- video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
 - project-aware `what should i do next`
 - startup briefing with optional daily intelligence block
 - structured execution results written back into memory
 
+### Reliability Notes
+
+- browser, filesystem, terminal, project-open, and calendar-create actions now return verification-aware follow-ups instead of optimistic success only
+- reminders now verify against the Reminders list when automation access is available
+- Gmail compose and WhatsApp flows are verification-aware about what was actually opened
+- Mail send and WhatsApp desktop send still use degraded-state messaging when delivery cannot be confirmed
+- calendar read and calendar create now return explicit host-permission messages when Calendar automation access is unavailable instead of bubbling raw automation errors
+- the live host smoke entrypoints are `venv/bin/python scripts/system_check.py --phase1-host --phase1-host-only` and `venv/bin/python scripts/system_check.py --phase3a-host --phase3a-host-only`
+
+### Contract Surface
+
+- dashboard and A2A HTTP surfaces now use `/api/v1/...` as the only supported public namespace
+- dashboard GET responses now use a typed envelope: `{ contract_version, kind, data }`
+- `GET /api/v1/capabilities` now returns the stable public capability catalog with capability IDs from `.CODEX/Capability_Map.md`
+- live HUD WebSocket events now carry `event_version`, `type`, `ts`, and `data`
+- legacy WebSocket `payload` is still mirrored for compatibility while the current HUD transitions fully onto `data`
+
 ### Live Intelligence
 
+- news agent with SearXNG, DuckDuckGo, Exa, and Google News RSS fallback paths
 - Hacker News agent using the public Firebase API
 - Reddit agent using public subreddit JSON feeds
 - GitHub trending agent using free public trending data
@@ -58,23 +84,30 @@ That means the product is built around:
 
 ### Voice
 
+- NVIDIA Riva multilingual TTS primary when configured
+- Hindi auto voice selection for Devanagari text on the NVIDIA TTS path
+- NVIDIA Riva multilingual ASR primary when configured
 - Kokoro local neural TTS on Apple Silicon
-- safe macOS `say` fallback
+- Edge and safe macOS `say` fallbacks
+- local Whisper fallbacks for STT
 - clap trigger and keyboard trigger paths
 
 ## Current Model Shape
 
 These are the main active roles in the current Butler system:
 
-| Role | Model |
+| Role | Primary | Fallback |
 | --- | --- |
-| Voice | `phi4-mini:latest` |
-| Planning | `qwen2.5-coder:14b` |
-| Review / Search / Market | `deepseek-r1:14b` |
-| Hacker News / Reddit / Trending | `phi4-mini:latest` |
-| Coding / GitHub / VPS | `qwen2.5-coder:14b` |
+| Intent classifier / fast voice / conversation | `nvidia::nvidia/nvidia-nemotron-nano-9b-v2` | `ollama_local::gemma4:e4b` |
+| Planning / startup briefing | `nvidia::qwen/qwq-32b` | `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
+| Review / search / bug hunter | `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` | `ollama_local::deepseek-r1:14b` |
+| Coding | `nvidia::qwen/qwen2.5-coder-32b-instruct` | `ollama_vps::gemma4:26b` -> `ollama_local::deepseek-r1:14b` |
+| TTS | `nvidia_riva_tts::magpie-tts-multilingual` | `kokoro` -> `edge` -> `say` |
+| STT | `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr` | `mlx-community/whisper-medium-mlx` -> `faster-whisper medium.en` |
+| Embeddings | `nomic-embed-text` |
+| VPS-only large local fallback | `gemma4:26b` |
 
-Other configured fallbacks exist in [`butler_config.py`](butler_config.py).
+Without `NVIDIA_API_KEY` or NVIDIA Riva Python clients, Butler drops back to the local chains above.
 
 ## Example Commands
 
@@ -100,7 +133,24 @@ Other configured fallbacks exist in [`butler_config.py`](butler_config.py).
 - `open spotify`
 - `play mockingbird`
 - `pause music`
+- `go back`
+- `refresh this page`
+- `open a new browser window`
+- `open budget.xlsx`
+- `what's on my desktop`
+- `move resume to documents`
+- `copy resume to downloads`
+- `mute the system`
+- `set brightness to 70`
+- `turn on dark mode`
+- `how much battery do i have`
+- `what's my next meeting`
+- `show my agenda this week`
+- `summarize this article`
+- `save notes from this video`
 - `save note ...`
+- `write a mail to vedang@gmail.com`
+- `send whatsapp to vedang message ship it tonight`
 
 ## System Flow
 
@@ -200,10 +250,11 @@ Important runtime knobs live in [`butler_config.py`](butler_config.py).
 Relevant examples:
 
 ```python
-OLLAMA_MODEL = "qwen2.5:14b"
-TTS_ENGINE = "kokoro"
-TTS_VOICE = "af_bella"
-VOICE_INPUT_MODEL = "mlx-community/whisper-tiny"
+NVIDIA_API_KEY = "..."
+TTS_ENGINE = "nvidia_riva_tts"
+VOICE_INPUT_BACKEND = "nvidia_riva_asr"
+TTS_TARGETS = [...]
+STT_TARGETS = [...]
 DAILY_INTEL_ENABLED = False
 ```
 
@@ -214,6 +265,11 @@ If you want Butler to read and write to Obsidian, set `OBSIDIAN_VAULT_NAME` corr
 ### VPS
 
 If you want infrastructure checks and SSH helpers, configure `VPS_HOSTS` and local secrets.
+
+### NVIDIA
+
+If you want the NVIDIA primary path, set `NVIDIA_API_KEY`.
+For speech, install the NVIDIA Riva Python clients on the host too; otherwise Butler falls back to local TTS/STT.
 
 ### MCP
 

@@ -7,35 +7,35 @@
     "path": "~/Burry/mac-butler",
     "repo": null,
     "description": "Local AI operator agent for macOS with voice, context, actions, and memory.",
-    "blurb": "mac-butler is Local AI operator agent for macOS with voice, context, actions, and memory. Next up is Configure Brave MCP and GitHub MCP secrets if you want live web and repo awareness, while Butler still uses macOS TTS by default, not a.",
+    "blurb": "mac-butler is a local operator runtime for macOS with frozen v1 HUD and A2A contracts. Next up is keeping the Phase 2 contract surface stable until Phase 3 is explicitly started.",
     "status": "active",
-    "completion": 86,
+    "completion": 50,
     "deploy_target": "Local Mac + Ollama",
     "live": true,
     "live_url": "http://localhost:3333",
     "blockers": [
-      "Unknown-intent and memory paths still enter slow brain flows too often.",
-      "Model routing and docs still contain stale fallbacks relative to installed local models.",
-      "Telemetry and recording still create avoidable churn."
+      "Phase 3 feature completion has not started on top of the frozen v1 contract surface.",
+      "YouTube summarization and screen reading still need optional local dependencies to be installed.",
+      "Real Mail delivery, WhatsApp send, and calendar reads still depend on host permissions or explicit operator inputs."
     ],
     "next_tasks": [
-      "Phase 3: add the lightweight LLM lane from docs/phases/2026-04-08-architecture-remediation-roadmap.md.",
-      "Clean up the remaining raw OLLAMA_FALLBACK and OLLAMA_MODEL default paths while Phase 3 is open.",
-      "Decide whether gemma4:26b should own local planning and review before model cleanup."
+      "Keep the `/api/v1` and HUD event contracts stable until Phase 3 is explicitly started.",
+      "Keep `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` aligned with runtime truth.",
+      "Do not reopen the closed Phase 2 contract surface casually while broader feature work resumes."
     ],
     "status_files": [
-      "docs/phases/2026-04-08-architecture-remediation-roadmap.md",
-      "docs/phases/2026-04-08-architecture-remediation-status.md",
-      "BUTLER_STATUS.md",
-      "tasks/tasks.json",
-      "memory/layers/MEMORY.md"
+      ".CODEX/Codex.md",
+      "docs/phases/PHASE.md",
+      "docs/phases/PHASE_PROGRESS.md",
+      "README.md",
+      "tasks/tasks.json"
     ],
     "last_commit": null,
     "open_issues": 0,
     "readme_excerpt": "",
     "last_opened": "2026-04-07T23:50:22",
     "last_error": null,
-    "updated_at": "2026-04-08T03:45:00"
+    "updated_at": "2026-04-12T00:00:00"
   },
   {
     "name": "Adpilot",

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,22 @@ from projects.project_store import (
 
 
 class ProjectStoreTests(unittest.TestCase):
+    def test_mac_butler_registry_entry_uses_live_phase_files(self):
+        path = Path(__file__).resolve().parent.parent / "projects" / "projects.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+
+        project = next(item for item in payload if item.get("name") == "mac-butler")
+        status_files = set(project.get("status_files") or [])
+        next_tasks = " ".join(project.get("next_tasks") or [])
+
+        self.assertIn(".CODEX/Codex.md", status_files)
+        self.assertIn("docs/phases/PHASE.md", status_files)
+        self.assertIn("docs/phases/PHASE_PROGRESS.md", status_files)
+        self.assertNotIn("docs/phases/2026-04-08-architecture-remediation-roadmap.md", status_files)
+        self.assertNotIn("docs/phases/2026-04-08-architecture-remediation-status.md", status_files)
+        self.assertNotIn("BUTLER_STATUS.md", status_files)
+        self.assertNotIn("2026-04-08-architecture-remediation-roadmap.md", next_tasks)
+
     def test_explicit_progress_candidate_reads_total_percentage(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "PROGRESS.md"

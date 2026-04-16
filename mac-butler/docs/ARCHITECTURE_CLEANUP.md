@@ -174,3 +174,50 @@ Where it dies: contact normalization only handles spoken email formatting, not n
 7. `capabilities/registry.py` maps that to `run_agent(agent="search")`
 Final behavior: it goes to live web lookup instead of the local task system
 Breakage: exact-match task routing is too narrow, and semantic fallback sends it to the web
+
+# CURRENT STATUS (2026-04-10)
+- `executor/engine.py`
+  Executor coverage now includes:
+  app activation without double-opening Terminal
+  folder/file CRUD
+  browser window/back/refresh/go-to
+  Gmail compose and WhatsApp compose
+  volume/brightness/system toggles
+  system info via local subprocess calls
+  project opening with `claude -> codex -> cursor -> code` fallback
+  page/video summary helpers
+  task/calendar/VPS fallback handlers for routed local actions
+
+- `intents/router.py`
+  Deterministic routing now fixes the known folder parsing bug.
+  Phrases like `create folder called client work on desktop` resolve to:
+  `{"path": "~/Desktop", "name": "client work"}`
+  Task queries like `what are my tasks today` now route to the local task system instead of web search.
+  Classifier results now emit HUD events.
+
+- `brain/session_context.py` + `pipeline/router.py`
+  Pending follow-up state is now generalized instead of hardcoded to one-off globals.
+  Multi-turn missing-parameter flows now use ordered pending slots:
+  `ctx.set_pending(kind, data, required_fields)`
+  Email subject/body follow-up now works through the shared session context.
+
+- `brain/briefing.py` + `trigger.py`
+  Startup briefing now lives in a dedicated module.
+  Trigger sessions speak a short parallel-built briefing before STT starts on every session.
+
+- `projects/dashboard.py` + frontend stream/events
+  HUD event feed now keeps the last 100 events.
+  New live WebSocket events are wired for:
+  `pending_update`
+  `mood_update`
+  `memory_read`
+  `classifier_result`
+  `briefing_spoken`
+
+- Validation
+  Focused regression suite for router/executor/trigger/dashboard/runtime/pending/briefing passes.
+  Full unittest discovery passes:
+  `Ran 449 tests in 54.165s`
+
+- Remaining verification gap
+  Real voice-and-GUI smoke checks still need live manual confirmation for Chrome/Gmail/Terminal/Desktop side effects on the host machine.
