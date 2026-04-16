@@ -10,6 +10,14 @@ from runtime import telemetry
 
 
 class RuntimeTelemetryTests(unittest.TestCase):
+    def test_publish_ui_event_routes_through_dashboard_transport(self):
+        with patch("projects.dashboard.broadcast_ws_event") as mock_broadcast:
+            telemetry.publish_ui_event("classifier_result", {"intent": "open_app"})
+
+        mock_broadcast.assert_called_once_with(
+            {"type": "classifier_result", "payload": {"intent": "open_app"}}
+        )
+
     def test_note_session_intent_and_speech_persist_runtime_state(self):
         with tempfile.TemporaryDirectory() as tempdir:
             runtime_path = Path(tempdir) / "runtime_state.json"
@@ -60,12 +68,15 @@ class RuntimeTelemetryTests(unittest.TestCase):
     def test_tool_activity_and_memory_recall_persist_runtime_state(self):
         with tempfile.TemporaryDirectory() as tempdir:
             runtime_path = Path(tempdir) / "runtime_state.json"
-            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path):
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path), patch(
+                "projects.dashboard.broadcast_ws_event"
+            ) as mock_broadcast:
                 telemetry.note_tool_started("browse_web", "latest AI news")
                 telemetry.note_tool_finished("browse_web", "ok", "Read 3 pages")
                 telemetry.note_memory_recall(
                     "auth decision",
                     [{"timestamp": "2026-04-06T12:00:00", "speech": "Decided JWT, no sessions.", "score": 0.91}],
+                    source="semantic_search",
                 )
                 state = telemetry.load_runtime_state()
 
@@ -75,6 +86,7 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["last_memory_recall"]["query"], "auth decision")
         self.assertEqual(state["last_memory_recall"]["matches"][0]["speech"], "Decided JWT, no sessions.")
         self.assertEqual(state["events"][-1]["kind"], "memory")
+        self.assertEqual(mock_broadcast.call_args.args[0]["type"], "memory_read")
 
     def test_note_ambient_context_persists_three_bullets(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -136,6 +148,18 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(metrics["tool_runs_completed"], 1)
         self.assertGreaterEqual(len(logs), 5)
         self.assertEqual(logs[-1]["kind"], "tool")
+
+    def test_core_phase1_modules_do_not_import_dashboard_transport_directly(self):
+        root = Path(__file__).resolve().parents[1]
+        for relative in (
+            "brain/session_context.py",
+            "brain/mood_engine.py",
+            "brain/agentscope_backbone.py",
+            "intents/router.py",
+            "trigger.py",
+        ):
+            source = (root / relative).read_text(encoding="utf-8")
+            self.assertNotIn("from projects.dashboard import broadcast_ws_event", source, relative)
 
 
 if __name__ == "__main__":

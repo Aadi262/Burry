@@ -88,6 +88,31 @@ def save_mood(mood: str, reason: str) -> dict:
         state["mood"] = DEFAULT_MOOD
     MOOD_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     MOOD_STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    payload = {
+        "mood": state["mood"],
+        "instruction": get_mood_instruction(state["mood"]),
+        "reason": state["reason"],
+        "at": datetime.now().isoformat(timespec="seconds"),
+    }
+    try:
+        from runtime import publish_ui_event
+
+        publish_ui_event("mood_update", payload)
+    except Exception:
+        pass
+    try:
+        from runtime import note_runtime_event
+
+        note_runtime_event(
+            "mood_update",
+            f"Mood: {state['mood']}",
+            {
+                "instruction": payload["instruction"],
+                "reason": payload["reason"],
+            },
+        )
+    except Exception:
+        pass
     return state
 
 

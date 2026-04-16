@@ -1,3 +1,3 @@
-from .router import IntentResult, route
+from .router import IntentResult, instant_route, route
 
-__all__ = ["route", "IntentResult"]
+__all__ = ["route", "instant_route", "IntentResult"]

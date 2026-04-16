@@ -18,8 +18,8 @@ import requests
 
 from brain.session_context import ctx
 from daemon.clap_detector import ClapDetector
-from butler_config import BUTLER_MODEL_CHAINS, OLLAMA_LOCAL_URL, OLLAMA_MODEL
-from runtime import note_session_active
+from butler_config import BUTLER_MODEL_CHAINS, BUTLER_MODELS, OLLAMA_LOCAL_URL, OLLAMA_MODEL, split_model_ref
+from runtime import note_runtime_event, note_session_active, publish_ui_event
 from state import State, state
 
 SESSION_FLAG = Path("/tmp/butler_session.flag")
@@ -79,11 +79,14 @@ def _warm_voice_runtime() -> None:
 
 def _warm_planning_model() -> None:
     model = _planning_keepalive_model()
+    provider, model_name = split_model_ref(model)
+    if provider not in {"auto", "ollama_local", "ollama_vps"}:
+        return
     try:
         requests.post(
             f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate",
             json={
-                "model": model,
+                "model": model_name or model,
                 "prompt": " ",
                 "stream": False,
                 "keep_alive": "10m",
@@ -95,6 +98,37 @@ def _warm_planning_model() -> None:
         )
     except Exception:
         return
+
+
+def _speak_startup_briefing() -> None:
+    try:
+        from brain.briefing import build_briefing
+        from voice import speak
+    except Exception as exc:
+        print(f"[Trigger] Briefing skipped: {exc}")
+        return
+
+    text = " ".join(str(build_briefing() or "").split()).strip()
+    if not text:
+        text = "You're up. What are we building?"
+
+    payload = {
+        "text": text,
+        "at": datetime.now().isoformat(timespec="seconds"),
+    }
+    try:
+        publish_ui_event("briefing_spoken", payload)
+    except Exception:
+        pass
+    try:
+        note_runtime_event("briefing_spoken", f"Briefing: {text}", {"text": text})
+    except Exception:
+        pass
+    try:
+        ctx.add_butler(text)
+        speak(text)
+    except Exception as exc:
+        print(f"[Trigger] Briefing speak failed: {exc}")
 
 
 def _clear_session_flag() -> None:
@@ -167,7 +201,14 @@ Session log:
 {material}
 """
     try:
-        summary = _parse_summary_bullets(_call(prompt, "gemma4:e4b", temperature=0.2, max_tokens=120))
+        summary = _parse_summary_bullets(
+            _call(
+                prompt,
+                BUTLER_MODELS.get("review", OLLAMA_MODEL),
+                temperature=0.2,
+                max_tokens=120,
+            )
+        )
     except Exception:
         summary = ""
     if not summary:
@@ -381,7 +422,7 @@ def _run_continuous_session() -> None:
 
 def on_trigger():
     global _session_active, _session_thread
-    from butler import reset_conversation_context, run_startup_briefing
+    from butler import reset_conversation_context, reset_live_session_state
     try:
         from projects import show_dashboard_window
     except Exception:
@@ -402,6 +443,7 @@ def on_trigger():
 
     threading.Thread(target=_warm_planning_model, daemon=True).start()
 
+    reset_live_session_state("trigger_session")
     note_session_active(True, source="trigger")
     ctx.reset()
     reset_conversation_context()
@@ -414,16 +456,12 @@ def on_trigger():
     if not SESSION_FLAG.exists():
         _mark_session_started()
 
-        def _start_session():
-            run_startup_briefing()
-            _run_continuous_session()
+    def _start_session():
+        _speak_startup_briefing()
+        _run_continuous_session()
 
-        _session_thread = threading.Thread(target=_start_session, daemon=True)
-        _session_thread.start()
-    else:
-        # Re-activating after a sleep command
-        _session_thread = threading.Thread(target=_run_continuous_session, daemon=True)
-        _session_thread.start()
+    _session_thread = threading.Thread(target=_start_session, daemon=True)
+    _session_thread.start()
 
 
 def start_keyboard_trigger():

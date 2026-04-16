@@ -10,11 +10,15 @@ import inspect
 import json
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 MEMORY_PATH = Path(__file__).parent / "long_term_memory.json"
 SESSION_FILE = Path(__file__).parent / "burry_session.json"
+_SESSION_RESTORE_LOCK = threading.Lock()
+_SESSION_RESTORE_ENABLED = True
+_SESSION_RESTORE_MAX_AGE_SECONDS = 15 * 60.0
 
 
 def _load() -> dict:
@@ -161,6 +165,35 @@ def _resolve_memory_items(raw):
     return result.get("value")
 
 
+def configure_session_restore(*, enabled: bool | None = None, max_age_seconds: float | None = None) -> None:
+    global _SESSION_RESTORE_ENABLED, _SESSION_RESTORE_MAX_AGE_SECONDS
+    with _SESSION_RESTORE_LOCK:
+        if enabled is not None:
+            _SESSION_RESTORE_ENABLED = bool(enabled)
+        if max_age_seconds is not None:
+            try:
+                _SESSION_RESTORE_MAX_AGE_SECONDS = max(0.0, float(max_age_seconds))
+            except Exception:
+                pass
+
+
+def _restore_window_snapshot() -> tuple[bool, float]:
+    with _SESSION_RESTORE_LOCK:
+        return _SESSION_RESTORE_ENABLED, float(_SESSION_RESTORE_MAX_AGE_SECONDS)
+
+
+def _session_state_recent_enough(saved_at: str, max_age_seconds: float) -> bool:
+    cleaned = str(saved_at or "").strip()
+    if not cleaned or max_age_seconds <= 0:
+        return True
+    try:
+        saved_dt = datetime.fromisoformat(cleaned)
+    except Exception:
+        return False
+    age_seconds = max(0.0, time.time() - saved_dt.timestamp())
+    return age_seconds <= max_age_seconds
+
+
 def save_session_state(agent) -> None:
     """Persist AgentScope agent memory to disk for the next session."""
     try:
@@ -203,9 +236,16 @@ def save_session_state(agent) -> None:
 def restore_session_state(agent) -> None:
     """Restore previous session memory into an AgentScope agent."""
     try:
+        enabled, max_age_seconds = _restore_window_snapshot()
+        if not enabled:
+            print("[Memory] Session restore disabled for this launch.")
+            return
         if not SESSION_FILE.exists():
             return
         state = json.loads(SESSION_FILE.read_text())
+        if not _session_state_recent_enough(state.get("saved_at", ""), max_age_seconds):
+            print("[Memory] Skipping stale session restore.")
+            return
         memory = getattr(agent, "memory", None)
         if memory is None:
             return

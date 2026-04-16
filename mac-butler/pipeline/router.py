@@ -30,6 +30,9 @@ INSTANT_LANE_INTENTS = {
     "browser_search",
     "browser_close_tab",
     "browser_close_window",
+    "browser_window",
+    "browser_go_back",
+    "browser_refresh",
     "spotify_play",
     "spotify_pause",
     "spotify_next",
@@ -94,6 +97,25 @@ _RESEARCH_RE = re.compile(r"\b(research|look up|look into|find out|investigate)\
 _RESEARCH_STRIP_RE = re.compile(r"^(research|look up|look into|find out|investigate)\s+")
 _GENERIC_UNKNOWN_REPLY = "I'm not sure what you want done yet. Tell me the outcome you want, and I'll handle it or ask one quick question."
 _GENERIC_QUESTION_REPLY = "I couldn't answer that cleanly yet. Ask it another way or tell me to look it up."
+_LOW_SIGNAL_REPLIES = {
+    "",
+    "something went wrong.",
+    "i'm still thinking, give me a moment.",
+}
+_EXPLICIT_TOOL_QUESTION_RE = re.compile(
+    r"\b("
+    r"latest|current|today|right now|news|weather|forecast|temperature|stock price|share price|"
+    r"look it up|search the web|google|browse|read this page|open this url|url|link"
+    r")\b"
+)
+_PENDING_FIELD_PROMPTS = {
+    "subject": "What is the subject?",
+    "body": "What should the body say?",
+    "filename": "What should I name the file?",
+    "song": "Which song should I play?",
+    "name": "What should I call it?",
+    "query": "What should I look for?",
+}
 
 
 def _set_pending_dialogue(kind: str, **metadata) -> None:
@@ -111,13 +133,22 @@ def _clear_pending_dialogue() -> None:
     b.ctx.clear_pending()
 
 
-def _route_initial_intent(text: str):
+def _route_initial_intent(text: str, *, test_mode: bool = False):
+    """Phase 1 source of truth: pending -> instant -> skills -> classifier."""
     b = _butler()
     if b.ctx.has_pending():
         pending_intent = _resolve_pending_dialogue(text)
         if pending_intent is not None:
             return pending_intent
-    return b.route(text)
+
+    instant_intent = b.instant_route(text)
+    if instant_intent is not None:
+        return instant_intent
+
+    if _run_skill_match(text, test_mode=test_mode):
+        return None
+
+    return b.route(text, allow_instant=False)
 
 
 def _run_skill_match(text: str, *, test_mode: bool = False) -> bool:
@@ -187,6 +218,64 @@ def _normalize_email_followup(text: str, field: str) -> str:
     return cleaned.strip()
 
 
+def _pending_prompt(field: str, pending: dict | None = None) -> str:
+    message = _PENDING_FIELD_PROMPTS.get(field)
+    if message:
+        return message
+    label = str(field or "value").replace("_", " ").strip() or "value"
+    return f"What should the {label} be?"
+
+
+def _normalize_pending_value(kind: str, field: str, text: str) -> str:
+    b = _butler()
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    if field == "subject":
+        return _email_followup_value(cleaned, "subject")
+    if field == "body":
+        return _email_followup_value(cleaned, "body")
+    if field == "filename":
+        return b.extract_requested_filename(cleaned) or _filename_from_follow_up(cleaned)
+    if field == "song":
+        candidate = b.clean_song_query(re.sub(r"^play\s+", "", cleaned.lower().strip()))
+        return "" if b.is_ambiguous_song_query(candidate) else candidate
+    return cleaned.strip().strip("\"'.,!?")
+
+
+def _coerce_pending_state(pending: dict | None) -> dict | None:
+    if not pending:
+        return None
+    kind = str(pending.get("kind", "") or "").strip()
+    data = dict(pending.get("data") or {})
+    required = list(pending.get("required") or [])
+
+    if kind == "spotify_song":
+        kind = "spotify_play"
+        required = required or ["song"]
+    elif kind == "file_name":
+        kind = "create_file"
+        required = required or ["filename"]
+        if "editor" in pending and "editor" not in data:
+            data["editor"] = pending.get("editor", "auto")
+    elif kind == "pending_email":
+        kind = "compose_email"
+        required = required or ["subject", "body"]
+        for key in ("recipient", "subject", "body"):
+            if key in pending and key not in data:
+                data[key] = pending.get(key, "")
+
+    snapshot = dict(pending)
+    snapshot["kind"] = kind
+    snapshot["data"] = data
+    snapshot["required"] = required
+    snapshot.update(data)
+    missing = [field for field in required if not str(data.get(field, "") or "").strip()]
+    snapshot["missing"] = missing
+    snapshot["next_field"] = missing[0] if missing else ""
+    return snapshot
+
+
 def get_quick_response(intent) -> str:
     b = _butler()
     if hasattr(intent, "quick_response"):
@@ -202,7 +291,7 @@ def get_quick_response(intent) -> str:
 
 def _resolve_pending_dialogue(text: str):
     b = _butler()
-    pending = _get_pending_dialogue()
+    pending = _coerce_pending_state(_get_pending_dialogue())
     if not pending:
         return None
 
@@ -211,59 +300,39 @@ def _resolve_pending_dialogue(text: str):
         _clear_pending_dialogue()
         return routed
 
-    if pending.get("kind") == "spotify_song":
-        candidate = b.clean_song_query(re.sub(r"^play\s+", "", text.lower().strip()))
-        if not b.is_ambiguous_song_query(candidate):
-            _clear_pending_dialogue()
-            return b.IntentResult("spotify_play", {"song": candidate}, confidence=0.85, raw=text)
-        return b.IntentResult("clarify_song", confidence=0.3, raw=text)
-
-    if pending.get("kind") == "file_name":
-        candidate = b.extract_requested_filename(text) or _filename_from_follow_up(text)
-        if candidate:
-            _clear_pending_dialogue()
+    next_field = str(pending.get("next_field", "") or "").strip()
+    kind = str(pending.get("kind", "") or "").strip()
+    if next_field:
+        value = _normalize_pending_value(kind, next_field, text)
+        if not value:
+            if kind == "spotify_play":
+                return b.IntentResult("clarify_song", confidence=0.3, raw=text)
+            if kind == "create_file":
+                return b.IntentResult(
+                    "clarify_file",
+                    {"editor": pending.get("editor", "auto")},
+                    confidence=0.3,
+                    raw=text,
+                )
             return b.IntentResult(
-                "create_file",
-                {
-                    "filename": candidate,
-                    "editor": pending.get("editor", "auto"),
-                },
+                "clarify_pending",
+                {"message": _pending_prompt(next_field, pending)},
+                confidence=0.3,
+                raw=text,
+            )
+
+        filled = b.ctx.fill_pending(value, field=next_field) or {}
+        filled = _coerce_pending_state(filled) or {}
+        if filled.get("missing"):
+            return b.IntentResult(
+                "clarify_pending",
+                {"message": _pending_prompt(str(filled.get("next_field", "") or ""), filled)},
                 confidence=0.85,
                 raw=text,
             )
-        return b.IntentResult(
-            "clarify_file",
-            {"editor": pending.get("editor", "auto")},
-            confidence=0.3,
-            raw=text,
-        )
-
-    if pending.get("kind") == "pending_email":
-        recipient = str(pending.get("recipient", "") or "").strip()
-        subject = str(pending.get("subject", "") or "").strip()
-        body = str(pending.get("body", "") or "").strip()
-        if recipient:
-            if not subject:
-                subject = _email_followup_value(text, "subject")
-                if subject:
-                    _set_pending_dialogue("pending_email", recipient=recipient, subject=subject, body=body)
-                    return b.IntentResult(
-                        "clarify_email_body",
-                        {"recipient": recipient, "subject": subject},
-                        confidence=0.85,
-                        raw=text,
-                    )
-            elif not body:
-                body = _email_followup_value(text, "body")
-                if body:
-                    _clear_pending_dialogue()
-                    return b.IntentResult(
-                        "compose_email",
-                        {"recipient": recipient, "subject": subject, "body": body},
-                        confidence=0.85,
-                        raw=text,
-                    )
-        return b.IntentResult("unknown", confidence=0.0, raw=text)
+        data = dict(filled.get("data") or {})
+        _clear_pending_dialogue()
+        return b.IntentResult(kind, data, confidence=0.85, raw=text)
 
     return None
 
@@ -272,13 +341,17 @@ def _unknown_response_for_text(text: str) -> str:
     b = _butler()
     lowered = text.lower()
     if any(token in lowered for token in ("spotify", "song", "track", "artist", "album")):
-        _set_pending_dialogue("spotify_song")
-        return "I didn't catch the song. Say the title and artist."
+        _set_pending_dialogue("spotify_play", data={}, required=["song"])
+        return _pending_prompt("song")
     if any(token in lowered for token in ("file", "document")) and any(
         token in lowered for token in ("make", "create", "new", "name", "named", "called")
     ):
-        _set_pending_dialogue("file_name", editor=b.detect_editor_choice(text))
-        return "What should I name the file?"
+        _set_pending_dialogue(
+            "create_file",
+            data={"editor": b.detect_editor_choice(text)},
+            required=["filename"],
+        )
+        return _pending_prompt("filename")
     return ""
 
 
@@ -400,6 +473,42 @@ def _clarification_question_for_intent(intent) -> str:
     return "What exactly do you want?"
 
 
+def _question_prefers_tools(text: str) -> bool:
+    lowered = " ".join(str(text or "").lower().split())
+    if not lowered:
+        return False
+    if _RESEARCH_RE.search(lowered):
+        return True
+    if re.search(r"https?://|www\.", lowered):
+        return True
+    return _EXPLICIT_TOOL_QUESTION_RE.search(lowered) is not None
+
+
+def _lightweight_reply(text: str, *, model: str | None = None) -> str | None:
+    b = _butler()
+    reply = b._smart_reply(text, {}, model=model)
+    if reply == "NEEDS_CONTEXT":
+        reply = b._smart_reply(text, b._get_fast_context(), model=model)
+    cleaned = " ".join(str(reply or "").split()).strip()
+    if cleaned.lower() in _LOW_SIGNAL_REPLIES:
+        return None
+    return reply
+
+
+def _respond_lightweight(
+    raw_text: str,
+    response: str,
+    *,
+    test_mode: bool = False,
+    intent_name: str,
+    learning_meta: dict | None = None,
+) -> None:
+    b = _butler()
+    b._speak_or_print(response, test_mode=test_mode)
+    b._record(raw_text, response, [], intent_name=intent_name, learning_meta=learning_meta)
+    b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+
+
 def _handle_meta_intent(intent, test_mode: bool = False) -> bool:
     b = _butler()
     intent_name = getattr(intent, "name", getattr(intent, "intent", ""))
@@ -468,15 +577,23 @@ def _execute_instant(intent, text: str, *, test_mode: bool = False) -> None:
         subject = str(intent.params.get("subject", "") or "").strip()
         body = str(intent.params.get("body", "") or "").strip()
         if recipient and not subject:
-            _set_pending_dialogue("pending_email", recipient=recipient, subject="", body="")
-            response = "Got it. What's the subject?"
+            _set_pending_dialogue(
+                "compose_email",
+                data={"recipient": recipient, "to": recipient, "subject": "", "body": ""},
+                required=["subject", "body"],
+            )
+            response = _pending_prompt("subject")
             b._speak_or_print(response, test_mode=test_mode)
             b._record(text, response, [], intent_name=intent.name)
             b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
             return
         if recipient and subject and not body:
-            _set_pending_dialogue("pending_email", recipient=recipient, subject=subject, body="")
-            response = f"Subject: {subject}. What should the body say?"
+            _set_pending_dialogue(
+                "compose_email",
+                data={"recipient": recipient, "to": recipient, "subject": subject, "body": ""},
+                required=["body"],
+            )
+            response = _pending_prompt("body")
             b._speak_or_print(response, test_mode=test_mode)
             b._record(text, response, [], intent_name=intent.name)
             b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
@@ -756,13 +873,22 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         b.state.transition(b.State.IDLE)
         return
 
-    if not b.ctx.has_pending() and _run_skill_match(text, test_mode=test_mode):
+    early_intent = _route_initial_intent(text, test_mode=test_mode)
+    if early_intent is None:
         return
 
-    early_intent = _route_initial_intent(text)
-    semantic_task = plan_semantic_task(text, current_intent=early_intent.name) if early_intent.name in {"unknown", "question"} else None
+    if lowered_raw in _DETERMINISTIC_CASUAL_RESPONSES:
+        b.note_heard_text(text)
+        b.add_event("stt.complete", {"text": text[:100]})
+        response = _DETERMINISTIC_CASUAL_RESPONSES[lowered_raw]
+        b._speak_or_print(response, test_mode=test_mode)
+        b._record(text, response, [], intent_name="casual")
+        b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+        return
 
-    if 0.4 <= float(getattr(early_intent, "confidence", 0.0) or 0.0) <= 0.7 and early_intent.name != "conversation":
+    semantic_task = plan_semantic_task(text, current_intent=early_intent.name) if early_intent.name == "unknown" else None
+
+    if 0.4 <= float(getattr(early_intent, "confidence", 0.0) or 0.0) <= 0.7 and early_intent.name not in {"conversation", "question", "unknown"}:
         b.note_heard_text(text)
         b.add_event("stt.complete", {"text": text[:100]})
         b.note_intent(early_intent.name, early_intent.params, early_intent.confidence, raw=text)
@@ -793,15 +919,6 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 print(f"[Butler] silent error: {exc}")
             b.add_event("interrupt.instant", {"intent": early_intent.name})
         _execute_instant(early_intent, text, test_mode=test_mode)
-        return
-
-    if lowered_raw in _DETERMINISTIC_CASUAL_RESPONSES:
-        b.note_heard_text(text)
-        b.add_event("stt.complete", {"text": text[:100]})
-        response = _DETERMINISTIC_CASUAL_RESPONSES[lowered_raw]
-        b._speak_or_print(response, test_mode=test_mode)
-        b._record(text, response, [], intent_name="casual")
-        b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
         return
 
     if early_intent.name in BACKGROUND_LANE_INTENTS:
@@ -851,10 +968,10 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "clarify_song":
-        _set_pending_dialogue("spotify_song")
+        _set_pending_dialogue("spotify_play", data={}, required=["song"])
         b._reply_without_action(
             text,
-            get_quick_response(intent),
+            _pending_prompt("song"),
             test_mode=test_mode,
             intent_name=intent.name,
             learning_meta=base_learning_meta,
@@ -862,24 +979,27 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "clarify_file":
-        _set_pending_dialogue("file_name", editor=intent.params.get("editor", "auto"))
+        _set_pending_dialogue(
+            "create_file",
+            data={"editor": intent.params.get("editor", "auto")},
+            required=["filename"],
+        )
         b._reply_without_action(
             text,
-            get_quick_response(intent),
+            _pending_prompt("filename"),
             test_mode=test_mode,
             intent_name=intent.name,
             learning_meta=base_learning_meta,
         )
         return
 
-    if intent.name == "clarify_email_body":
-        subject = str(intent.params.get("subject", "") or "").strip()
-        response = f"Subject: {subject}. What should the body say?" if subject else "What should the body say?"
+    if intent.name == "clarify_pending":
+        response = str(intent.params.get("message", "") or "").strip() or "What should I fill in?"
         b._reply_without_action(
             text,
             response,
             test_mode=test_mode,
-            intent_name=intent.name,
+            intent_name="clarify_pending",
             learning_meta=base_learning_meta,
         )
         return
@@ -902,49 +1022,21 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
 
     if intent.name == "unknown":
         response = _unknown_response_for_text(effective_text)
+        if not response and _should_use_brain_for_unknown(effective_text):
+            smart = _lightweight_reply(effective_text, model=model)
+            if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
+                _respond_lightweight(
+                    text,
+                    smart,
+                    test_mode=test_mode,
+                    intent_name="smart_reply",
+                    learning_meta=brain_learning_meta,
+                )
+                return
         if not response and semantic_task is not None:
             if _execute_semantic_task(semantic_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
                 return
-        if not response and _should_use_brain_for_unknown(effective_text):
-            smart = b._smart_reply(effective_text, {}, model=model)
-            if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
-                b._speak_or_print(smart, test_mode=test_mode)
-                b._record(text, smart, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
-                b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
-                return
-            if smart == "NEEDS_CONTEXT":
-                ctx = b._get_fast_context()
-                smart2 = b._smart_reply(effective_text, ctx, model=model)
-                if smart2 and smart2 not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
-                    b._speak_or_print(smart2, test_mode=test_mode)
-                    b._record(text, smart2, [], intent_name="smart_reply", learning_meta=brain_learning_meta)
-                    b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
-                    return
-            if _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="deep_research"):
-                return
-            ctx = b._get_cached_context()
-            b._speak_or_print("Let me think about that.", test_mode=test_mode)
-            tool_reply = b._safe_tool_chat_response(
-                effective_text,
-                ctx,
-                model=model,
-                intent_name=intent.name,
-                intent_confidence=intent.confidence,
-                stream_speech=not test_mode,
-                test_mode=test_mode,
-            )
-            response = tool_reply.get("speech", "") or "I am not sure about that."
-            if not tool_reply.get("spoken"):
-                b._speak_or_print(response, test_mode=test_mode)
-            b._record(
-                text,
-                response,
-                tool_reply.get("actions", []),
-                results=tool_reply.get("results", []),
-                intent_name="unknown",
-                learning_meta=brain_learning_meta,
-            )
-            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+        if not response and _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="deep_research"):
             return
         if not response:
             response = _GENERIC_UNKNOWN_REPLY
@@ -1037,32 +1129,68 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
         return
 
     if intent.name == "question":
-        if semantic_task is not None:
-            if _execute_semantic_task(semantic_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
-                return
         if _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="question"):
             return
-        tool_reply = b._safe_tool_chat_response(
-            effective_text,
-            ctx,
-            model=model,
-            intent_name=intent.name,
-            intent_confidence=intent.confidence,
-            stream_speech=not test_mode,
-            test_mode=test_mode,
-        )
-        speech = tool_reply.get("speech", "") or _GENERIC_QUESTION_REPLY
-        if not tool_reply.get("spoken"):
-            b._speak_or_print(speech, test_mode=test_mode)
-        b._record(
+        smart = _lightweight_reply(effective_text, model=model)
+        if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
+            _respond_lightweight(
+                text,
+                smart,
+                test_mode=test_mode,
+                intent_name="smart_reply",
+                learning_meta=brain_learning_meta,
+            )
+            return
+
+        if smart not in {"NEEDS_TOOLS", "NEEDS_CONTEXT"} and not _question_prefers_tools(effective_text):
+            fast_reply = b._fast_path_llm_response(intent.name, effective_text, ctx, model=model)
+            normalized_fast_reply = " ".join(str(fast_reply or "").split()).strip().lower()
+            if fast_reply and normalized_fast_reply not in _LOW_SIGNAL_REPLIES:
+                _respond_lightweight(
+                    text,
+                    fast_reply,
+                    test_mode=test_mode,
+                    intent_name="fast_path_question",
+                    learning_meta=brain_learning_meta,
+                )
+                return
+
+        question_task = None
+        if smart == "NEEDS_TOOLS" or _question_prefers_tools(effective_text):
+            question_task = plan_semantic_task(effective_text, current_intent=intent.name)
+            if question_task is not None and _execute_semantic_task(question_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
+                return
+
+            tool_reply = b._safe_tool_chat_response(
+                effective_text,
+                ctx,
+                model=model,
+                intent_name=intent.name,
+                intent_confidence=intent.confidence,
+                stream_speech=not test_mode,
+                test_mode=test_mode,
+            )
+            speech = tool_reply.get("speech", "") or _GENERIC_QUESTION_REPLY
+            if not tool_reply.get("spoken"):
+                b._speak_or_print(speech, test_mode=test_mode)
+            b._record(
+                text,
+                speech,
+                tool_reply.get("actions", []),
+                results=tool_reply.get("results", []),
+                intent_name=intent.name,
+                learning_meta=brain_learning_meta,
+            )
+            b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
+            return
+
+        b._reply_without_action(
             text,
-            speech,
-            tool_reply.get("actions", []),
-            results=tool_reply.get("results", []),
+            _GENERIC_QUESTION_REPLY,
+            test_mode=test_mode,
             intent_name=intent.name,
             learning_meta=brain_learning_meta,
         )
-        b.state.transition(b.State.WAITING if not test_mode else b.State.IDLE)
         return
 
     tool_reply = b._safe_tool_chat_response(

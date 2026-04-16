@@ -116,9 +116,9 @@ def _ws_broadcast(payload: dict) -> None:
 def _ws_broadcast_inner(payload: dict) -> None:
     """Broadcast a HUD event to all connected dashboard WebSocket clients."""
     try:
-        from projects.dashboard import broadcast_ws_event
+        from runtime import publish_ui_event
 
-        broadcast_ws_event(payload)
+        publish_ui_event(str(payload.get("type", "") or "event"), payload.get("payload") or {})
     except Exception:
         pass
 
@@ -915,7 +915,7 @@ class AgentScopeBackbone:
 
 
 def _default_model_name() -> str:
-    return str(OLLAMA_FALLBACK or OLLAMA_MODEL).strip() or "gemma4:e4b"
+    return str(OLLAMA_FALLBACK or OLLAMA_MODEL).strip() or "ollama_local::gemma4:e4b"
 
 
 def get_backbone(model_name: str | None = None) -> AgentScopeBackbone:
@@ -925,6 +925,28 @@ def get_backbone(model_name: str | None = None) -> AgentScopeBackbone:
         if _BACKBONE is None:
             _BACKBONE = AgentScopeBackbone(resolved)
         return _BACKBONE
+
+
+def reset_backbone_session() -> None:
+    global _BACKBONE
+    with _BACKBONE_LOCK:
+        _AGENT_CACHE.clear()
+        if _BACKBONE is None:
+            return
+        try:
+            _BACKBONE.memory = InMemoryMemory()
+            _BACKBONE.agent = _BACKBONE._build_agent(
+                _BACKBONE.model_name,
+                stream=False,
+                intent_name="default",
+            )
+            _BACKBONE.plan_notebook = getattr(_BACKBONE.agent, "plan_notebook", None)
+            _BACKBONE._intent_key = "default"
+            _BACKBONE._stream_enabled = False
+            _BACKBONE._interrupt_requested = False
+        except Exception as exc:
+            print(f"[Backbone] reset failed: {exc}")
+            _BACKBONE = None
 
 
 def run_agentscope_turn(

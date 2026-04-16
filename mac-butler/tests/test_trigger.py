@@ -8,6 +8,24 @@ import trigger
 
 
 class TriggerTests(unittest.TestCase):
+    @patch("trigger.note_runtime_event")
+    @patch("voice.speak")
+    @patch("trigger.publish_ui_event")
+    @patch("brain.briefing.build_briefing", return_value="Mumbai: 31C. What are we building?")
+    def test_speak_startup_briefing_broadcasts_and_speaks(
+        self,
+        _mock_briefing,
+        mock_publish,
+        mock_speak,
+        mock_note_event,
+    ):
+        trigger._speak_startup_briefing()
+
+        mock_speak.assert_called_once()
+        mock_publish.assert_called_once()
+        self.assertEqual(mock_publish.call_args.args[0], "briefing_spoken")
+        mock_note_event.assert_called_once()
+
     @patch("trigger.requests.post")
     def test_warm_planning_model_uses_keep_alive_request(self, mock_post):
         trigger._warm_planning_model()

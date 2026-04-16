@@ -34,6 +34,7 @@ from butler_config import (
     OLLAMA_LOCAL_URL,
     OLLAMA_MODEL,
     SEARXNG_URL,
+    STARTUP_BRIEFING_MODEL as CONFIG_STARTUP_BRIEFING_MODEL,
     VPS_HOSTS,
 )
 from daemon.ambient import start_ambient_daemon
@@ -49,6 +50,7 @@ from intents.router import (
     detect_editor_choice,
     extract_requested_filename,
     get_project_map,
+    instant_route,
     is_ambiguous_song_query,
     route,
 )
@@ -70,8 +72,10 @@ from runtime import (
     note_heard_text,
     note_intent,
     note_memory_recall,
+    note_session_active,
     note_tool_finished,
     note_tool_started,
+    reset_runtime_state,
     request_confirmation,
     resolve_confirmation,
 )
@@ -83,8 +87,6 @@ from runtime.tracing import add_event, trace_command
 # AP5: Local imports moved to top — avoids re-importing on every call
 from brain.ollama_client import (
     _call,
-    _get_ollama_url,
-    _resolve_backend_model,
     chat_with_ollama,
     check_vps_connection,
     pick_butler_model,
@@ -95,6 +97,7 @@ from brain.ollama_client import (
 from brain.agentscope_backbone import (
     get_backbone,
     interrupt_agentscope_turn,
+    reset_backbone_session,
     run_agentscope_turn,
 )
 from brain.toolkit import get_toolkit
@@ -103,6 +106,7 @@ from brain.tools_registry import TOOLS
 from memory.bus import record as _bus_record
 from memory.graph import observe_project_relationships
 from memory.long_term import save_session_state
+from memory.long_term import configure_session_restore
 from memory.store import load_recent_sessions, semantic_search
 from pipeline.orchestrator import (
     TOOL_SYSTEM_PROMPT,
@@ -154,6 +158,7 @@ from pipeline.router import (
     _get_pending_dialogue,
     _handle_meta_intent,
     _looks_like_followup_reference,
+    _route_initial_intent,
     _resolve_pending_dialogue,
     _run_background_action,
     _set_pending_dialogue,
@@ -299,7 +304,7 @@ _LOW_SIGNAL_STARTUP_PATTERNS = (
     "add observe loop",
     "implement layered memory",
 )
-STARTUP_BRIEFING_MODEL = "gemma4:e4b"
+STARTUP_BRIEFING_MODEL = CONFIG_STARTUP_BRIEFING_MODEL
 
 
 def _check_searxng() -> bool:
@@ -608,6 +613,8 @@ def _generate_startup_briefing(ctx: dict) -> str:
     prompt = _build_startup_briefing_prompt(ctx)
     raw = _raw_llm(prompt, model=STARTUP_BRIEFING_MODEL, max_tokens=120, temperature=0.2)
     speech = _two_sentence_briefing(raw, max_words=40)
+    if speech.lower().strip() in {"something went wrong.", "i'm still thinking, give me a moment."}:
+        return _startup_briefing_fallback(ctx)
     return speech or _startup_briefing_fallback(ctx)
 
 
@@ -1128,53 +1135,16 @@ def _report_brain_backend_status() -> None:
 
 
 def _raw_llm(prompt: str, model: str | None = None, max_tokens: int = 80, temperature: float = 0.4) -> str:
-
-    chosen = model or OLLAMA_MODEL
-    generate_url, headers = _get_ollama_url()
-    chat_url = generate_url.replace("/api/generate", "/api/chat")
-    local_chat_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
-    use_vps_backend = generate_url != f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
-    resolved_model = _resolve_backend_model(chosen, use_vps_backend)
-    resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
-    payload = {
-        "model": resolved_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        "options": {"temperature": temperature, "num_predict": max_tokens},
-    }
     try:
-        response = requests.post(
-            chat_url,
-            json=payload,
-            headers=headers,
-            timeout=20,
+        payload = chat_with_ollama(
+            [{"role": "user", "content": prompt}],
+            model or OLLAMA_MODEL,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
-        response.raise_for_status()
-        return response.json().get("message", {}).get("content", "").strip()
-    except requests.exceptions.ConnectionError:
-        if chat_url != local_chat_url:
-            response = requests.post(
-                local_chat_url,
-                json=payload,
-                timeout=20,
-            )
-            response.raise_for_status()
-            return response.json().get("message", {}).get("content", "").strip()
-        return "Something went wrong."
+        message = payload.get("message") if isinstance(payload, dict) else {}
+        return str((message or {}).get("content", "") or "").strip()
     except Exception:
-        if resolved_fallback and payload["model"] != resolved_fallback:
-            payload["model"] = resolved_fallback
-            try:
-                response = requests.post(
-                    chat_url,
-                    json=payload,
-                    headers=headers,
-                    timeout=20,
-                )
-                response.raise_for_status()
-                return response.json().get("message", {}).get("content", "").strip()
-            except Exception:
-                return "Something went wrong."
         return "Something went wrong."
 
 
@@ -1295,6 +1265,9 @@ def _contextualize_action(action: dict | None, intent: IntentResult, ctx: dict) 
     if action.get("type") == "create_folder" and action.get("path") == "~/Developer/new-folder":
         action["path"] = f"{working_path.rstrip('/')}/new-folder"
 
+    if action.get("type") == "zip_folder" and not action.get("path"):
+        action["path"] = working_path
+
     if action.get("type") in {"run_agent", "ssh_open"} and not action.get("host"):
         host = _default_vps_host()
         if host:
@@ -1315,6 +1288,7 @@ _CONTEXT_HEAVY_ACTION_TYPES = {
     "open_terminal",
     "run_command",
     "create_folder",
+    "zip_folder",
 }
 
 _DELAYED_SPEECH_ACTION_TYPES = {
@@ -1372,7 +1346,7 @@ def _action_trace_detail(action: dict) -> str:
 def _action_trace_result_detail(result: dict, fallback: str = "") -> str:
     if not isinstance(result, dict):
         return fallback
-    for key in ("result", "error"):
+    for key in ("verification_detail", "result", "error"):
         value = " ".join(str(result.get(key, "") or "").split()).strip()
         if value:
             return value[:180]
@@ -1526,6 +1500,27 @@ def _startup_intelligence_line() -> str:
 handle_command = handle_input
 
 
+def reset_live_session_state(source: str = "voice_startup") -> None:
+    global _SESSION_STATE_SAVED, _briefing_done
+    try:
+        configure_session_restore(enabled=False)
+    except Exception as exc:
+        print(f"[Butler] session restore config failed: {exc}")
+    try:
+        reset_backbone_session()
+    except Exception as exc:
+        print(f"[Butler] backbone reset failed: {exc}")
+    try:
+        reset_runtime_state(reason=source, preserve_workspace=True, preserve_metrics=True)
+    except Exception as exc:
+        print(f"[Butler] runtime reset failed: {exc}")
+    _clear_pending_command_state()
+    reset_conversation_context()
+    state.reset()
+    _briefing_done = False
+    _SESSION_STATE_SAVED = False
+
+
 def _on_state_change(old_state: State, new_state: State) -> None:
     """Drain queued commands when butler becomes free."""
     busy = {State.THINKING, State.SPEAKING}
@@ -1544,21 +1539,22 @@ def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: 
     print("Type commands or press Ctrl+C to exit")
     print("Examples: play mockingbird, open cursor, note: test this, check vps\n")
 
-    run_startup_briefing(test_mode=test_mode, model=model)
-
-    if use_stt:
-        stop_event = threading.Event()
-        try:
-            listen_continuous(
-                lambda heard: handle_command(heard, test_mode=test_mode, model=model),
-                stop_event,
-            )
-        except KeyboardInterrupt:
-            stop_event.set()
-            state.transition(State.IDLE)
-        return
-
     try:
+        note_session_active(True, source="butler")
+        run_startup_briefing(test_mode=test_mode, model=model)
+
+        if use_stt:
+            stop_event = threading.Event()
+            try:
+                listen_continuous(
+                    lambda heard: handle_command(heard, test_mode=test_mode, model=model),
+                    stop_event,
+                )
+            except KeyboardInterrupt:
+                stop_event.set()
+                state.transition(State.IDLE)
+            return
+
         while True:
             user_input = input("\n[You] ").strip()
             if user_input.lower() in {"exit", "quit", "bye"}:
@@ -1568,6 +1564,7 @@ def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: 
     except (KeyboardInterrupt, EOFError):
         pass
     finally:
+        note_session_active(False, source="butler")
         state.transition(State.IDLE)
         print("\n[Butler] Goodbye.")
 
@@ -1634,6 +1631,7 @@ def main() -> None:
     parser.add_argument("--briefing", action="store_true", help="Run startup briefing only")
     parser.add_argument("--command", "-c", default=None, help="Run a single command")
     args = parser.parse_args()
+    default_live_session = not args.command and not args.interactive and not args.briefing
 
     lightweight_command_mode = bool(args.command and not args.interactive and not args.stt and not args.briefing)
 
@@ -1645,6 +1643,7 @@ def main() -> None:
         except Exception as _e:
             print(f"[Butler] silent error: {_e}")
     else:
+        configure_session_restore(enabled=False)
         _ensure_watcher_started()
         start_ambient_daemon()
         start_wake_word_daemon()
@@ -1680,19 +1679,27 @@ def main() -> None:
         _report_brain_backend_status()
 
     if args.command:
+        reset_live_session_state("single_command")
         ctx.reset()
         handle_command(args.command, test_mode=args.test, model=args.model)
         _save_backbone_session_state()
         return
 
     if args.interactive:
-        ctx.reset()
+        reset_live_session_state("interactive")
         run_interactive(use_stt=args.stt, model=args.model, test_mode=args.test)
         _save_backbone_session_state()
         return
 
-    if args.briefing or (not args.interactive and not args.command):
+    if args.briefing:
+        reset_live_session_state("briefing_only")
         run_startup_briefing(test_mode=args.test, model=args.model)
+        _save_backbone_session_state()
+        return
+
+    if default_live_session:
+        reset_live_session_state("default_startup")
+        run_interactive(use_stt=True, model=args.model, test_mode=args.test)
         _save_backbone_session_state()
         return
 

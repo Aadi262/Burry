@@ -13,17 +13,6 @@ try:
 except ImportError:
     from project_store import ensure_project_blurb, get_project, mark_error, set_last_opened
 
-EDITOR_CHAIN = [
-    ("claude", lambda p: f"claude '{p}'"),
-    ("codex", lambda p: f"codex '{p}'"),
-    ("cursor", lambda p: f"cursor '{p}'"),
-    ("code", lambda p: f"code '{p}'"),
-]
-
-ANTIGRAVITY_APP_CANDIDATES = [
-    Path("/Applications/Antigravity.app"),
-    Path.home() / "Applications" / "Antigravity.app",
-]
 CURSOR_APP_CANDIDATES = [
     Path("/Applications/Cursor.app"),
     Path.home() / "Applications" / "Cursor.app",
@@ -44,11 +33,6 @@ VSCODE_CLI_CANDIDATES = [
     Path.home() / "Applications" / "Visual Studio Code.app" / "Contents" / "Resources" / "app" / "bin" / "code",
     Path.home() / "Applications" / "Code.app" / "Contents" / "Resources" / "app" / "bin" / "code",
 ]
-ANTIGRAVITY_CLI_CANDIDATES = [
-    Path.home() / ".antigravity" / "antigravity" / "bin" / "antigravity",
-]
-
-
 def _app_exists(name: str) -> bool:
     """Check if CLI tool is available in PATH."""
     import shutil
@@ -82,17 +66,6 @@ def _open_in_terminal(tool_name: str, path: str) -> None:
         "end tell"
     )
     _launch(["osascript", "-e", script])
-
-
-def _launch_antigravity(path: str) -> bool:
-    cli = _first_existing_path(ANTIGRAVITY_CLI_CANDIDATES)
-    if cli:
-        _launch([cli, path])
-        return True
-    if any(candidate.exists() for candidate in ANTIGRAVITY_APP_CANDIDATES):
-        _launch(["open", "-a", "Antigravity", path])
-        return True
-    return False
 
 
 def _launch_cursor(path: str) -> bool:
@@ -134,11 +107,10 @@ def _launch_codex(path: str) -> bool:
 
 def _editor_launchers() -> list[tuple[str, callable]]:
     return [
-        ("antigravity", _launch_antigravity),
-        ("cursor", _launch_cursor),
-        ("code", _launch_vscode),
         ("claude", _launch_claude),
         ("codex", _launch_codex),
+        ("cursor", _launch_cursor),
+        ("code", _launch_vscode),
     ]
 
 

@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - package/script fallback
     from runtime.log_store import append_runtime_event
 
 RUNTIME_STATE_PATH = Path(__file__).resolve().parent.parent / "memory" / "runtime_state.json"
-MAX_EVENTS = 18
+MAX_EVENTS = 100
 _RUNTIME_LOCK = threading.Lock()
 
 
@@ -180,6 +180,36 @@ def load_metrics() -> dict:
         return merged
 
 
+def reset_runtime_state(
+    reason: str = "fresh_launch",
+    *,
+    preserve_workspace: bool = True,
+    preserve_metrics: bool = True,
+) -> dict:
+    with _RUNTIME_LOCK:
+        previous = _load_unlocked()
+        data = _default_runtime_state()
+        if preserve_workspace and isinstance(previous.get("workspace"), dict):
+            workspace = dict(data.get("workspace") or {})
+            workspace.update(previous.get("workspace") or {})
+            data["workspace"] = workspace
+        if preserve_metrics and isinstance(previous.get("metrics"), dict):
+            metrics = _default_metrics()
+            metrics.update(previous.get("metrics") or {})
+            stamp = _now_iso()
+            metrics["updated_at"] = stamp
+            metrics["last_reset_at"] = stamp
+            data["metrics"] = metrics
+        _append_event(
+            data,
+            "runtime_reset",
+            f"Runtime reset: {_clip_text(reason, limit=80) or 'fresh launch'}",
+            {"reason": _clip_text(reason, limit=80) or "fresh_launch"},
+        )
+        _save_unlocked(data)
+        return data
+
+
 def note_session_active(active: bool, source: str = "") -> None:
     with _RUNTIME_LOCK:
         data = _load_unlocked()
@@ -263,6 +293,29 @@ def note_spoken_text(text: str) -> None:
         _bump_metric(data, "spoken_responses")
         _append_event(data, "spoken", f"Said: {cleaned}")
         _save_unlocked(data)
+
+
+def note_runtime_event(kind: str, message: str, metadata: dict | None = None) -> None:
+    event_kind = _clip_text(kind, limit=48) or "event"
+    event_message = _clip_text(message, limit=240)
+    if not event_message:
+        return
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        _append_event(data, event_kind, event_message, metadata)
+        _save_unlocked(data)
+
+
+def publish_ui_event(event_type: str, payload: dict | None = None) -> None:
+    clean_type = _clip_text(event_type, limit=48)
+    if not clean_type:
+        return
+    try:
+        from projects.dashboard import broadcast_ws_event
+
+        broadcast_ws_event({"type": clean_type, "payload": payload or {}})
+    except Exception:
+        return
 
 
 def note_conversation_turns(turns: list[dict]) -> None:
@@ -394,7 +447,7 @@ def note_tool_finished(tool: str, status: str, detail: str = "") -> None:
         _save_unlocked(data)
 
 
-def note_memory_recall(query: str, matches: list[dict] | None = None) -> None:
+def note_memory_recall(query: str, matches: list[dict] | None = None, source: str = "memory_store") -> None:
     query_text = _clip_text(query, limit=120)
     items = []
     for match in list(matches or [])[:3]:
@@ -421,9 +474,21 @@ def note_memory_recall(query: str, matches: list[dict] | None = None) -> None:
             data,
             "memory",
             f"Recalled {len(items)} memory matches for {query_text or 'recent context'}",
-            {"query": query_text, "count": len(items)},
+            {"query": query_text, "count": len(items), "source": _clip_text(source, limit=48)},
         )
         _save_unlocked(data)
+    try:
+        publish_ui_event(
+            "memory_read",
+            {
+                "source": _clip_text(source, limit=48),
+                "query": query_text,
+                "count": len(items),
+                "at": payload["at"],
+            },
+        )
+    except Exception:
+        pass
 
 
 def note_ambient_context(items: list[str] | None = None) -> None:
