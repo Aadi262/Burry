@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 import unittest
@@ -86,10 +87,10 @@ class ExecutorTests(unittest.TestCase):
     def test_open_app_maps_google_sheet_to_browser_url(self, mock_run, _mock_browser):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().open_app("google sheet")
-        self.assertIn("sheets.google.com", result)
+        self.assertIn("https://sheets.new", result)
         self.assertEqual(
             mock_run.call_args.args[0],
-            ["open", "-a", "Google Chrome", "https://sheets.google.com"],
+            ["open", "-a", "Google Chrome", "https://sheets.new"],
         )
 
     @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
@@ -101,6 +102,36 @@ class ExecutorTests(unittest.TestCase):
         script = mock_run.call_args.args[0][2]
         self.assertIn("Google Chrome", script)
         self.assertIn("https://example.com", script)
+
+    @patch.object(Executor, "_resolve_browser_app", return_value="Safari")
+    @patch("executor.engine.subprocess.run")
+    def test_browser_window_uses_resolved_browser_family(self, mock_run, _mock_browser):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_window("https://example.com")
+        self.assertIn("opened browser window", result)
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "Safari"', script)
+        self.assertIn('make new document with properties {URL:"https://example.com"}', script)
+
+    @patch.object(Executor, "_resolve_browser_app", return_value="Brave Browser")
+    @patch("executor.engine.subprocess.run")
+    def test_browser_go_back_uses_resolved_browser_app(self, mock_run, _mock_browser):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_go_back()
+        self.assertEqual(result, "went back in browser")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "Brave Browser"', script)
+        self.assertIn("go back", script)
+
+    @patch.object(Executor, "_resolve_browser_app", return_value="Safari")
+    @patch("executor.engine.subprocess.run")
+    def test_browser_refresh_uses_safari_reload_script(self, mock_run, _mock_browser):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().browser_refresh()
+        self.assertEqual(result, "reloaded browser tab")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "Safari"', script)
+        self.assertIn('window.location.reload();', script)
 
     @patch("executor.engine.subprocess.run")
     def test_focus_app_uses_applescript(self, mock_run):
@@ -168,6 +199,102 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn('keystroke "Rushil"', script)
         self.assertIn('keystroke "I\'ll be late"', script)
 
+    @patch("executor.engine.subprocess.run")
+    def test_calendar_read_filters_events_in_applescript_loop(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="Standup at Monday", stderr="")
+
+        result = Executor().calendar_read("today")
+
+        self.assertEqual(result, "Standup at Monday")
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args[:3], ["osascript", "-l", "JavaScript"])
+        script = args[4]
+        self.assertIn('Application("/System/Applications/Calendar.app")', script)
+        self.assertIn("var calendars = Calendar.calendars()", script)
+        self.assertIn("var events = calendars[i].events()", script)
+        self.assertIn("eventStart >= startDate && eventStart < endDate", script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_calendar_read_formats_next_event_from_json(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "title": "Standup",
+                        "start": "2026-04-13T04:30:00Z",
+                        "end": "2026-04-13T05:00:00Z",
+                        "calendar": "Work",
+                    }
+                ]
+            ),
+            stderr="",
+        )
+
+        result = Executor().calendar_read("next")
+
+        self.assertIn("your next event is Standup at", result)
+        self.assertIn("Mon", result)
+        script = mock_run.call_args.args[0][4]
+        self.assertIn('mode === "next"', script)
+        self.assertIn("entries.sort", script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_calendar_read_formats_this_week_summary_from_json(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "title": "Planning",
+                        "start": "2026-04-13T04:30:00Z",
+                        "end": "2026-04-13T05:00:00Z",
+                        "calendar": "Work",
+                    },
+                    {
+                        "title": "Demo",
+                        "start": "2026-04-15T10:30:00Z",
+                        "end": "2026-04-15T11:00:00Z",
+                        "calendar": "Work",
+                    },
+                ]
+            ),
+            stderr="",
+        )
+
+        result = Executor().calendar_read("this_week")
+
+        self.assertIn("you have 2 calendar events this week", result)
+        self.assertIn("Planning at", result)
+        self.assertIn("Demo at", result)
+        script = mock_run.call_args.args[0][4]
+        self.assertIn('mode === "this_week"', script)
+        self.assertIn("nextWeekStart", script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_calendar_read_returns_clear_message_when_calendar_automation_is_blocked(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Connection Invalid error for service com.apple.hiservices-xpcservice. Error: Parameter is missing. (-1701)",
+        )
+
+        result = Executor().calendar_read("today")
+
+        self.assertEqual(
+            result,
+            "Calendar read is unavailable until Calendar automation access is granted on this host.",
+        )
+
+    @patch("executor.engine.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="osascript", timeout=8))
+    def test_calendar_read_returns_clear_message_on_timeout(self, _mock_run):
+        result = Executor().calendar_read("today")
+
+        self.assertEqual(
+            result,
+            "Calendar read is unavailable until Calendar automation access is granted on this host.",
+        )
+
     @patch.object(Executor, "browser_new_tab", return_value="opened new browser tab: https://www.google.com/search?q=gemma")
     def test_browser_search_uses_google_query(self, mock_new_tab):
         result = Executor().browser_search("gemma")
@@ -227,11 +354,263 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn("targetVolume", mock_run.call_args.args[0][2])
 
     @patch("executor.engine.subprocess.run")
+    def test_brightness_set_uses_repeated_key_codes(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().brightness_set(70)
+        self.assertEqual(result, "set brightness to 70")
+        script = mock_run.call_args.args[0][2]
+        self.assertEqual(script.count("key code 145"), 16)
+        self.assertEqual(script.count("key code 144"), 11)
+
+    @patch("executor.engine.subprocess.run")
+    def test_run_dispatches_brightness_level_action(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().run([{"type": "brightness", "level": 70}])
+        self.assertEqual(result[0]["status"], "ok")
+        self.assertEqual(result[0]["result"], "set brightness to 70")
+
+    @patch("executor.engine.subprocess.run")
+    def test_dark_mode_enable_uses_boolean_script(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().dark_mode(True)
+        self.assertEqual(result, "toggled dark mode")
+        self.assertIn("set dark mode to true", mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
+    def test_do_not_disturb_disable_returns_directional_message(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = Executor().do_not_disturb(False)
+        self.assertEqual(result, "toggled do not disturb off")
+        self.assertIn('process "ControlCenter"', mock_run.call_args.args[0][2])
+
+    @patch("executor.engine.subprocess.run")
     def test_take_screenshot_uses_screencapture(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         result = Executor().take_screenshot()
-        self.assertTrue(result.startswith("/tmp/butler_screenshot_"))
+        self.assertEqual(result, "/tmp/burry_screen.png")
         self.assertEqual(mock_run.call_args.args[0][:2], ["screencapture", "-x"])
+
+    @patch.object(Executor, "_summarize_text", return_value="page summary")
+    @patch("memory.knowledge_base.get_indexed_document", return_value=None)
+    @patch("requests.get")
+    def test_summarize_page_falls_back_to_direct_html_fetch(self, mock_get, _mock_cached, _mock_summarize):
+        mock_get.side_effect = [
+            MagicMock(status_code=502, text="", headers={"content-type": "text/plain"}),
+            MagicMock(
+                status_code=200,
+                text="<html><head><title>Gemma</title></head><body><article>Gemma release notes</article></body></html>",
+                headers={"content-type": "text/html; charset=utf-8"},
+            ),
+        ]
+
+        result = Executor().summarize_page("https://example.com/gemma")
+
+        self.assertEqual(result, "page summary")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertIn("r.jina.ai/https://example.com/gemma", mock_get.call_args_list[0].args[0])
+        self.assertEqual(mock_get.call_args_list[1].args[0], "https://example.com/gemma")
+
+    @patch.object(Executor, "_summarize_text", return_value="cached summary")
+    @patch("requests.get")
+    @patch("memory.knowledge_base.get_indexed_document", return_value={"text": "Cached Gemma 4 page snapshot"})
+    def test_summarize_page_uses_indexed_snapshot_before_live_fetch(self, _mock_cached, mock_get, _mock_summarize):
+        result = Executor().summarize_page("https://example.com/gemma")
+
+        self.assertEqual(result, "cached summary")
+        mock_get.assert_not_called()
+
+    @patch.object(Executor, "_summarize_text", return_value="page summary")
+    @patch("memory.knowledge_base.get_indexed_document", return_value=None)
+    @patch("memory.knowledge_base.index_web_page")
+    @patch("requests.get")
+    def test_summarize_page_indexes_fetched_snapshot_for_reuse(self, mock_get, mock_index, _mock_cached, _mock_summarize):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            text="Gemma 4 launch notes with broader deployment details.",
+            headers={"content-type": "text/plain"},
+        )
+
+        result = Executor().summarize_page("https://example.com/gemma")
+
+        self.assertEqual(result, "page summary")
+        mock_index.assert_called_once_with(
+            "https://example.com/gemma",
+            "Gemma 4 launch notes with broader deployment details.",
+        )
+
+    @patch("requests.get")
+    def test_youtube_transcript_from_caption_tracks_uses_watch_page_metadata(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(
+                status_code=200,
+                text='{"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://example.com/captions.xml","languageCode":"en"}]}}}',
+                headers={"content-type": "text/html; charset=utf-8"},
+            ),
+            MagicMock(
+                status_code=200,
+                text="<transcript><text>Hello world</text><text>from captions</text></transcript>",
+                headers={"content-type": "application/xml"},
+            ),
+        ]
+
+        transcript = Executor()._youtube_transcript_from_caption_tracks("https://www.youtube.com/watch?v=abcdefghijk")
+
+        self.assertEqual(transcript, "Hello world from captions")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_get.call_args_list[1].args[0], "https://example.com/captions.xml")
+
+    @patch.object(Executor, "obsidian_note", return_value="saved to Obsidian: 2026-04-12 Video Summary.md")
+    @patch.object(Executor, "_summarize_text", return_value="video summary")
+    @patch.object(Executor, "_video_transcript_text", return_value="full transcript")
+    def test_summarize_video_save_to_obsidian_reports_saved_note(self, _mock_transcript, _mock_summarize, mock_obsidian):
+        result = Executor().summarize_video("https://www.youtube.com/watch?v=abcdefghijk", save_to_obsidian=True)
+
+        self.assertIn("video summary", result)
+        self.assertIn("saved to Obsidian", result)
+
+    @patch.object(Executor, "_speak")
+    @patch.object(Executor, "_listen_followup", return_value="yes")
+    def test_delete_file_removes_target_after_confirmation(self, _mock_listen, _mock_speak):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            target = Path(tmpdir) / "resume.pdf"
+            target.write_text("resume", encoding="utf-8")
+
+            result = Executor().delete_file(str(target))
+            exists_after = target.exists()
+
+        self.assertIn("deleted", result)
+        self.assertFalse(exists_after)
+
+    def test_zip_folder_creates_archive(self):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            folder = Path(tmpdir) / "Documents"
+            folder.mkdir()
+            (folder / "notes.txt").write_text("phase3a", encoding="utf-8")
+
+            result = Executor().zip_folder(str(folder))
+            archive = folder.parent / "Documents.zip"
+            archive_exists = archive.exists()
+
+        self.assertIn(str(archive), result)
+        self.assertTrue(archive_exists)
+
+    @patch.object(Executor, "_run_osascript", side_effect=RuntimeError("Not authorized (-1743)"))
+    def test_calendar_add_returns_clear_message_on_permission_error(self, _mock_run):
+        result = Executor().calendar_add("Phase 3A smoke", "tomorrow 9am")
+
+        self.assertEqual(
+            result,
+            "Calendar event creation is unavailable until Calendar automation access is granted on this host.",
+        )
+
+    @patch.object(Executor, "_run_osascript", side_effect=RuntimeError("Application isn’t running. (-600)"))
+    def test_calendar_add_returns_clear_message_when_calendar_lookup_is_unavailable(self, _mock_run):
+        result = Executor().calendar_add("Phase 3A smoke", "tomorrow 9am")
+
+        self.assertEqual(
+            result,
+            "Calendar event creation is unavailable until Calendar automation access is granted on this host.",
+        )
+
+    @patch.object(Executor, "_applescript_date_expression", return_value='date "14 April 2026 09:00:00 AM"')
+    @patch.object(Executor, "_run_osascript", return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    def test_calendar_add_uses_applescript_date_expression_for_natural_language(self, mock_run, mock_date_expr):
+        result = Executor().calendar_add("Phase 3A smoke", "tomorrow 9am")
+
+        self.assertEqual(result, "added calendar event Phase 3A smoke")
+        mock_date_expr.assert_called_once_with("tomorrow 9am")
+        script = mock_run.call_args.args[0]
+        self.assertIn('tell application "Calendar"', script)
+        self.assertIn("activate", script)
+        self.assertIn('set startDate to date "14 April 2026 09:00:00 AM"', script)
+
+    @patch("executor.engine.subprocess.run")
+    def test_set_reminder_uses_reminders_app(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        result = Executor().set_reminder(minutes=30, message="check deployments")
+
+        self.assertEqual(result, "reminder set for 30 min")
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('tell application "Reminders"', script)
+        self.assertIn("30 * minutes", script)
+
+    @patch.object(Executor, "_applescript_date_expression", return_value='date "14 April 2026 05:00:00 PM"')
+    @patch.object(Executor, "_run_osascript", return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    def test_set_reminder_uses_applescript_date_expression_for_absolute_time(self, mock_run, mock_date_expr):
+        result = Executor().set_reminder(when="5pm", message="check deployments")
+
+        self.assertEqual(result, "reminder set for 5pm")
+        mock_date_expr.assert_called_once_with("5pm")
+        script = mock_run.call_args.args[0]
+        self.assertIn('set remindDate to date "14 April 2026 05:00:00 PM"', script)
+
+    def test_normalize_browser_url_preserves_file_scheme(self):
+        self.assertEqual(
+            Executor._normalize_browser_url("file:///tmp/phase3a-browser-1.html"),
+            "file:///tmp/phase3a-browser-1.html",
+        )
+
+    @patch.object(Executor, "_reminder_exists", return_value=True)
+    @patch.object(Executor, "_dispatch", return_value="reminder set for 30 min")
+    def test_run_attaches_reminder_verification_metadata(self, _mock_dispatch, _mock_exists):
+        result = Executor().run([{"type": "set_reminder", "minutes": 30, "message": "check deployments"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertIn("Confirmed the reminder exists", result["verification_detail"])
+
+    @patch.object(Executor, "_browser_snapshot")
+    @patch.object(Executor, "_dispatch", return_value="went back")
+    def test_run_attaches_browser_back_verification_metadata(self, _mock_dispatch, mock_browser_snapshot):
+        mock_browser_snapshot.side_effect = [
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 1,
+                "url": "https://example.org",
+            },
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 1,
+                "url": "https://example.com",
+            },
+        ]
+
+        result = Executor().run([{"type": "browser_go_back"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertIn("navigated back", result["verification_detail"].lower())
+
+    @patch.object(Executor, "_browser_snapshot")
+    @patch.object(Executor, "_dispatch", return_value="refreshed")
+    def test_run_attaches_browser_refresh_verification_metadata(self, _mock_dispatch, mock_browser_snapshot):
+        mock_browser_snapshot.side_effect = [
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 1,
+                "url": "https://example.com",
+            },
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 1,
+                "url": "https://example.com",
+            },
+        ]
+
+        result = Executor().run([{"type": "browser_refresh"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertIn("refreshed", result["verification_detail"].lower())
 
     @patch.object(Executor, "open_url", return_value="opened https://wa.me/919999999999?text=hello")
     def test_whatsapp_send_prefers_phone_url(self, mock_open_url):
@@ -262,9 +641,79 @@ class ExecutorTests(unittest.TestCase):
             self.assertIn(str(Path(tmpdir) / "demo.txt"), result)
         self.assertIn("Visual Studio Code is not installed", result)
 
+    @patch.object(Executor, "_filesystem_search_roots")
+    def test_read_file_resolves_fuzzy_name_from_search_roots(self, mock_roots):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            downloads = Path(tmpdir) / "Downloads"
+            downloads.mkdir()
+            target = downloads / "notes.txt"
+            target.write_text("hello from downloads", encoding="utf-8")
+            mock_roots.return_value = [downloads]
+
+            result = Executor().read_file("notes file")
+
+        self.assertEqual(result, "hello from downloads")
+
+    @patch("executor.engine.subprocess.Popen")
+    @patch.object(Executor, "_filesystem_search_roots")
+    def test_open_file_resolves_fuzzy_name_from_search_roots(self, mock_roots, mock_popen):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            docs = Path(tmpdir) / "Documents"
+            docs.mkdir()
+            target = docs / "budget.xlsx"
+            target.write_text("sheet", encoding="utf-8")
+            mock_roots.return_value = [docs]
+
+            result = Executor().open_file("budget.xlsx")
+
+        self.assertIn(str(target), result)
+        mock_popen.assert_called_once_with(["open", str(target)])
+
+    @patch.object(Executor, "_filesystem_search_roots")
+    def test_move_file_to_directory_preserves_filename(self, mock_roots):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            desktop = Path(tmpdir) / "Desktop"
+            documents = Path(tmpdir) / "Documents"
+            desktop.mkdir()
+            documents.mkdir()
+            source = desktop / "resume.pdf"
+            source.write_text("resume", encoding="utf-8")
+            mock_roots.return_value = [desktop, documents]
+
+            result = Executor().move_file("resume", str(documents))
+
+            moved = documents / "resume.pdf"
+            moved_exists = moved.exists()
+            source_exists = source.exists()
+
+        self.assertIn(str(moved), result)
+        self.assertTrue(moved_exists)
+        self.assertFalse(source_exists)
+
+    @patch.object(Executor, "_filesystem_search_roots")
+    def test_copy_file_to_directory_preserves_filename(self, mock_roots):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            desktop = Path(tmpdir) / "Desktop"
+            downloads = Path(tmpdir) / "Downloads"
+            desktop.mkdir()
+            downloads.mkdir()
+            source = desktop / "resume.pdf"
+            source.write_text("resume", encoding="utf-8")
+            mock_roots.return_value = [desktop, downloads]
+
+            result = Executor().copy_file("resume", str(downloads))
+
+            copied = downloads / "resume.pdf"
+            copied_exists = copied.exists()
+            source_exists = source.exists()
+
+        self.assertIn(str(copied), result)
+        self.assertTrue(copied_exists)
+        self.assertTrue(source_exists)
+
     @patch("executor.engine.subprocess.run")
     def test_run_command_creates_missing_cwd_and_caps_output(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="x" * 350, stderr="")
+        mock_run.return_value = MagicMock(stdout="x" * 350, stderr="", returncode=0)
         with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
             missing_cwd = Path(tmpdir) / "new-workspace"
             result = Executor().run_command("mkdir demo && code .", cwd=str(missing_cwd))
@@ -277,6 +726,59 @@ class ExecutorTests(unittest.TestCase):
             mock_run.call_args.kwargs["cwd"],
             str(missing_cwd.resolve(strict=False)),
         )
+
+    def test_run_attaches_filesystem_verification_metadata(self):
+        executor = Executor()
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            target = Path(tmpdir) / "verified.txt"
+
+            result = executor.run([{"type": "create_file", "path": str(target), "content": "hello"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertIn("Confirmed the file exists", result["verification_detail"])
+
+    @patch.object(Executor, "_browser_snapshot")
+    @patch.object(Executor, "_dispatch", return_value="opened https://youtube.com")
+    def test_run_attaches_browser_verification_metadata(self, _mock_dispatch, mock_browser_snapshot):
+        mock_browser_snapshot.side_effect = [
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 1,
+                "url": "https://www.google.com",
+            },
+            {
+                "app": "Google Chrome",
+                "running": True,
+                "window_count": 1,
+                "tab_count": 2,
+                "url": "https://youtube.com",
+            },
+        ]
+
+        result = Executor().run([{"type": "open_url_in_browser", "url": "https://youtube.com"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "verified")
+        self.assertIn("browser is on https://youtube.com", result["verification_detail"].lower())
+
+    @patch.object(Executor, "_app_snapshot", return_value={"app": "WhatsApp", "running": True, "window_count": 1, "focused": True})
+    @patch.object(Executor, "_dispatch", return_value="WhatsApp message sent to Rushil")
+    def test_run_marks_unverified_whatsapp_send_as_degraded(self, _mock_dispatch, _mock_app_snapshot):
+        result = Executor().run([{"type": "send_whatsapp", "contact": "Rushil", "message": "hi"}])[0]
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["verification_status"], "degraded")
+        self.assertIn("couldn't confirm", result["verification_detail"].lower())
+
+    @patch("executor.engine.subprocess.run")
+    def test_run_command_raises_on_non_zero_exit(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="permission denied", returncode=1)
+
+        with self.assertRaises(RuntimeError):
+            Executor().run_command("git status", cwd=str(TEST_ROOT))
 
     @patch.object(Executor, "open_terminal", return_value="opened new Terminal tab")
     def test_ssh_open_uses_vps_helper_script(self, mock_open_terminal):

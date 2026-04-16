@@ -355,6 +355,13 @@ def _detail_entry(
         label = "error" if result.get("status") == "error" else "result"
         lines.append(f"- {label}: {summary}")
 
+    verification_status = _clip_text(result.get("verification_status", ""), 32)
+    verification_detail = _clip_text(result.get("verification_detail", ""), 140)
+    if verification_status:
+        lines.append(f"- verification_status: {verification_status}")
+    if verification_detail:
+        lines.append(f"- verification_detail: {verification_detail}")
+
     verification = ""
     if action.get("type") == "run_command" and _looks_like_verification_command(action.get("cmd", "")):
         verification = "failed" if result.get("status") == "error" else "passed"
@@ -412,6 +419,18 @@ def record_project_execution(
                 state["last_error"] = ""
             else:
                 state["last_error"] = _clip_text(result.get("error", ""), 160)
+
+            verification_status = _clip_text(result.get("verification_status", ""), 32)
+            verification_detail = _clip_text(result.get("verification_detail", ""), 160)
+            if verification_status:
+                state["last_verification_status"] = verification_status
+            if verification_detail:
+                state["last_verification_detail"] = verification_detail
+            if verification_status == "verified":
+                state["last_verified_at"] = now
+                state["last_verification_error"] = ""
+            elif verification_status == "failed":
+                state["last_verification_error"] = verification_detail or state.get("last_error", "")
 
             if action_type == "run_command":
                 command = _clip_text(action.get("cmd", ""), 140)

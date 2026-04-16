@@ -7,11 +7,23 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from butler_config import VPS_HOSTS
+from butler_config import TOOL_SUMMARIZER_MODEL, VPS_HOSTS
 from brain.toolkit import get_toolkit, tool
 from executor.engine import Executor
 
 _executor = Executor()
+
+
+def _run_tool_action(action: dict, fallback: str) -> str:
+    results = _executor.run([action])
+    if not results:
+        return fallback
+    first = results[0] if isinstance(results[0], dict) else {}
+    verification_detail = " ".join(str(first.get("verification_detail", "") or "").split()).strip()
+    if verification_detail:
+        return verification_detail
+    text = " ".join(str(first.get("result", "") or first.get("error", "") or "").split()).strip()
+    return text or fallback
 
 
 def _project_cwd(project: str) -> str | None:
@@ -50,79 +62,68 @@ def _default_vps_host() -> str:
 @tool
 def open_project(name: str) -> str:
     """Open a named project in the editor."""
-    result = _executor.run([{"type": "open_project", "name": name}])
-    return result[0].get("result", "opened") if result else "opened"
+    return _run_tool_action({"type": "open_project", "name": name}, "opened")
 
 
 @tool
 def focus_app(app: str) -> str:
     """Focus or open a macOS application by name."""
-    result = _executor.run([{"type": "focus_app", "app": app}])
-    return result[0].get("result", "focused") if result else "focused"
+    return _run_tool_action({"type": "focus_app", "app": app}, "focused")
 
 
 @tool
 def minimize_app(app: str) -> str:
     """Minimize a macOS application window."""
-    result = _executor.run([{"type": "minimize_app", "app": app}])
-    return result[0].get("result", "minimized") if result else "minimized"
+    return _run_tool_action({"type": "minimize_app", "app": app}, "minimized")
 
 
 @tool
 def hide_app(app: str) -> str:
     """Hide a macOS application without quitting it."""
-    result = _executor.run([{"type": "hide_app", "app": app}])
-    return result[0].get("result", "hidden") if result else "hidden"
+    return _run_tool_action({"type": "hide_app", "app": app}, "hidden")
 
 
 @tool
 def run_shell(command: str, project: str = "") -> str:
     """Run a shell command in a project directory."""
-    result = _executor.run([{"type": "run_command", "cmd": command, "cwd": _project_cwd(project)}])
-    return result[0].get("result", "") if result else ""
+    return _run_tool_action({"type": "run_command", "cmd": command, "cwd": _project_cwd(project)}, "")
 
 
 @tool
 def send_email(to: str, subject: str, body: str) -> str:
     """Open Gmail compose with recipient, subject and body pre-filled."""
-    result = _executor.run([{"type": "send_email", "to": to, "subject": subject, "body": body}])
-    return result[0].get("result", "email opened") if result else "email opened"
+    return _run_tool_action({"type": "send_email", "to": to, "subject": subject, "body": body}, "email opened")
 
 
 @tool
 def send_whatsapp(contact: str, message: str) -> str:
     """Send a WhatsApp message to a contact via keyboard simulation."""
-    result = _executor.run([{"type": "send_whatsapp", "contact": contact, "message": message}])
-    return result[0].get("result", "sent") if result else "sent"
+    return _run_tool_action({"type": "send_whatsapp", "contact": contact, "message": message}, "sent")
 
 
 @tool
 def chrome_open_tab(url: str) -> str:
     """Open a URL in a new Chrome tab."""
-    result = _executor.run([{"type": "chrome_open_tab", "url": url}])
-    return result[0].get("result", "opened") if result else "opened"
+    return _run_tool_action({"type": "chrome_open_tab", "url": url}, "opened")
 
 
 @tool
 def chrome_focus_tab(tab_title: str) -> str:
     """Switch to a Chrome tab by its title."""
-    result = _executor.run([{"type": "chrome_focus_tab", "tab_title": tab_title}])
-    return result[0].get("result", "focused") if result else "focused"
+    return _run_tool_action({"type": "chrome_focus_tab", "tab_title": tab_title}, "focused")
 
 
 @tool
 def chrome_close_tab(tab_title: str) -> str:
     """Close a Chrome tab by its title."""
-    result = _executor.run([{"type": "chrome_close_tab", "tab_title": tab_title}])
-    return result[0].get("result", "closed") if result else "closed"
+    return _run_tool_action({"type": "chrome_close_tab", "tab_title": tab_title}, "closed")
 
 
 @tool
 def spotify_control(action: str, query: str = "") -> str:
     """Control Spotify: play, pause, next, prev, volume_up, volume_down, now_playing."""
     action_type = "play_music" if action == "play" else f"spotify_{action}"
-    result = _executor.run([{"type": action_type, "query": query}])
-    return result[0].get("result", action) if result else action
+    return _run_tool_action({"type": action_type, "query": query}, action)
 
 
 @tool
@@ -154,22 +155,19 @@ def git_commit(project: str = "", message_hint: str = "") -> str:
 @tool
 def set_reminder(time: str, message: str) -> str:
     """Create a macOS reminder at a time offset like '30 minutes' or '2 hours'."""
-    result = _executor.run([{"type": "remind_in", "minutes": _minutes_from_time_spec(time), "message": message}])
-    return result[0].get("result", "reminder set") if result else "reminder set"
+    return _run_tool_action({"type": "remind_in", "minutes": _minutes_from_time_spec(time), "message": message}, "reminder set")
 
 
 @tool
 def ssh_vps(command: str) -> str:
     """Run a shell command on the configured VPS over SSH."""
-    result = _executor.run([{"type": "ssh_command", "host": _default_vps_host(), "cmd": command}])
-    return result[0].get("result", "") if result else ""
+    return _run_tool_action({"type": "ssh_command", "host": _default_vps_host(), "cmd": command}, "")
 
 
 @tool
 def obsidian_note(title: str, content: str) -> str:
     """Create or append to an Obsidian note."""
-    result = _executor.run([{"type": "obsidian_note", "title": title, "content": content, "folder": "Daily"}])
-    return result[0].get("result", "noted") if result else "noted"
+    return _run_tool_action({"type": "obsidian_note", "title": title, "content": content, "folder": "Daily"}, "noted")
 
 
 @tool
@@ -265,7 +263,13 @@ def web_search_summarize(query: str) -> str:
     raw = result.get("result", "")
     if not raw:
         return "I couldn't find anything."
-    summary = _call(f"Summarize in under 20 words: {raw}", "gemma4:e4b", max_tokens=40, temperature=0.1)
+    summary = _call(
+        f"Summarize in under 20 words: {raw}",
+        TOOL_SUMMARIZER_MODEL,
+        max_tokens=40,
+        temperature=0.1,
+        timeout_hint="voice",
+    )
     return summary or raw[:200]
 
 

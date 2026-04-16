@@ -24,6 +24,7 @@ from butler import (
     _recent_dialogue_context,
     _remember_conversation_turn,
     _resolve_followup_text,
+    _route_initial_intent,
     _rewrite_speech_with_agent_results,
     _resolve_pending_dialogue,
     _run_actions_with_response,
@@ -112,6 +113,34 @@ class ButlerPipelineTests(unittest.TestCase):
         mock_get_cached_context.assert_not_called()
         mock_executor_run.assert_called_once()
 
+    @patch("skills.match_skill", return_value=(None, {}))
+    @patch("butler.note_intent")
+    @patch("butler.add_event")
+    @patch("butler.note_heard_text")
+    @patch("butler.speak")
+    @patch("butler.executor.run", return_value=[{"status": "ok", "result": "Went back in browser"}])
+    @patch("butler._get_cached_context")
+    @patch("butler._ensure_watcher_started")
+    def test_direct_browser_navigation_skips_context_build(
+        self,
+        _mock_watcher,
+        mock_get_cached_context,
+        mock_executor_run,
+        _mock_speak,
+        _mock_heard,
+        _mock_event,
+        _mock_intent,
+        _mock_skill_match,
+    ):
+        butler_module.state.transition(State.IDLE)
+
+        handle_input("go back")
+
+        mock_get_cached_context.assert_not_called()
+        mock_executor_run.assert_called_once()
+        action = mock_executor_run.call_args.args[0][0]
+        self.assertEqual(action["type"], "browser_go_back")
+
     @patch("butler._record")
     @patch("butler.observe_and_followup")
     @patch("butler.speak")
@@ -150,6 +179,13 @@ class ButlerPipelineTests(unittest.TestCase):
         enriched = _contextualize_action(action, intent, ctx)
         self.assertEqual(enriched["directory"], "~/Burry/mac-butler")
 
+    def test_contextualize_zip_folder_uses_workspace_when_path_missing(self):
+        action = {"type": "zip_folder", "path": ""}
+        intent = IntentResult("zip_folder", {"path": ""}, 0.9, "zip this folder")
+        ctx = {"raw": {"editor": {"workspace_paths": ["~/Burry/mac-butler"]}}}
+        enriched = _contextualize_action(action, intent, ctx)
+        self.assertEqual(enriched["path"], "~/Burry/mac-butler")
+
     def test_quick_response_for_open_project(self):
         intent = IntentResult("open_project", {"project": "mac-butler"}, 0.9, "open mac-butler")
         self.assertIn("Opening", get_quick_response(intent))
@@ -164,7 +200,7 @@ class ButlerPipelineTests(unittest.TestCase):
 
     def test_unknown_music_request_sets_song_clarification(self):
         response = _unknown_response_for_text("spotify song please")
-        self.assertEqual(response, "I didn't catch the song. Say the title and artist.")
+        self.assertEqual(response, "Which song should I play?")
 
         follow_up = _resolve_pending_dialogue("mockingbird by eminem")
         self.assertIsNotNone(follow_up)
@@ -186,6 +222,74 @@ class ButlerPipelineTests(unittest.TestCase):
     def test_should_use_brain_for_unknown_dialogue_followup(self):
         self.assertTrue(_should_use_brain_for_unknown("you are integrating that"))
         self.assertFalse(_should_use_brain_for_unknown("bye"))
+
+    @patch("skills.match_skill", side_effect=AssertionError("skills should not run for instant commands"))
+    @patch("butler.route")
+    @patch("butler.instant_route")
+    def test_route_initial_intent_checks_instant_before_skills_and_classifier(
+        self,
+        mock_instant_route,
+        mock_route,
+        _mock_skill_match,
+    ):
+        mock_instant_route.return_value = IntentResult("browser_new_tab", confidence=1.0, raw="new tab")
+
+        intent = _route_initial_intent("new tab", test_mode=True)
+
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent.name, "browser_new_tab")
+        mock_instant_route.assert_called_once_with("new tab")
+        mock_route.assert_not_called()
+
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    @patch("butler.add_event")
+    @patch("butler.note_heard_text")
+    @patch("butler.route")
+    @patch("skills.match_skill")
+    @patch("butler.instant_route", return_value=None)
+    def test_route_initial_intent_runs_skill_before_classifier_when_no_instant_match(
+        self,
+        _mock_instant_route,
+        mock_skill_match,
+        mock_route,
+        _mock_heard,
+        _mock_event,
+        _mock_speak_or_print,
+        _mock_record,
+    ):
+        mock_skill_match.return_value = (
+            {
+                "name": "email_skill",
+                "execute": lambda _text, _entities: {
+                    "speech": "Opening Gmail to vedang@gmail.com.",
+                    "actions": [{"type": "open_url", "url": "https://mail.google.com"}],
+                },
+            },
+            {"recipient": "vedang@gmail.com"},
+        )
+
+        handled = _route_initial_intent("compose email to vedang@gmail.com", test_mode=True)
+
+        self.assertIsNone(handled)
+        mock_route.assert_not_called()
+
+    @patch("skills.match_skill", return_value=(None, {}))
+    @patch("butler.route")
+    @patch("butler.instant_route", return_value=None)
+    def test_route_initial_intent_calls_classifier_after_instant_and_skill_miss(
+        self,
+        _mock_instant_route,
+        mock_route,
+        _mock_skill_match,
+    ):
+        mock_route.return_value = IntentResult("question", confidence=0.9, raw="what is phase 1")
+
+        intent = _route_initial_intent("what is phase 1", test_mode=True)
+
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent.name, "question")
+        mock_route.assert_called_once_with("what is phase 1", allow_instant=False)
 
     @patch("butler.load_runtime_state")
     def test_recent_dialogue_context_uses_runtime_state(self, mock_runtime):
@@ -260,7 +364,7 @@ class ButlerPipelineTests(unittest.TestCase):
     @patch("memory.store.load_recent_sessions", return_value=[])
     @patch("projects.load_projects", return_value=[])
     @patch("butler.load_mac_state", return_value={"cursor_workspace": ""})
-    def test_startup_briefing_uses_gemma_model(
+    def test_startup_briefing_uses_configured_model(
         self,
         _mock_mac_state,
         _mock_load_projects,
@@ -269,7 +373,7 @@ class ButlerPipelineTests(unittest.TestCase):
     ):
         butler_module._generate_startup_briefing({"raw": {"editor": {"workspace_paths": []}}})
 
-        self.assertEqual(mock_raw_llm.call_args.kwargs["model"], "gemma4:e4b")
+        self.assertEqual(mock_raw_llm.call_args.kwargs["model"], butler_module.STARTUP_BRIEFING_MODEL)
 
     def test_tool_schema_includes_new_desktop_actions(self):
         names = {tool["function"]["name"] for tool in TOOLS}
@@ -356,6 +460,23 @@ class ButlerPipelineTests(unittest.TestCase):
         )
         self.assertEqual(observation, "Docker looks healthy overall.")
 
+    @patch("butler._raw_llm", side_effect=AssertionError("verification detail should bypass llm follow-up"))
+    def test_observe_and_followup_prefers_verification_detail(self, _mock_llm):
+        observation = observe_and_followup(
+            {"speech": "Opening Gmail."},
+            [
+                {
+                    "action": "compose_email",
+                    "status": "ok",
+                    "result": "opened Gmail compose for vedang@gmail.com",
+                    "verification_status": "verified",
+                    "verification_detail": "Confirmed Gmail compose is open.",
+                }
+            ],
+            test_mode=False,
+        )
+        self.assertEqual(observation, "Confirmed Gmail compose is open.")
+
     def test_observe_and_followup_skips_open_project_results(self):
         observation = observe_and_followup(
             {"speech": "Opening Adpilot."},
@@ -363,6 +484,24 @@ class ButlerPipelineTests(unittest.TestCase):
             test_mode=False,
         )
         self.assertEqual(observation, "")
+
+    @patch(
+        "brain.tools_registry._executor.run",
+        return_value=[
+            {
+                "action": "send_whatsapp",
+                "status": "ok",
+                "result": "WhatsApp message sent to Rushil",
+                "verification_status": "degraded",
+                "verification_detail": "WhatsApp opened, but I couldn't confirm the message was delivered.",
+            }
+        ],
+    )
+    def test_call_tool_with_toolkit_prefers_verification_detail_from_tools(self, _mock_run):
+        reply = _call_tool_with_toolkit("send_whatsapp", {"contact": "Rushil", "message": "ship it"})
+
+        self.assertIn("couldn't confirm", reply["speech"].lower())
+        self.assertIn("couldn't confirm", reply["results"][0]["result"].lower())
 
     @patch("butler._raw_llm", return_value="Something went wrong.")
     def test_rewrite_speech_with_agent_results_falls_back_to_agent_output(self, _mock_llm):

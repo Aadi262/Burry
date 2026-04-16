@@ -111,6 +111,16 @@ class TestInstantLaneTiming:
         elapsed_ms = (time.monotonic() - start) * 1000
         assert elapsed_ms < 200, f"casual response took {elapsed_ms:.0f}ms"
 
+    @patch("pipeline.router.plan_semantic_task")
+    @patch("butler._speak_or_print")
+    def test_casual_response_skips_semantic_planning(self, mock_speak, mock_plan):
+        from butler import handle_input
+
+        handle_input("thank you", test_mode=True)
+
+        mock_plan.assert_not_called()
+        mock_speak.assert_called_once()
+
 
 class TestStopIsHardControl:
     """Stop command works instantly, even during busy state."""

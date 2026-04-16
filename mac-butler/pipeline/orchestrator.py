@@ -7,12 +7,11 @@ import json
 import queue
 import re
 
-import requests
-
 import brain.agentscope_backbone as backbone
 import brain.ollama_client as ollama_client
 import brain.toolkit as toolkit_module
 import memory.store as memory_store
+from butler_config import SMART_REPLY_MODEL as CONFIG_SMART_REPLY_MODEL
 from brain.mood_engine import get_mood, get_mood_instruction
 from brain.query_analyzer import analyze_query
 from brain.tools_registry import TOOLS
@@ -140,22 +139,27 @@ def _fast_path_llm_response(
 
 
 _SMART_REPLY_SYSTEM = (
-    "You are Burry, a local Mac AI assistant. Answer in 1-2 sentences maximum. "
-    "If you need tools or research say exactly NEEDS_TOOLS. "
-    "If you need project or task context say exactly NEEDS_CONTEXT."
+    "You are Burry, a local Mac AI assistant. Answer in 1-2 short natural sentences maximum. "
+    "Answer directly when the question is simple, factual, conversational, or a follow-up to recent dialogue. "
+    "If the answer depends on current live information, web search, external browsing, or tools, say exactly NEEDS_TOOLS. "
+    "If you need project or task context to answer accurately, say exactly NEEDS_CONTEXT."
 )
-_SMART_REPLY_MODEL = "gemma4:e4b"
+_SMART_REPLY_MODEL = CONFIG_SMART_REPLY_MODEL
 
 
 def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | None:
     b = _butler()
     fast_model = model or _SMART_REPLY_MODEL
-    generate_url, headers = b._get_ollama_url()
-    chat_url = generate_url.replace("/api/generate", "/api/chat")
-    use_vps_backend = generate_url != f"{b.OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
-    resolved_model = b._resolve_backend_model(fast_model, use_vps_backend)
 
     messages = [{"role": "system", "content": _SMART_REPLY_SYSTEM}]
+    dialogue = b._recent_turns_prompt_text()
+    if dialogue:
+        messages.append(
+            {
+                "role": "system",
+                "content": dialogue[:700],
+            }
+        )
     if ctx:
         formatted = ctx.get("formatted", "")
         if formatted:
@@ -167,16 +171,15 @@ def _smart_reply(text: str, ctx: dict, *, model: str | None = None) -> str | Non
             )
     messages.append({"role": "user", "content": text})
 
-    payload = {
-        "model": resolved_model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": 0.1, "num_predict": 80},
-    }
     try:
-        response = requests.post(chat_url, json=payload, headers=headers, timeout=15)
-        response.raise_for_status()
-        raw = response.json().get("message", {}).get("content", "").strip()
+        payload = b.chat_with_ollama(
+            messages,
+            fast_model,
+            max_tokens=80,
+            temperature=0.1,
+            timeout_hint="voice",
+        )
+        raw = str(((payload or {}).get("message") or {}).get("content", "") or "").strip()
         if not raw:
             return None
         if "NEEDS_TOOLS" in raw:
@@ -569,7 +572,7 @@ def _call_tool_with_toolkit(tool_name: str, arguments: dict) -> dict:
         }
         if name == "recall_memory":
             matches = memory_store.semantic_search(str(args.get("query", "")).strip(), n=3)
-            b.note_memory_recall(str(args.get("query", "")).strip(), matches)
+            b.note_memory_recall(str(args.get("query", "")).strip(), matches, source="semantic_search")
             payload["matches"] = _clip_tool_payload(matches)
         b.note_tool_finished(name, "ok", result_text[:200] or "Done.")
         return {
@@ -809,6 +812,16 @@ def observe_and_followup(
     b = _butler()
     if test_mode or not execution_results:
         return ""
+
+    verification_notes = [
+        " ".join(str(result.get("verification_detail", "") or "").split()).strip()
+        for result in execution_results
+        if result.get("status") == "ok"
+        and str(result.get("verification_status", "") or "").strip() in {"verified", "degraded"}
+        and " ".join(str(result.get("verification_detail", "") or "").split()).strip()
+    ]
+    if verification_notes:
+        return b._normalize_response(verification_notes[0], max_words=24, single_sentence=True)
 
     trivial_actions = {
         "open_app",

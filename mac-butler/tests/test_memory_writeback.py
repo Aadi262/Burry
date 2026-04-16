@@ -87,6 +87,31 @@ class TestProjectMemoryWriteBack(unittest.TestCase):
         )
         self.assertTrue(state.get("last_opened"))
 
+    def test_verified_side_effect_records_verification_fields(self):
+        from memory import store
+
+        with patch.object(store, "MEMORY_PATH", self.memory_path), patch(
+            "memory.layered.save_project_detail"
+        ):
+            store.record_project_execution(
+                "create notes.txt in mac-butler",
+                "Creating notes.txt.",
+                [{"type": "create_file", "path": "~/Burry/mac-butler/notes.txt"}],
+                [
+                    {
+                        "status": "ok",
+                        "result": "created ~/Burry/mac-butler/notes.txt",
+                        "verification_status": "verified",
+                        "verification_detail": "Confirmed the file exists at ~/Burry/mac-butler/notes.txt.",
+                    }
+                ],
+            )
+
+        state = json.loads(self.memory_path.read_text(encoding="utf-8"))["project_state"]["mac-butler"]
+        self.assertEqual(state["last_verification_status"], "verified")
+        self.assertIn("Confirmed the file exists", state["last_verification_detail"])
+        self.assertTrue(state.get("last_verified_at"))
+
 
 if __name__ == "__main__":
     unittest.main()

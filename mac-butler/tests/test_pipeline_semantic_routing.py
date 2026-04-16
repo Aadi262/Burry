@@ -59,8 +59,8 @@ class SemanticRoutingIntegrationTests(unittest.TestCase):
 
         mock_note_intent.assert_any_call(
             "create_folder",
-            {"path": "/Users/adityatiwari/Desktop/aditya test"},
-            0.88,
+            {"path": "~/Desktop", "name": "aditya test"},
+            1.0,
             raw="create a folder on desktop with name aditya test",
         )
 
@@ -80,18 +80,17 @@ class SemanticRoutingIntegrationTests(unittest.TestCase):
         recorded_intent = mock_record.call_args.kwargs["intent_name"]
         self.assertEqual(recorded_intent, "lookup_weather")
 
+    @patch("agents.runner.run_agent", return_value={"result": "Top AI story: new model release."})
     @patch("butler.note_intent")
-    @patch("butler.executor.run", return_value=[{"action": "run_agent", "status": "ok", "result": "Top AI story: new model release."}])
     @patch("butler._record")
     @patch("butler._speak_or_print")
-    def test_handle_input_overrides_background_news_with_sync_lookup(self, mock_speak, mock_record, mock_run, mock_note_intent):
+    def test_handle_input_overrides_background_news_with_sync_lookup(self, mock_speak, mock_record, mock_note_intent, mock_run_agent):
         butler.handle_input("latest ai news", test_mode=True)
 
-        mock_run.assert_called_once()
-        action = mock_run.call_args.args[0][0]
-        self.assertEqual(action["type"], "run_agent")
-        self.assertEqual(action["agent"], "news")
-        mock_note_intent.assert_any_call("news", {"topic": "AI"}, 0.85, raw="latest ai news")
+        mock_run_agent.assert_called_once()
+        self.assertEqual(mock_run_agent.call_args.args[0], "news")
+        self.assertEqual(mock_run_agent.call_args.args[1]["topic"], "AI")
+        mock_note_intent.assert_any_call("news", {"topic": "AI", "hours": 24}, 1.0, raw="latest ai news")
         recorded_intent = mock_record.call_args.kwargs["intent_name"]
         self.assertEqual(recorded_intent, "news")
 

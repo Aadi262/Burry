@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import patch
 
 from capabilities.planner import plan_semantic_task
-from capabilities.registry import build_action, get_tool_spec
+from capabilities.registry import (
+    build_action,
+    get_capability_descriptor,
+    get_tool_spec,
+    list_public_capabilities,
+    tool_catalog_for_prompt,
+)
 
 
 class SemanticPlannerTests(unittest.TestCase):
@@ -60,6 +66,7 @@ class ToolRegistryTests(unittest.TestCase):
         spec = get_tool_spec("check_vps")
         self.assertIsNotNone(spec)
         self.assertTrue(spec.sync_execution)
+        self.assertEqual(spec.capability_id, "T14")
 
     def test_compose_email_builds_browser_action(self):
         action = build_action(
@@ -73,6 +80,19 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertEqual(action["type"], "open_url_in_browser")
         self.assertIn("to=vedang2803%40gmail.com", action["url"])
         self.assertIn("body=how+are+u", action["url"])
+        self.assertEqual(action["capability_id"], "E03")
+        self.assertEqual(action["tool_name"], "compose_email")
+
+    def test_public_capability_descriptors_are_stable_and_prompt_catalog_uses_ids(self):
+        descriptor = get_capability_descriptor("lookup_news")
+        descriptors = list_public_capabilities()
+        catalog = tool_catalog_for_prompt()
+
+        self.assertIsNotNone(descriptor)
+        self.assertEqual(descriptor.capability_id, "K03")
+        self.assertEqual(descriptor.tool_name, "lookup_news")
+        self.assertTrue(any(item.capability_id == "SY14" for item in descriptors))
+        self.assertIn("[K03] lookup_news", catalog)
 
 
 if __name__ == "__main__":
