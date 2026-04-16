@@ -101,6 +101,17 @@ class BurryOllamaChatModel(OllamaChatModel):
         options: dict[str, Any],
     ) -> AsyncGenerator[ChatResponse, None]:
         url, headers, backend = _get_request_target_for_model(self.model_name)
+        if backend not in {"local", "vps", "auto"}:
+            yield await asyncio.to_thread(
+                self._chat_once,
+                start_datetime,
+                messages,
+                tools,
+                structured_model,
+                options,
+            )
+            return
+
         request_url = url.replace("/api/generate", "/api/chat")
         use_vps_backend = backend == "vps"
         resolved_model = _resolve_backend_model(self.model_name, use_vps_backend)

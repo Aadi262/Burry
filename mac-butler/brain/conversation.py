@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from butler_config import CONVERSATION_MODEL as CONFIG_CONVERSATION_MODEL
 from brain.ollama_client import chat_with_ollama
 from brain.session_context import ctx
 
-CONVERSATION_MODEL = "gemma4:e4b"
+CONVERSATION_MODEL = CONFIG_CONVERSATION_MODEL
 CONVERSATION_SYSTEM = """You are Burry — Aditya's personal Mac AI.
 You know everything about him:
 - Works at IEX as a backend engineer (C#, SQL, Redis, Service Fabric)

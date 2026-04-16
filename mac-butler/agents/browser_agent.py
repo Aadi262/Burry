@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import re
 
+from butler_config import BUTLER_MODELS
+
+BROWSER_AGENT_MODEL = BUTLER_MODELS.get("review", BUTLER_MODELS.get("voice", ""))
 
 def _extract_task_url(task: str) -> str:
     raw = str(task or "").strip()
@@ -50,7 +53,7 @@ def _github_latest_commit_summary(task: str, page_text: str) -> str:
     return ""
 
 
-async def _browse_and_act_custom(task: str, model_name: str = "gemma4:e4b") -> str:
+async def _browse_and_act_custom(task: str, model_name: str = BROWSER_AGENT_MODEL) -> str:
     """Fallback browser task execution using Playwright or the legacy browser agent."""
     try:
         from playwright.async_api import async_playwright
@@ -101,7 +104,7 @@ async def _browse_and_act_custom(task: str, model_name: str = "gemma4:e4b") -> s
             return f"Browser unavailable: {exc}"
 
 
-async def browse_and_act(task: str, model_name: str = "gemma4:e4b") -> str:
+async def browse_and_act(task: str, model_name: str = BROWSER_AGENT_MODEL) -> str:
     """Async browser task entrypoint backed by the custom fallback implementation."""
     return await _browse_and_act_custom(task, model_name=model_name)
 
@@ -128,7 +131,7 @@ def sync_browse(task: str) -> str:
         agent = BrowserAgent(
             name="burry-browser",
             model=BurryOllamaChatModel(
-                model_name="gemma4:e4b",
+                model_name=BROWSER_AGENT_MODEL,
                 stream=False,
                 options={"num_ctx": 4096},
             ),

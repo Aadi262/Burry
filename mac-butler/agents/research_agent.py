@@ -8,8 +8,11 @@ from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.plan import PlanNotebook
 
+from butler_config import BUTLER_MODELS
 from brain.agentscope_backbone import build_agentscope_toolkit, create_react_agent
 from runtime.telemetry import note_agent_result
+
+RESEARCH_MODEL = BUTLER_MODELS.get("review", "")
 
 _RESEARCH_SYSTEM_PROMPT = """You are Burry's research agent.
 
@@ -63,7 +66,7 @@ async def _run_research_custom(question: str, model: str) -> str:
     return answer
 
 
-def _deep_research_custom(question: str, model: str = "gemma4:e4b") -> str:
+def _deep_research_custom(question: str, model: str = RESEARCH_MODEL) -> str:
     import concurrent.futures
 
     try:
@@ -75,7 +78,7 @@ def _deep_research_custom(question: str, model: str = "gemma4:e4b") -> str:
         return asyncio.run(_run_research_custom(question, model))
 
 
-def deep_research(question: str, model: str = "gemma4:e4b") -> str:
+def deep_research(question: str, model: str = RESEARCH_MODEL) -> str:
     """Use AgentScope DeepResearchAgent if available, custom fallback otherwise."""
     try:
         asyncio.get_running_loop()

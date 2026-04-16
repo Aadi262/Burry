@@ -14,10 +14,52 @@ VPS_HOSTS = [
     {"label": "Contabo VPS", "host": "root@194.163.146.149"},
 ]
 
-# --- Orchestrator LLM ---
-# Orchestrator handles planning + speech (runs every trigger)
-# VPS Ollama offloading
-# Set USE_VPS_OLLAMA = True once your VPS is configured.
+
+def _chain(*items: str) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        clean = str(item or "").strip()
+        if not clean or clean in seen:
+            continue
+        ordered.append(clean)
+        seen.add(clean)
+    return ordered
+
+
+def _model_ref(provider: str, model: str) -> str:
+    clean_provider = str(provider or "").strip()
+    clean_model = str(model or "").strip()
+    if not clean_provider:
+        return clean_model
+    if not clean_model:
+        return clean_provider
+    return f"{clean_provider}::{clean_model}"
+
+
+def split_model_ref(value: str) -> tuple[str, str]:
+    raw = str(value or "").strip()
+    if "::" not in raw:
+        return ("auto", raw)
+    provider, model = raw.split("::", 1)
+    return (provider.strip() or "auto", model.strip())
+
+
+def _speech_target(provider: str, **kwargs) -> dict:
+    payload = {"provider": str(provider or "").strip()}
+    for key, value in kwargs.items():
+        if value in ("", None, [], {}):
+            continue
+        payload[str(key)] = value
+    return payload
+
+
+def _target_list(*targets: dict) -> list[dict]:
+    return [dict(target) for target in targets if isinstance(target, dict) and target.get("provider")]
+
+
+# --- Legacy Ollama Compatibility ---
+# Keep these local fallbacks so older code paths and degraded mode still work.
 USE_VPS_OLLAMA = False
 VPS_OLLAMA_URL = "http://194.163.146.149:8765/ollama"
 VPS_OLLAMA_USER = "butler"
@@ -25,70 +67,154 @@ VPS_OLLAMA_PASS = ""      # stored locally in secrets/local_secrets.json
 VPS_OLLAMA_MODEL = "gemma4:26b"
 VPS_OLLAMA_FALLBACK = "deepseek-r1:14b"
 
-# Local fallback (used when VPS is unreachable)
-OLLAMA_LOCAL_URL = "http://localhost:11434"
-OLLAMA_MODEL = "deepseek-r1:14b"
-OLLAMA_FALLBACK = "deepseek-r1:7b"
+# Use 127.0.0.1 to avoid localhost IPv6 resolution glitches on macOS.
+OLLAMA_LOCAL_URL = "http://127.0.0.1:11434"
+OLLAMA_MODEL = "gemma4:e4b"
+OLLAMA_FALLBACK = "deepseek-r1:14b"
 
-# --- Butler Stage Models ---
-# Main Butler flow can route different stages to different models.
-BUTLER_MODELS = {
-    "voice": "gemma4:e4b",
-    "planning": "gemma4:e4b",
-    "vision": "gemma4:e4b",
-    "review": "deepseek-r1:14b",
-    "coding": "deepseek-r1:14b",
+# --- NVIDIA Provider Surface ---
+NVIDIA_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_API_KEY_ENV = "NVIDIA_API_KEY"
+
+NVIDIA_CLASSIFIER_MODEL = _model_ref("nvidia", "nvidia/nvidia-nemotron-nano-9b-v2")
+NVIDIA_VOICE_MODEL = NVIDIA_CLASSIFIER_MODEL
+NVIDIA_REASONING_MODEL = _model_ref("nvidia", "qwen/qwq-32b")
+NVIDIA_REVIEW_MODEL = _model_ref("nvidia", "deepseek-ai/deepseek-r1-distill-qwen-32b")
+NVIDIA_CODING_MODEL = _model_ref("nvidia", "qwen/qwen2.5-coder-32b-instruct")
+
+NVIDIA_RIVA_SERVER = "grpc.nvcf.nvidia.com:443"
+NVIDIA_RIVA_USE_SSL = True
+NVIDIA_RIVA_TTS_FUNCTION_ID = "877104f7-e885-42b9-8de8-f6e4c6303969"
+NVIDIA_RIVA_TTS_MODEL = "magpie-tts-multilingual"
+NVIDIA_RIVA_TTS_VOICE = "Magpie-Multilingual.EN-US.Aria"
+NVIDIA_RIVA_TTS_LANGUAGE_CODE = "auto"
+NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE = "en-US"
+NVIDIA_RIVA_TTS_HINDI_LANGUAGE_CODE = "hi-IN"
+NVIDIA_RIVA_TTS_SAMPLE_RATE_HZ = 44100
+NVIDIA_RIVA_ASR_FUNCTION_ID = "71203149-d3b7-4460-8231-1be2543a1fca"
+NVIDIA_RIVA_ASR_MODEL = "parakeet-1.1b-rnnt-multilingual-asr"
+NVIDIA_RIVA_ASR_LANGUAGE_CODE = "en-US"
+
+# --- Provider Metadata ---
+MODEL_PROVIDER_ENDPOINTS = {
+    "ollama_local": {
+        "kind": "ollama",
+        "base_url": OLLAMA_LOCAL_URL,
+        "health_url": "",
+    },
+    "ollama_vps": {
+        "kind": "ollama",
+        "base_url": VPS_OLLAMA_URL,
+        "health_url": "",
+        "auth": "basic",
+        "user": VPS_OLLAMA_USER,
+        "password": VPS_OLLAMA_PASS,
+        "secret_name": "ollama",
+    },
+    "nvidia": {
+        "kind": "openai",
+        "base_url": NVIDIA_API_BASE_URL,
+        "api_key_env": NVIDIA_API_KEY_ENV,
+    },
 }
 
+SPEECH_PROVIDER_ENDPOINTS = {
+    "kokoro": {"kind": "local_tts"},
+    "edge": {"kind": "local_tts"},
+    "say": {"kind": "local_tts"},
+    "mlx": {"kind": "local_stt"},
+    "faster": {"kind": "local_stt"},
+    "nvidia_riva_tts": {
+        "kind": "nvidia_riva_tts",
+        "server": NVIDIA_RIVA_SERVER,
+        "use_ssl": NVIDIA_RIVA_USE_SSL,
+        "api_key_env": NVIDIA_API_KEY_ENV,
+    },
+    "nvidia_riva_asr": {
+        "kind": "nvidia_riva_asr",
+        "server": NVIDIA_RIVA_SERVER,
+        "use_ssl": NVIDIA_RIVA_USE_SSL,
+        "api_key_env": NVIDIA_API_KEY_ENV,
+    },
+}
 
-def _chain(*models: str) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for model in models:
-        if not model or model in seen:
-            continue
-        ordered.append(model)
-        seen.add(model)
-    return ordered
-
+# --- Butler Stage Models ---
+# Higher-level logic should only ask for a role. Swapping providers should stay here.
+INTENT_CLASSIFIER_MODEL = NVIDIA_CLASSIFIER_MODEL
+STARTUP_BRIEFING_MODEL = NVIDIA_REASONING_MODEL
+BUTLER_MODELS = {
+    "voice": NVIDIA_VOICE_MODEL,
+    "planning": NVIDIA_REASONING_MODEL,
+    "vision": _model_ref("ollama_local", "llama3.2-vision"),
+    "review": NVIDIA_REVIEW_MODEL,
+    "coding": NVIDIA_CODING_MODEL,
+}
+CONVERSATION_MODEL = BUTLER_MODELS["voice"]
+SMART_REPLY_MODEL = BUTLER_MODELS["voice"]
+STRUCTURED_EXTRACTION_MODEL = INTENT_CLASSIFIER_MODEL
+TOOL_SUMMARIZER_MODEL = BUTLER_MODELS["voice"]
 
 BUTLER_MODEL_CHAINS = {
-    "voice": _chain(BUTLER_MODELS["voice"], "phi4-mini:latest", "llama3.2:3b"),
-    "planning": _chain(BUTLER_MODELS["planning"], "gemma4:e4b", "deepseek-r1:14b", "qwen2.5-coder:14b", "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
-    "vision": _chain(BUTLER_MODELS["vision"], BUTLER_MODELS["voice"], "llama3.2-vision", BUTLER_MODELS["planning"], OLLAMA_MODEL),
-    "review": _chain(BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
-    "coding": _chain(BUTLER_MODELS["coding"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", "glm-4.7-flash:latest", OLLAMA_FALLBACK),
+    "voice": _chain(
+        BUTLER_MODELS["voice"],
+        _model_ref("ollama_local", "gemma4:e4b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
+    ),
+    "planning": _chain(
+        BUTLER_MODELS["planning"],
+        NVIDIA_REVIEW_MODEL,
+        _model_ref("ollama_vps", "gemma4:26b"),
+        _model_ref("ollama_local", "gemma4:e4b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
+    ),
+    "vision": _chain(
+        BUTLER_MODELS["vision"],
+        _model_ref("ollama_local", "gemma4:e4b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
+    ),
+    "review": _chain(
+        BUTLER_MODELS["review"],
+        NVIDIA_REASONING_MODEL,
+        _model_ref("ollama_vps", "gemma4:26b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
+        _model_ref("ollama_local", "gemma4:e4b"),
+    ),
+    "coding": _chain(
+        BUTLER_MODELS["coding"],
+        NVIDIA_REVIEW_MODEL,
+        _model_ref("ollama_vps", "gemma4:26b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
+        _model_ref("ollama_local", "gemma4:e4b"),
+    ),
 }
 
 # --- Multi-Agent Models ---
-# Specialist agents use smaller/faster models for their specific tasks
-# Each falls back to OLLAMA_MODEL if not installed
 AGENT_MODELS = {
-    "news": "deepseek-r1:14b",
-    "market": "deepseek-r1:14b",
-    "hackernews": "gemma4:e4b",
-    "reddit": "gemma4:e4b",
-    "github_trending": "gemma4:e4b",
-    "vps": "deepseek-r1:14b",
-    "memory": "gemma4:e4b",
-    "code": "deepseek-r1:14b",
-    "search": "deepseek-r1:14b",
-    "github": "deepseek-r1:14b",
-    "bugfinder": "gemma4:e4b",
+    "news": NVIDIA_REVIEW_MODEL,
+    "market": NVIDIA_REVIEW_MODEL,
+    "hackernews": NVIDIA_VOICE_MODEL,
+    "reddit": NVIDIA_VOICE_MODEL,
+    "github_trending": NVIDIA_VOICE_MODEL,
+    "vps": NVIDIA_CODING_MODEL,
+    "memory": NVIDIA_VOICE_MODEL,
+    "code": NVIDIA_CODING_MODEL,
+    "search": NVIDIA_REVIEW_MODEL,
+    "github": NVIDIA_CODING_MODEL,
+    "bugfinder": NVIDIA_REVIEW_MODEL,
 }
 
 AGENT_MODEL_CHAINS = {
-    "news": _chain(AGENT_MODELS["news"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
-    "market": _chain(AGENT_MODELS["market"], BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b", OLLAMA_MODEL),
-    "hackernews": _chain(AGENT_MODELS["hackernews"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
-    "reddit": _chain(AGENT_MODELS["reddit"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
-    "github_trending": _chain(AGENT_MODELS["github_trending"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
-    "vps": _chain(AGENT_MODELS["vps"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", BUTLER_MODELS["planning"], OLLAMA_MODEL),
-    "memory": _chain(AGENT_MODELS["memory"], "phi4-mini:latest", "llama3.2:3b", OLLAMA_MODEL),
-    "code": _chain(AGENT_MODELS["code"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", OLLAMA_MODEL),
-    "search": _chain(AGENT_MODELS["search"], BUTLER_MODELS["review"], "glm-4.7-flash:latest", "deepseek-r1:7b"),
-    "github": _chain(AGENT_MODELS["github"], "qwen2.5-coder:14b", "deepseek-coder:6.7b", BUTLER_MODELS["planning"]),
-    "bugfinder": _chain(AGENT_MODELS["bugfinder"], "phi4-mini:latest", "deepseek-r1:7b", OLLAMA_FALLBACK),
+    "news": _chain(AGENT_MODELS["news"], _model_ref("ollama_local", "deepseek-r1:14b"), _model_ref("ollama_local", "gemma4:e4b")),
+    "market": _chain(AGENT_MODELS["market"], BUTLER_MODELS["review"], _model_ref("ollama_local", "deepseek-r1:14b")),
+    "hackernews": _chain(AGENT_MODELS["hackernews"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "reddit": _chain(AGENT_MODELS["reddit"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "github_trending": _chain(AGENT_MODELS["github_trending"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "vps": _chain(AGENT_MODELS["vps"], BUTLER_MODELS["coding"], _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "memory": _chain(AGENT_MODELS["memory"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "code": _chain(AGENT_MODELS["code"], _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "search": _chain(AGENT_MODELS["search"], BUTLER_MODELS["review"], _model_ref("ollama_local", "deepseek-r1:14b")),
+    "github": _chain(AGENT_MODELS["github"], BUTLER_MODELS["coding"], _model_ref("ollama_local", "deepseek-r1:14b")),
+    "bugfinder": _chain(AGENT_MODELS["bugfinder"], _model_ref("ollama_local", "deepseek-r1:14b"), _model_ref("ollama_local", "gemma4:e4b")),
 }
 
 # --- MCP Servers ---
@@ -122,14 +248,27 @@ AUTO_PLAY_MUSIC = True
 DEFAULT_MUSIC_MODE = "focus"
 
 # --- Voice output ---
-TTS_ENGINE = "say"        # "edge" | "kokoro" | "say" | "auto"
-TTS_VOICE = "af_bella"    # Kokoro voice when using the kokoro backend
+TTS_ENGINE = "nvidia_riva_tts"     # "nvidia_riva_tts" | "edge" | "kokoro" | "say" | "auto"
+TTS_VOICE = "af_sarah"    # Supported Kokoro voice with cleaner pronunciation than the broken "af" alias
 EDGE_TTS_VOICE = "en-US-AvaMultilingualNeural"
 EDGE_TTS_RATE = "+0%"
 TTS_SPEED = 1.0
 TTS_MAX_WORDS = 32        # Hard cap on spoken words
 PIPER_MODEL_PATH = ""
 PIPER_CONFIG_PATH = ""
+TTS_TARGETS = _target_list(
+    _speech_target(
+        "nvidia_riva_tts",
+        model=NVIDIA_RIVA_TTS_MODEL,
+        function_id=NVIDIA_RIVA_TTS_FUNCTION_ID,
+        voice=NVIDIA_RIVA_TTS_VOICE,
+        language_code=NVIDIA_RIVA_TTS_LANGUAGE_CODE,
+        sample_rate_hz=NVIDIA_RIVA_TTS_SAMPLE_RATE_HZ,
+    ),
+    _speech_target("kokoro", voice=TTS_VOICE, speed=TTS_SPEED),
+    _speech_target("edge", voice=EDGE_TTS_VOICE, rate=EDGE_TTS_RATE),
+    _speech_target("say"),
+)
 
 # Backward-compatible aliases for older code/docs.
 TTS_BACKEND = TTS_ENGINE
@@ -138,23 +277,34 @@ TTS_RATE = 165
 # --- Voice input ---
 VOICE_FOLLOWUP_ENABLED = True
 VOICE_FOLLOWUP_SECONDS = 4.0
-VOICE_INPUT_MODEL = "mlx-community/whisper-base-mlx"
-VOICE_FASTER_WHISPER_MODEL = "small.en"
+VOICE_INPUT_BACKEND = "nvidia_riva_asr"
+VOICE_INPUT_MODEL = "mlx-community/whisper-medium-mlx"
+VOICE_FASTER_WHISPER_MODEL = "medium.en"
 VOICE_INPUT_BEAM_SIZE = 3
-VOICE_INPUT_PROMPT = "Transcribe a short English voice assistant command. Preserve proper nouns and app names accurately."
+VOICE_INPUT_PROMPT = "Transcribe a short English or Hindi voice assistant command. Preserve proper nouns and app names accurately."
 STT_SILENCE_THRESHOLD = 0.015
 STT_MIN_SPEECH_S = 0.4
 STT_MAX_SPEECH_S = 8.0
+STT_TARGETS = _target_list(
+    _speech_target(
+        "nvidia_riva_asr",
+        model=NVIDIA_RIVA_ASR_MODEL,
+        function_id=NVIDIA_RIVA_ASR_FUNCTION_ID,
+        language_code=NVIDIA_RIVA_ASR_LANGUAGE_CODE,
+    ),
+    _speech_target("mlx", model=VOICE_INPUT_MODEL),
+    _speech_target("faster", model=VOICE_FASTER_WHISPER_MODEL, beam_size=VOICE_INPUT_BEAM_SIZE),
+)
 
 # --- Heartbeat (KAIROS) ---
 HEARTBEAT_ENABLED = True
-HEARTBEAT_MODEL = "gemma4:e4b"
+HEARTBEAT_MODEL = NVIDIA_VOICE_MODEL
 HEARTBEAT_INTERVAL_MINUTES = 5
 DAILY_INTEL_ENABLED = False
 
 # --- Bug Hunter ---
 BUG_HUNTER_ENABLED = True
-BUG_HUNTER_MODEL = "gemma4:e4b"
+BUG_HUNTER_MODEL = NVIDIA_REVIEW_MODEL
 BUG_HUNTER_INTERVAL_MINUTES = 20
 BUG_HUNTER_TARGET_PATH = "~/Burry/mac-butler"
 

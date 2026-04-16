@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import butler as butler_module
 import pipeline.router as router_module
-from brain.conversation import CONVERSATION_SYSTEM, conversation_messages, generate_conversation_reply
+from brain.conversation import CONVERSATION_MODEL, CONVERSATION_SYSTEM, conversation_messages, generate_conversation_reply
 from brain.session_context import ctx
 from intents.router import IntentResult
 from state import State
@@ -30,13 +30,13 @@ class ConversationModeTests(unittest.TestCase):
         self.assertEqual(messages[-1]["content"], "fresh prompt")
 
     @patch("brain.conversation.chat_with_ollama")
-    def test_generate_conversation_reply_uses_gemma_temperature(self, mock_chat):
+    def test_generate_conversation_reply_uses_configured_temperature(self, mock_chat):
         mock_chat.return_value = {"message": {"content": "Adpilot should own the event pipeline first."}}
 
         reply = generate_conversation_reply("brainstorm adpilot")
 
         self.assertEqual(reply, "Adpilot should own the event pipeline first.")
-        self.assertEqual(mock_chat.call_args.args[1], "gemma4:e4b")
+        self.assertEqual(mock_chat.call_args.args[1], CONVERSATION_MODEL)
         self.assertEqual(mock_chat.call_args.kwargs["temperature"], 0.7)
 
     @patch("brain.conversation.generate_conversation_reply", return_value="Adpilot needs a tighter event bus first.")

@@ -9,6 +9,7 @@ import shutil
 import threading
 import time
 
+from butler_config import BUTLER_MODELS
 from brain.ollama_client import _call, async_call
 from memory.store import load_recent_sessions
 from projects.project_store import load_projects
@@ -16,7 +17,7 @@ from runtime import note_ambient_context
 from utils import _clip_text
 
 AMBIENT_INTERVAL_SECONDS = 10 * 60
-AMBIENT_FALLBACK_MODEL = "gemma4:e4b"
+AMBIENT_FALLBACK_MODEL = BUTLER_MODELS.get("voice", "")
 _AMBIENT_LOCK = threading.Lock()
 _AMBIENT_THREAD: threading.Thread | None = None
 

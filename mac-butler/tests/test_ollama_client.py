@@ -54,15 +54,19 @@ class OllamaClientTests(unittest.TestCase):
         def backend_models(backend, force_refresh=False):
             if backend == "local":
                 return {
-                    "llama3.2:3b": "llama3.2:3b",
-                    "phi4-mini:latest": "phi4-mini:latest",
+                    "gemma4:e4b": "gemma4:e4b",
+                    "deepseek-r1:14b": "deepseek-r1:14b",
                 }
             return {}
 
-        with patch.object(ollama_client, "_get_backend_model_map", side_effect=backend_models):
+        with patch.object(ollama_client, "_get_backend_model_map", side_effect=backend_models), patch.object(
+            ollama_client,
+            "_provider_ready",
+            return_value=False,
+        ):
             model = ollama_client.pick_butler_model("voice")
 
-        self.assertEqual(model, "phi4-mini:latest")
+        self.assertEqual(model, "ollama_local::gemma4:e4b")
 
     @patch("brain.ollama_client._call", return_value="fallback voice")
     @patch("brain.ollama_client._get_mlx_voice_backend", return_value=None)
@@ -126,8 +130,8 @@ class OllamaClientTests(unittest.TestCase):
             result = json.loads(raw)
 
         self.assertEqual(mock_call.call_count, 1)
-        self.assertEqual(mock_call.call_args_list[0].args[1], "gemma4:e4b")
-        self.assertEqual(mock_call_voice.call_args.args[1], "gemma4:e4b")
+        self.assertTrue(mock_call.call_args_list[0].args[1].endswith("gemma4:e4b"))
+        self.assertTrue(mock_call_voice.call_args.args[1].endswith("gemma4:e4b"))
         self.assertIn("Current mood: focused", mock_call_voice.call_args.args[0])
         mock_graph.assert_called_once_with()
         self.assertEqual(result["actions"][0]["type"], "play_music")

@@ -14,8 +14,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from butler_config import TOOL_SUMMARIZER_MODEL
+
 PROJECTS_PATH = Path(__file__).resolve().parent / "projects.json"
-PROJECT_BLURB_MODEL = "gemma4:e4b"
+PROJECT_BLURB_MODEL = TOOL_SUMMARIZER_MODEL
 
 
 def _load_raw() -> list[dict]:

@@ -48,7 +48,7 @@ class DaemonConfigTests(unittest.TestCase):
             ],
         )
 
-    @patch("daemon.heartbeat._call", return_value="nothing")
+    @patch("daemon.heartbeat._background_model_call", return_value="nothing")
     @patch("daemon.heartbeat.build_structured_context", return_value={"formatted": "[TASK LIST]\n  ○ Ship HUD"})
     @patch("daemon.heartbeat._upcoming_calendar_lines", return_value=["Upcoming: Demo at 2 PM"])
     @patch("daemon.heartbeat.datetime")
@@ -58,8 +58,8 @@ class DaemonConfigTests(unittest.TestCase):
         heartbeat.heartbeat_tick()
 
         self.assertTrue(heartbeat.HEARTBEAT_ENABLED)
-        self.assertEqual(heartbeat.HEARTBEAT_MODEL, "gemma4:e4b")
-        self.assertEqual(mock_call.call_args.args[1], "gemma4:e4b")
+        self.assertTrue(heartbeat.HEARTBEAT_MODEL.startswith("nvidia::"))
+        self.assertEqual(mock_call.call_args.args[1], heartbeat.HEARTBEAT_MODEL)
         self.assertIn("[CALENDAR]", mock_call.call_args.args[0])
 
     @patch("daemon.bug_hunter.notify")
@@ -81,8 +81,8 @@ class DaemonConfigTests(unittest.TestCase):
         bug_hunter.run_bug_hunt_once()
 
         self.assertTrue(bug_hunter.BUG_HUNTER_ENABLED)
-        self.assertEqual(bug_hunter.BUG_HUNTER_MODEL, "gemma4:e4b")
-        self.assertEqual(mock_run_agent.call_args.kwargs["model_override"], "gemma4:e4b")
+        self.assertTrue(bug_hunter.BUG_HUNTER_MODEL.startswith("nvidia::"))
+        self.assertEqual(mock_run_agent.call_args.kwargs["model_override"], bug_hunter.BUG_HUNTER_MODEL)
 
 
 if __name__ == "__main__":

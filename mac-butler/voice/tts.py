@@ -16,13 +16,26 @@ import subprocess
 import tempfile
 import threading
 import time
+import wave
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
-from butler_config import EDGE_TTS_RATE, EDGE_TTS_VOICE, TTS_ENGINE, TTS_MAX_WORDS, TTS_SPEED, TTS_VOICE
+from butler_config import (
+    EDGE_TTS_RATE,
+    EDGE_TTS_VOICE,
+    NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE,
+    NVIDIA_RIVA_TTS_HINDI_LANGUAGE_CODE,
+    SPEECH_PROVIDER_ENDPOINTS,
+    TTS_ENGINE,
+    TTS_MAX_WORDS,
+    TTS_SPEED,
+    TTS_TARGETS,
+    TTS_VOICE,
+)
+from butler_secrets.loader import get_secret
 
 try:
     from runtime import note_spoken_text
@@ -83,15 +96,145 @@ def _edge_tts_module():
     return edge_tts
 
 
-def _tts_backend_order() -> tuple[str, ...]:
+def _provider_config(provider: str) -> dict:
+    return dict(SPEECH_PROVIDER_ENDPOINTS.get(str(provider or "").strip(), {}))
+
+
+def _target_provider(target: dict) -> str:
+    return str((target or {}).get("provider", "") or "").strip()
+
+
+def _dedupe_targets(targets: list[dict]) -> list[dict]:
+    ordered: list[dict] = []
+    seen: set[str] = set()
+    for target in targets:
+        provider = _target_provider(target)
+        if not provider or provider in seen:
+            continue
+        ordered.append(dict(target))
+        seen.add(provider)
+    return ordered
+
+
+def _legacy_tts_targets() -> list[dict]:
+    return [
+        {"provider": "edge", "voice": EDGE_TTS_VOICE, "rate": EDGE_TTS_RATE},
+        {"provider": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED},
+        {"provider": "say"},
+    ]
+
+
+def _tts_targets() -> tuple[dict, ...]:
+    targets = [dict(target) for target in TTS_TARGETS if isinstance(target, dict) and target.get("provider")]
+    if not targets:
+        targets = _legacy_tts_targets()
+
     engine = (TTS_ENGINE or "auto").lower().strip()
-    if engine == "edge":
-        return ("edge", "kokoro", "say")
-    if engine == "kokoro":
-        return ("kokoro", "say")
     if engine == "say":
-        return ("say",)
-    return ("edge", "kokoro", "say")
+        targets = [target for target in targets if _target_provider(target) == "say"] or [{"provider": "say"}]
+    elif engine == "kokoro":
+        targets = [target for target in targets if _target_provider(target) == "kokoro"] + [
+            target for target in targets if _target_provider(target) == "say"
+        ]
+    elif engine == "edge":
+        targets = [target for target in targets if _target_provider(target) == "edge"] + [
+            target for target in targets if _target_provider(target) in {"kokoro", "say"}
+        ]
+    elif engine == "nvidia_riva_tts":
+        targets = [target for target in targets if _target_provider(target) == "nvidia_riva_tts"] + [
+            target for target in targets if _target_provider(target) != "nvidia_riva_tts"
+        ]
+    return tuple(_dedupe_targets(targets))
+
+
+def _tts_backend_order() -> tuple[str, ...]:
+    return tuple(_target_provider(target) for target in _tts_targets())
+
+
+def _riva_tts_available() -> bool:
+    config = _provider_config("nvidia_riva_tts")
+    api_key_env = str(config.get("api_key_env", "") or "").strip()
+    if api_key_env and not get_secret(api_key_env, default=""):
+        return False
+    try:
+        import riva.client  # noqa: F401
+        from riva.client.proto.riva_audio_pb2 import AudioEncoding  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_tts_language(text: str, target: dict) -> str:
+    configured = str(target.get("language_code", "") or "").strip()
+    if configured and configured.lower() not in {"auto", "default"}:
+        return configured
+    if re.search(r"[\u0900-\u097F]", str(text or "")):
+        return NVIDIA_RIVA_TTS_HINDI_LANGUAGE_CODE
+    return NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE
+
+
+def _resolve_riva_voice(target: dict, language_code: str) -> str:
+    voice = str(target.get("voice", "") or "").strip()
+    if voice and language_code and language_code not in voice:
+        return ""
+    return voice
+
+
+def _try_nvidia_riva_tts(text: str, target: dict) -> bool:
+    config = _provider_config("nvidia_riva_tts")
+    api_key_env = str(config.get("api_key_env", "") or "").strip()
+    api_key = get_secret(api_key_env, default="") if api_key_env else ""
+    if api_key_env and not api_key:
+        return False
+
+    wav_path = Path(tempfile.mkstemp(prefix="mac-butler-riva-tts-", suffix=".wav")[1])
+    try:
+        import riva.client
+        from riva.client.proto.riva_audio_pb2 import AudioEncoding
+
+        metadata = [("authorization", f"Bearer {api_key}")] if api_key else []
+        function_id = str(target.get("function_id", "") or "").strip()
+        if function_id:
+            metadata.append(("function-id", function_id))
+
+        auth = riva.client.Auth(
+            uri=str(config.get("server", "") or "").strip(),
+            use_ssl=bool(config.get("use_ssl", True)),
+            metadata_args=metadata,
+        )
+        service = riva.client.SpeechSynthesisService(auth)
+        language_code = _resolve_tts_language(text, target)
+        voice = _resolve_riva_voice(target, language_code)
+        sample_rate_hz = int(target.get("sample_rate_hz") or 44100)
+        response = service.synthesize(
+            text,
+            voice or None,
+            language_code,
+            sample_rate_hz=sample_rate_hz,
+            encoding=AudioEncoding.LINEAR_PCM,
+        )
+        audio = bytes(getattr(response, "audio", b"") or b"")
+        if not audio:
+            return False
+
+        with wave.open(str(wav_path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(sample_rate_hz)
+            handle.writeframes(audio)
+
+        print(f"[Voice] 🔊 (nvidia_riva_tts:{language_code}) {text[:120]}")
+        subprocess.run(["afplay", "-v", "0.85", str(wav_path)], check=False)
+        return True
+    except Exception as exc:
+        print(f"[Voice] NVIDIA Riva TTS unavailable, falling back: {exc}")
+        return False
+    finally:
+        try:
+            wav_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _edge_tts_available() -> bool:
@@ -103,7 +246,15 @@ def _edge_tts_available() -> bool:
 
 
 def describe_tts() -> dict:
-    for backend in _tts_backend_order():
+    for target in _tts_targets():
+        backend = _target_provider(target)
+        if backend == "nvidia_riva_tts" and _riva_tts_available():
+            return {
+                "backend": backend,
+                "model": str(target.get("model", "") or "").strip(),
+                "voice": _resolve_riva_voice(target, NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE),
+                "language_code": str(target.get("language_code", "") or "auto").strip() or "auto",
+            }
         if backend == "edge" and _edge_tts_available():
             return {"backend": "edge", "voice": EDGE_TTS_VOICE, "rate": EDGE_TTS_RATE}
         if backend == "kokoro" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
@@ -115,7 +266,12 @@ def describe_tts() -> dict:
 
 def warm_tts() -> bool:
     warmed = False
-    for backend in _tts_backend_order():
+    for target in _tts_targets():
+        backend = _target_provider(target)
+        if backend == "nvidia_riva_tts":
+            if _riva_tts_available():
+                return True
+            continue
         if backend == "edge":
             try:
                 _edge_tts_module()
@@ -334,7 +490,12 @@ def speak(text: str) -> None:
         if not acquired:
             print("[Voice] Skipping overlapping speech.")
             return
-        for backend in _tts_backend_order():
+        for target in _tts_targets():
+            backend = _target_provider(target)
+            if backend == "nvidia_riva_tts" and _try_nvidia_riva_tts(clean, target):
+                _remember_recent_speech(clean)
+                note_spoken_text(clean)
+                return
             if backend == "edge" and _try_edge_tts(clean):
                 _remember_recent_speech(clean)
                 note_spoken_text(clean)

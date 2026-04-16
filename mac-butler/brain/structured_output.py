@@ -11,6 +11,8 @@ from typing import Optional, TypeVar
 
 from pydantic import BaseModel
 
+from butler_config import STRUCTURED_EXTRACTION_MODEL
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -30,7 +32,7 @@ class SearchIntent(BaseModel):
     time_sensitive: bool = False
 
 
-def extract_structured(text: str, schema: type[T], model: str = "gemma4:e4b") -> T | None:
+def extract_structured(text: str, schema: type[T], model: str = STRUCTURED_EXTRACTION_MODEL) -> T | None:
     """Use LLM to extract structured data from natural language.
     Falls back to None if extraction fails.
     """

@@ -8,8 +8,11 @@ from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.plan import PlanNotebook
 
+from butler_config import BUTLER_MODELS
 from brain.agentscope_backbone import build_agentscope_toolkit, create_react_agent
 from runtime.telemetry import note_agent_result
+
+PLANNER_MODEL = BUTLER_MODELS.get("planning", "")
 
 _PLANNER_SYSTEM_PROMPT = """You are Burry's planning agent.
 
@@ -71,7 +74,7 @@ async def _run_plan(task: str, ctx: dict, model: str) -> str:
     return speech
 
 
-def plan_and_execute(task: str, ctx: dict, model: str = "gemma4:e4b") -> str:
+def plan_and_execute(task: str, ctx: dict, model: str = PLANNER_MODEL) -> str:
     """Plan and execute a complex task with AgentScope orchestration."""
     import concurrent.futures
 

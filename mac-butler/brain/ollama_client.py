@@ -8,6 +8,7 @@ Two-stage Ollama client:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import random
@@ -21,7 +22,7 @@ try:
 except ImportError:
     psutil = None
 
-from butler_secrets.loader import get_ollama_secret
+from butler_secrets.loader import get_ollama_secret, get_secret
 from memory.graph import read_graph
 from utils import _normalize
 from butler_config import (
@@ -30,6 +31,8 @@ from butler_config import (
     BUTLER_MODEL_CHAINS,
     BUTLER_MODELS,
     HEARTBEAT_MODEL,
+    MODEL_PROVIDER_ENDPOINTS,
+    NVIDIA_API_KEY_ENV,
     OLLAMA_FALLBACK,
     OLLAMA_LOCAL_URL,
     OLLAMA_MODEL,
@@ -39,6 +42,7 @@ from butler_config import (
     VPS_OLLAMA_PASS,
     VPS_OLLAMA_URL,
     VPS_OLLAMA_USER,
+    split_model_ref,
 )
 from memory.learner import get_learned_patterns
 
@@ -46,24 +50,29 @@ TIMEOUT = 45
 VOICE_TIMEOUT = 12
 DEFAULT_TIMEOUT = 20
 AGENT_TIMEOUT = 30
+CLASSIFIER_TIMEOUT = 4
 MEMORY_WARN_GB = 1.5
 VPS_REQUEST_TIMEOUT = 8
 MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
 _MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
 KNOWN_OLLAMA_MODELS = {
-    model
-    for model in {
-        OLLAMA_MODEL,
-        OLLAMA_FALLBACK,
-        VPS_OLLAMA_MODEL,
-        VPS_OLLAMA_FALLBACK,
-        HEARTBEAT_MODEL,
-        *BUTLER_MODELS.values(),
-        *(model for chain in BUTLER_MODEL_CHAINS.values() for model in chain),
-        *AGENT_MODELS.values(),
-        *(model for chain in AGENT_MODEL_CHAINS.values() for model in chain),
-    }
-    if model
+    model_name
+    for provider, model_name in (
+        split_model_ref(model)
+        for model in {
+            OLLAMA_MODEL,
+            OLLAMA_FALLBACK,
+            VPS_OLLAMA_MODEL,
+            VPS_OLLAMA_FALLBACK,
+            HEARTBEAT_MODEL,
+            *BUTLER_MODELS.values(),
+            *(model for chain in BUTLER_MODEL_CHAINS.values() for model in chain),
+            *AGENT_MODELS.values(),
+            *(model for chain in AGENT_MODEL_CHAINS.values() for model in chain),
+        }
+        if model
+    )
+    if model_name and provider in {"auto", "ollama_local", "ollama_vps"}
 }
 _BACKEND_MODEL_MAP_CACHE: dict[str, dict[str, str]] = {"local": {}, "vps": {}}
 
@@ -275,14 +284,45 @@ def _get_vps_auth() -> tuple[str, str]:
     return username or VPS_OLLAMA_USER, password
 
 
+def _provider_config(provider: str) -> dict[str, Any]:
+    return dict(MODEL_PROVIDER_ENDPOINTS.get(str(provider or "").strip(), {}))
+
+
+def _provider_kind(provider: str) -> str:
+    return str(_provider_config(provider).get("kind", "") or "")
+
+
+def _nvidia_api_key() -> str:
+    return get_secret(NVIDIA_API_KEY_ENV, default="")
+
+
+def _model_provider_and_name(model: str) -> tuple[str, str]:
+    provider, model_name = split_model_ref(model)
+    return provider, str(model_name or "").strip()
+
+
+def _provider_ready(provider: str) -> bool:
+    kind = _provider_kind(provider)
+    if kind == "openai":
+        return bool(_nvidia_api_key())
+    if provider == "ollama_local":
+        return True
+    if provider == "ollama_vps":
+        return bool(USE_VPS_OLLAMA and VPS_OLLAMA_URL)
+    return False
+
+
 def _resolve_backend_model(model: str, use_vps_backend: bool) -> str:
+    provider, model_name = _model_provider_and_name(model)
+    if provider not in {"auto", "ollama_local", "ollama_vps"}:
+        return model_name
     if not use_vps_backend:
-        return model
-    if model == OLLAMA_MODEL and VPS_OLLAMA_MODEL:
+        return model_name
+    if model_name == OLLAMA_MODEL and VPS_OLLAMA_MODEL:
         return VPS_OLLAMA_MODEL
-    if model == OLLAMA_FALLBACK and VPS_OLLAMA_FALLBACK:
+    if model_name == OLLAMA_FALLBACK and VPS_OLLAMA_FALLBACK:
         return VPS_OLLAMA_FALLBACK
-    return model
+    return model_name
 
 
 def _get_backend_ollama_url(
@@ -343,6 +383,8 @@ def _unload_model(model: str) -> None:
 
 
 def _prepare_model_request(model: str) -> None:
+    if _backend_for_model(model) not in {"auto", "local", "vps"}:
+        return
     _check_memory()
     for candidate in KNOWN_OLLAMA_MODELS:
         if candidate != model:
@@ -401,14 +443,22 @@ def _dedupe_models(models: list[str]) -> list[str]:
 
 
 def _retry_model_chain(model: str) -> list[str]:
-    chains = list(BUTLER_MODEL_CHAINS.values()) + list(AGENT_MODEL_CHAINS.values()) + [[OLLAMA_MODEL, OLLAMA_FALLBACK]]
-    normalized = model.split(":")[0]
+    chains = list(BUTLER_MODEL_CHAINS.values()) + list(AGENT_MODEL_CHAINS.values()) + [[f"ollama_local::{OLLAMA_MODEL}", f"ollama_local::{OLLAMA_FALLBACK}"]]
+    model_provider, model_name = _model_provider_and_name(model)
+    normalized = model_name.split(":")[0]
     for chain in chains:
-        ordered = _dedupe_models(list(chain) + [OLLAMA_FALLBACK])
+        ordered = _dedupe_models(list(chain) + [f"ollama_local::{OLLAMA_FALLBACK}"])
         for index, candidate in enumerate(ordered):
-            if candidate == model or candidate.split(":")[0] == normalized:
+            candidate_provider, candidate_name = _model_provider_and_name(candidate)
+            if candidate == model:
                 return [item for item in ordered[index + 1:] if item and item != model]
-    return [item for item in [OLLAMA_FALLBACK] if item and item != model]
+            if (
+                candidate_provider == model_provider
+                and (candidate_name == model_name or candidate_name.split(":")[0] == normalized)
+            ):
+                return [item for item in ordered[index + 1:] if item and item != model]
+    local_fallback = f"ollama_local::{OLLAMA_FALLBACK}"
+    return [item for item in [local_fallback] if item and item != model]
 
 
 def _post_with_thinking_notice(
@@ -428,28 +478,204 @@ def _post_with_thinking_notice(
     return response
 
 
+def _message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = str(item.get("text", "") or "").strip()
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    return str(content or "").strip()
+
+
+def _openai_text_from_response(data: dict[str, Any]) -> str:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message", {})
+    if not isinstance(message, dict):
+        return ""
+    return _message_text(message.get("content"))
+
+
+def _openai_message_from_response(data: dict[str, Any]) -> dict[str, Any]:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return {}
+    message = choices[0].get("message", {})
+    if not isinstance(message, dict):
+        return {}
+    normalized = dict(message)
+    normalized["content"] = _message_text(message.get("content"))
+    return normalized
+
+
+def _system_with_patterns(system: str | None) -> str:
+    base = str(system or "").strip()
+    patterns = get_learned_patterns()
+    if patterns:
+        return f"{base}\n\n{patterns}".strip()
+    return base
+
+
+def _prompt_messages(prompt: str, system: str | None = None) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    system_text = _system_with_patterns(system)
+    if system_text:
+        messages.append({"role": "system", "content": system_text})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def _request_text_once(
+    prompt: str,
+    model: str,
+    *,
+    temperature: float,
+    max_tokens: int,
+    system: str | None = None,
+    timeout_hint: str | None = None,
+) -> str:
+    url, headers, backend = _get_request_target_for_model(model)
+    use_vps_backend = backend == "vps"
+    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
+    system_text = _system_with_patterns(system)
+
+    if backend in {"local", "vps", "auto"}:
+        _prepare_model_request(resolved_model)
+        payload: dict[str, Any] = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "5m",
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "num_ctx": 2048,
+                "stop": ["```", "\n\n\n"],
+            },
+        }
+        if system_text:
+            payload["system"] = system_text
+        response = _post_with_thinking_notice(
+            url,
+            json_payload=payload,
+            headers=headers,
+            timeout=request_timeout,
+        )
+        data = response.json()
+        return str(data.get("response", "") or "").strip()
+
+    payload = {
+        "model": resolved_model,
+        "messages": _prompt_messages(prompt, system),
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    response = _post_with_thinking_notice(
+        url,
+        json_payload=payload,
+        headers=headers,
+        timeout=request_timeout,
+    )
+    return _openai_text_from_response(response.json())
+
+
+def _chat_once(
+    messages: list[dict],
+    model: str,
+    *,
+    tools: list[dict] | None = None,
+    max_tokens: int = 200,
+    temperature: float = 0.2,
+    timeout_hint: str | None = None,
+) -> dict[str, Any]:
+    url, headers, backend = _get_request_target_for_model(model)
+    use_vps_backend = backend == "vps"
+    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
+
+    if backend in {"local", "vps", "auto"}:
+        request_url = url.replace("/api/generate", "/api/chat")
+        _prepare_model_request(resolved_model)
+        payload: dict[str, Any] = {
+            "model": resolved_model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": "5m",
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "num_ctx": 4096,
+            },
+        }
+        if tools:
+            payload["tools"] = tools
+        response = _post_with_thinking_notice(
+            request_url,
+            json_payload=payload,
+            headers=headers,
+            timeout=request_timeout,
+        )
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+
+    payload: dict[str, Any] = {
+        "model": resolved_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        payload["tools"] = tools
+    response = _post_with_thinking_notice(
+        url,
+        json_payload=payload,
+        headers=headers,
+        timeout=request_timeout,
+    )
+    data = response.json()
+    message = _openai_message_from_response(data)
+    return {"message": message} if message else {}
+
+
 def _pick_model_from_chain(candidates: list[str], label: str) -> str:
     chain = _dedupe_models(candidates)
     if not chain:
-        return OLLAMA_MODEL
+        return f"ollama_local::{OLLAMA_MODEL}"
 
     local_map = _get_backend_model_map("local")
     vps_map = _get_backend_model_map("vps")
-    if not local_map and not vps_map:
-        return chain[0]
 
     for candidate in chain:
-        exact_local = local_map.get(candidate) or local_map.get(candidate.split(":")[0])
-        if exact_local:
-            if candidate != chain[0]:
-                print(f"[Brain] {label} routed to fallback model {exact_local}")
-            return exact_local
+        provider, model_name = _model_provider_and_name(candidate)
+        if provider == "nvidia":
+            if _provider_ready(provider):
+                if candidate != chain[0]:
+                    print(f"[Brain] {label} routed to fallback model {model_name}")
+                return candidate
+            continue
 
-        exact_vps = vps_map.get(candidate) or vps_map.get(candidate.split(":")[0])
-        if exact_vps:
-            if candidate != chain[0]:
-                print(f"[Brain] {label} routed to fallback model {exact_vps}")
-            return exact_vps
+        if provider in {"ollama_local", "auto"}:
+            exact_local = local_map.get(model_name) or local_map.get(model_name.split(":")[0])
+            if exact_local:
+                resolved = f"ollama_local::{exact_local}"
+                if candidate != chain[0]:
+                    print(f"[Brain] {label} routed to fallback model {exact_local}")
+                return resolved
+
+        if provider in {"ollama_vps", "auto"}:
+            exact_vps = vps_map.get(model_name) or vps_map.get(model_name.split(":")[0])
+            if exact_vps:
+                resolved = f"ollama_vps::{exact_vps}"
+                if candidate != chain[0]:
+                    print(f"[Brain] {label} routed to fallback model {exact_vps}")
+                return resolved
 
     print(f"[Brain] No installed model found for {label}, using {chain[0]}")
     return chain[0]
@@ -462,7 +688,7 @@ def pick_butler_model(role: str, override: str | None = None) -> str:
     chain.extend(BUTLER_MODEL_CHAINS.get(role, []))
     chain.append(BUTLER_MODELS.get(role, ""))
     if role != "voice":
-        chain.append(OLLAMA_MODEL)
+        chain.append(f"ollama_local::{OLLAMA_MODEL}")
     # RL-informed model selection (Phase 11)
     try:
         from memory.rl_loop import get_best_model_for_intent
@@ -482,22 +708,37 @@ def pick_agent_model(agent_type: str, override: str | None = None) -> str:
         chain.append(override)
     chain.extend(AGENT_MODEL_CHAINS.get(agent_type, []))
     chain.append(AGENT_MODELS.get(agent_type, ""))
-    chain.append(OLLAMA_MODEL)
+    chain.append(f"ollama_local::{OLLAMA_MODEL}")
     return _pick_model_from_chain(chain, f"agent:{agent_type}")
 
 
 def _backend_for_model(model: str) -> str:
+    provider, model_name = _model_provider_and_name(model)
+    if provider == "nvidia":
+        return "nvidia"
+    if provider == "ollama_local":
+        return "local"
+    if provider == "ollama_vps":
+        return "vps"
+
     local_map = _get_backend_model_map("local")
-    if local_map.get(model) or local_map.get(model.split(":")[0]):
+    if local_map.get(model_name) or local_map.get(model_name.split(":")[0]):
         return "local"
     vps_map = _get_backend_model_map("vps")
-    if vps_map.get(model) or vps_map.get(model.split(":")[0]):
+    if vps_map.get(model_name) or vps_map.get(model_name.split(":")[0]):
         return "vps"
     return "auto"
 
 
 def _get_request_target_for_model(model: str) -> tuple[str, dict[str, str], str]:
     backend = _backend_for_model(model)
+    if backend == "nvidia":
+        config = _provider_config("nvidia")
+        api_key = _nvidia_api_key()
+        if not api_key:
+            raise RuntimeError(f"{NVIDIA_API_KEY_ENV} is not configured")
+        url = f"{str(config.get('base_url', '')).rstrip('/')}/chat/completions"
+        return url, {"Authorization": f"Bearer {api_key}"}, "nvidia"
     if backend in {"local", "vps"}:
         try:
             url, headers = _get_backend_ollama_url(
@@ -954,6 +1195,8 @@ def _resolve_request_timeout(timeout_hint: str | None, *, use_vps_backend: bool)
         return VPS_REQUEST_TIMEOUT
 
     hint = str(timeout_hint or "").strip().lower()
+    if hint == "classifier":
+        return CLASSIFIER_TIMEOUT
     if hint == "voice":
         return VOICE_TIMEOUT
     if hint == "agent":
@@ -969,74 +1212,33 @@ def _call_ollama_inner(
     system: str | None = None,
     timeout_hint: str | None = None,
 ) -> str:
-    url, headers, backend = _get_request_target_for_model(model)
-    local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate"
-    use_vps_backend = backend == "vps"
-    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
-    local_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=False)
-    resolved_model = _resolve_backend_model(model, use_vps_backend)
-    resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
-    _prepare_model_request(resolved_model)
-    payload: dict[str, Any] = {
-        "model": resolved_model,
-        "prompt": prompt,
-        "stream": False,
-        "keep_alive": "5m",
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens,
-            "num_ctx": 2048,
-            "stop": ["```", "\n\n\n"],
-        },
-    }
-    if system:
-        patterns = get_learned_patterns()
-        payload["system"] = system + (f"\n\n{patterns}" if patterns else "")
+    chain = _dedupe_models([model] + _retry_model_chain(model))
+    last_error: Exception | None = None
 
-    try:
-        response = _post_with_thinking_notice(
-            url,
-            json_payload=payload,
-            headers=headers,
-            timeout=request_timeout,
-        )
-        return response.json().get("response", "").strip()
-    except requests.exceptions.Timeout:
-        print(f"[Brain] Ollama timed out after {request_timeout}s, returning fallback")
-        return "I'm still thinking, give me a moment."
-    except requests.exceptions.ConnectionError:
-        if url != local_url:
-            print("[Brain] VPS failed mid-request, retrying local")
-            try:
-                local_response = _post_with_thinking_notice(
-                    local_url,
-                    json_payload=payload,
-                    timeout=local_timeout,
-                )
-                return local_response.json().get("response", "").strip()
-            except requests.exceptions.Timeout:
-                return "I'm still thinking, give me a moment."
-        raise ConnectionError("Ollama not running. Start with: ollama serve")
-    except Exception as exc:
-        for retry_model in _dedupe_models(
-            [resolved_fallback] + [_resolve_backend_model(candidate, use_vps_backend) for candidate in _retry_model_chain(model)]
-        ):
-            if not retry_model or retry_model == payload["model"]:
-                continue
-            print(f"[Brain] {payload['model']} failed, trying {retry_model}")
-            payload["model"] = retry_model
-            _prepare_model_request(retry_model)
-            try:
-                response = _post_with_thinking_notice(
-                    url,
-                    json_payload=payload,
-                    headers=headers,
-                    timeout=request_timeout,
-                )
-                return response.json().get("response", "").strip()
-            except Exception:
-                continue
-        raise RuntimeError(f"Ollama error: {exc}")
+    for index, candidate in enumerate(chain):
+        try:
+            return _request_text_once(
+                prompt,
+                candidate,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system=system,
+                timeout_hint=timeout_hint,
+            )
+        except requests.exceptions.Timeout:
+            backend = _backend_for_model(candidate)
+            request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=(backend == "vps"))
+            print(f"[Brain] {candidate} timed out after {request_timeout}s")
+            return "I'm still thinking, give me a moment."
+        except Exception as exc:
+            last_error = exc
+            if index < len(chain) - 1:
+                print(f"[Brain] {candidate} failed, trying {chain[index + 1]}")
+            continue
+
+    if isinstance(last_error, requests.exceptions.ConnectionError):
+        raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+    raise RuntimeError(f"Ollama error: {last_error}")
 
 
 def _call(
@@ -1079,16 +1281,26 @@ async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
     import httpx
     from typing import AsyncIterator
 
+    backend = _backend_for_model(model)
+    if backend not in {"local", "vps", "auto"}:
+        text = _call(prompt, model, temperature=0.2, max_tokens=300, system=system)
+        if text:
+            yield text
+        return
+
+    url, headers, resolved_backend = _get_request_target_for_model(model)
+    use_vps_backend = resolved_backend == "vps"
+    resolved_model = _resolve_backend_model(model, use_vps_backend)
     payload = {
-        "model": model,
+        "model": resolved_model,
         "prompt": prompt,
-        "system": system,
+        "system": _system_with_patterns(system) if system else "",
         "stream": True,
     }
     buffer = ""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            async with client.stream("POST", f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate", json=payload) as response:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
                 async for line in response.aiter_lines():
                     if not line:
                         continue
@@ -1121,6 +1333,18 @@ async def stream_chat_with_ollama(
     import httpx
 
     url, headers, backend = _get_request_target_for_model(model)
+    if backend not in {"local", "vps", "auto"}:
+        payload = chat_with_ollama(
+            messages,
+            model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        content = _message_text((payload.get("message") or {}).get("content", ""))
+        if content:
+            yield content
+        return
+
     request_url = url.replace("/api/generate", "/api/chat")
     use_vps_backend = backend == "vps"
     resolved_model = _resolve_backend_model(model, use_vps_backend)
@@ -1165,19 +1389,17 @@ async def async_call(prompt: str, model: str, system: str = "", max_tokens: int 
     """Non-blocking async LLM call via httpx. Never blocks the voice pipeline.
     STEAL 9 — use in background daemons so they don't block voice.
     """
-    import httpx
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "system": system,
-        "stream": False,
-        "options": {"num_predict": max_tokens},
-    }
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            response = await client.post(f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/generate", json=payload)
-            return response.json().get("response", "").strip()
-    except httpx.TimeoutException:
+        return await asyncio.to_thread(
+            _call,
+            prompt,
+            model,
+            0.2,
+            max_tokens,
+            system,
+            "agent",
+        )
+    except requests.exceptions.Timeout:
         return ""
     except Exception:
         return ""
@@ -1192,74 +1414,33 @@ def chat_with_ollama(
     temperature: float = 0.2,
     timeout_hint: str | None = None,
 ) -> dict:
-    url, headers, backend = _get_request_target_for_model(model)
-    local_url = f"{OLLAMA_LOCAL_URL.rstrip('/')}/api/chat"
-    request_url = url.replace("/api/generate", "/api/chat")
-    use_vps_backend = backend == "vps"
-    request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=use_vps_backend)
-    local_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=False)
-    resolved_model = _resolve_backend_model(model, use_vps_backend)
-    resolved_fallback = _resolve_backend_model(OLLAMA_FALLBACK, use_vps_backend)
-    _prepare_model_request(resolved_model)
-    payload: dict[str, Any] = {
-        "model": resolved_model,
-        "messages": messages,
-        "stream": False,
-        "keep_alive": "5m",
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens,
-            "num_ctx": 4096,
-        },
-    }
-    if tools:
-        payload["tools"] = tools
+    chain = _dedupe_models([model] + _retry_model_chain(model))
+    last_error: Exception | None = None
 
-    try:
-        response = _post_with_thinking_notice(
-            request_url,
-            json_payload=payload,
-            headers=headers,
-            timeout=request_timeout,
-        )
-        data = response.json()
-        return data if isinstance(data, dict) else {}
-    except requests.exceptions.Timeout:
-        print(f"[Brain] Ollama chat timed out after {request_timeout}s")
-        return {"message": {"content": "I'm still thinking, give me a moment."}}
-    except requests.exceptions.ConnectionError:
-        if request_url != local_url:
-            try:
-                local_response = _post_with_thinking_notice(
-                    local_url,
-                    json_payload=payload,
-                    timeout=local_timeout,
-                )
-                data = local_response.json()
-                return data if isinstance(data, dict) else {}
-            except requests.exceptions.Timeout:
-                return {"message": {"content": "I'm still thinking, give me a moment."}}
-        raise ConnectionError("Ollama not running. Start with: ollama serve")
-    except Exception as exc:
-        for retry_model in _dedupe_models(
-            [resolved_fallback] + [_resolve_backend_model(candidate, use_vps_backend) for candidate in _retry_model_chain(model)]
-        ):
-            if not retry_model or retry_model == payload["model"]:
-                continue
-            payload["model"] = retry_model
-            _prepare_model_request(retry_model)
-            try:
-                response = _post_with_thinking_notice(
-                    request_url,
-                    json_payload=payload,
-                    headers=headers,
-                    timeout=request_timeout,
-                )
-                data = response.json()
-                return data if isinstance(data, dict) else {}
-            except Exception:
-                continue
-        raise RuntimeError(f"Ollama chat error: {exc}")
+    for index, candidate in enumerate(chain):
+        try:
+            return _chat_once(
+                messages,
+                candidate,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_hint=timeout_hint,
+            )
+        except requests.exceptions.Timeout:
+            backend = _backend_for_model(candidate)
+            request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=(backend == "vps"))
+            print(f"[Brain] chat {candidate} timed out after {request_timeout}s")
+            return {"message": {"content": "I'm still thinking, give me a moment."}}
+        except Exception as exc:
+            last_error = exc
+            if index < len(chain) - 1:
+                print(f"[Brain] chat {candidate} failed, trying {chain[index + 1]}")
+            continue
+
+    if isinstance(last_error, requests.exceptions.ConnectionError):
+        raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+    raise RuntimeError(f"Ollama chat error: {last_error}")
 
 
 def _strip(text: str) -> str:
