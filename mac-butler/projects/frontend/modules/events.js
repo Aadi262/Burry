@@ -37,8 +37,13 @@ function eventKindClass(kind) {
   if (k === "tool_result") return "success";
   if (k === "tool") return "cobalt";
   if (k === "memory") return "violet";
+  if (k === "memory_read") return "violet";
   if (k === "agent") return "success";
   if (k === "plan") return "violet";
+  if (k === "pending_update") return "amber";
+  if (k === "mood_update") return "cobalt";
+  if (k === "classifier_result") return "cobalt";
+  if (k === "briefing_spoken") return "success";
   if (k === "error") return "danger";
   return "faint";
 }
@@ -73,6 +78,7 @@ export function createEventsPanel({ container }) {
   let expandedKey = "";
   let lastSignature = "";
   let latestData = {};
+  let liveEvents = [];
 
   container.addEventListener("click", (event) => {
     const row = event.target.closest("[data-event-key]");
@@ -84,8 +90,16 @@ export function createEventsPanel({ container }) {
 
   function render(data) {
     latestData = data || {};
-    const items = Array.isArray(data.events) ? data.events : [];
-    const MAX_EVENTS = 24;
+    const snapshotItems = Array.isArray(data.events) ? data.events : [];
+    const merged = [...snapshotItems, ...liveEvents];
+    const seen = new Set();
+    const items = merged.filter((event) => {
+      const key = eventKey(event);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const MAX_EVENTS = 100;
     const displayItems = items.length > MAX_EVENTS ? items.slice(-MAX_EVENTS) : items;
     const truncated = items.length - displayItems.length;
     const signature = items.map(eventKey).join("||");
@@ -110,7 +124,20 @@ export function createEventsPanel({ container }) {
     lastSignature = signature;
   }
 
+  function appendEvent(event) {
+    if (!event || typeof event !== "object") return;
+    const next = {
+      at: event.at || new Date().toISOString(),
+      kind: String(event.kind || "event"),
+      message: String(event.message || event.kind || "event"),
+      meta: event.meta && typeof event.meta === "object" ? event.meta : undefined,
+    };
+    liveEvents = [...liveEvents, next].slice(-100);
+    render(latestData);
+  }
+
   return {
+    appendEvent,
     render,
   };
 }

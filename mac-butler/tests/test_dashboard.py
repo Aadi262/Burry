@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from urllib.error import HTTPError
+from urllib.request import urlopen
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from projects import dashboard
@@ -21,7 +23,8 @@ from projects.dashboard import (
 
 class DashboardTests(unittest.TestCase):
     @patch("state.StateMachine.is_busy", new_callable=PropertyMock, return_value=True)
-    def test_command_status_label_uses_lane_statuses(self, _mock_is_busy):
+    @patch("runtime.load_runtime_state", return_value={"state": "idle"})
+    def test_command_status_label_uses_lane_statuses(self, _mock_runtime_state, _mock_is_busy):
         self.assertEqual(_command_status_label("open youtube"), "executing")
         self.assertEqual(_command_status_label("latest ai news"), "acknowledged")
         self.assertEqual(_command_status_label("what is agentscope"), "queued")
@@ -129,6 +132,17 @@ class DashboardTests(unittest.TestCase):
             "events": [
                 {"kind": "heard", "message": "Heard: search ranveer alahabadia on youtube", "at": "2026-04-05T19:22:55"}
             ],
+            "observability": {
+                "metrics_path": "/api/v1/metrics",
+                "logs_path": "/api/v1/logs",
+                "traces_path": "/api/v1/traces",
+            },
+            "contracts": {
+                "api_base": "/api/v1",
+                "event_version": "1.0",
+                "capabilities_path": "/api/v1/capabilities",
+                "release_notes_path": "/docs/phases/CONTRACT_RELEASE_NOTES.md",
+            },
             "updated_at": "2026-04-05T19:22:56",
         },
     )
@@ -175,10 +189,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("tool-pill-strip", html)
         self.assertIn('type="module" src="/app.js?v=', html)
         self.assertIn('"wsUrl"', html)
+        self.assertIn("/api/v1/metrics", html)
+        self.assertIn("/api/v1/capabilities", html)
         self.assertIn("search ranveer alahabadia on youtube", html)
         self.assertIn('"/vendor/three.module.js"', html)
         self.assertIn('"/vendor/addons/"', html)
         self.assertNotIn("unpkg.com/three", html)
+        self.assertNotIn("2026-04-08-architecture-remediation-roadmap.md", html)
+        self.assertNotIn("BUTLER_STATUS.md", html)
 
     @patch("projects.dashboard.subprocess.Popen")
     @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
@@ -205,15 +223,25 @@ class DashboardTests(unittest.TestCase):
     def test_wait_for_dashboard_health_retries_until_ready(self, mock_ok, _mock_sleep):
         self.assertTrue(_wait_for_dashboard_health("http://127.0.0.1:3333", timeout=1.0))
         self.assertEqual(mock_ok.call_count, 3)
-        self.assertTrue(all(call.args[0].endswith("/health") for call in mock_ok.call_args_list))
+        self.assertTrue(all(call.args[0].endswith("/api/v1/health") for call in mock_ok.call_args_list))
 
     def test_event_stream_message_uses_sse_data_format(self):
         payload = {"state": "listening", "focus_project": "mac-butler"}
         frame = _event_stream_message(payload).decode("utf-8")
 
         self.assertTrue(frame.startswith("data: "))
-        self.assertIn('"state":"listening"', frame)
+        self.assertIn('"event_version":"1.0"', frame)
+        self.assertIn('"type":"operator"', frame)
+        self.assertIn('"data":{"state":"listening","focus_project":"mac-butler"}', frame)
         self.assertTrue(frame.endswith("\n\n"))
+
+    def test_ws_message_uses_versioned_envelope_with_legacy_payload_copy(self):
+        payload = json.loads(dashboard._ws_message("operator", {"state": "listening"}))
+
+        self.assertEqual(payload["event_version"], "1.0")
+        self.assertEqual(payload["type"], "operator")
+        self.assertEqual(payload["data"], {"state": "listening"})
+        self.assertEqual(payload["payload"], {"state": "listening"})
 
     @patch("runtime.load_metrics", return_value={"heard_commands": 4, "tool_runs_completed": 2})
     def test_metrics_payload_reads_runtime_metrics(self, _mock_metrics):
@@ -241,8 +269,14 @@ class DashboardTests(unittest.TestCase):
         asyncio.run(dashboard._ws_handler(websocket))
 
         payloads = [json.loads(call.args[0]) for call in websocket.send.await_args_list]
-        self.assertEqual(payloads[0], {"type": "operator", "payload": {"state": "listening"}})
-        self.assertEqual(payloads[1], {"type": "projects", "payload": [{"name": "mac-butler"}]})
+        self.assertEqual(payloads[0]["event_version"], "1.0")
+        self.assertEqual(payloads[0]["type"], "operator")
+        self.assertEqual(payloads[0]["data"], {"state": "listening"})
+        self.assertEqual(payloads[0]["payload"], {"state": "listening"})
+        self.assertEqual(payloads[1]["event_version"], "1.0")
+        self.assertEqual(payloads[1]["type"], "projects")
+        self.assertEqual(payloads[1]["data"], [{"name": "mac-butler"}])
+        self.assertEqual(payloads[1]["payload"], [{"name": "mac-butler"}])
 
     @patch("projects.dashboard._open_browser_window")
     @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
@@ -320,7 +354,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["active_tools"], ["recall_memory"])
         self.assertEqual(payload["memory_recall"]["query"], "auth decision")
         self.assertEqual(payload["metrics"]["heard_commands"], 7)
-        self.assertEqual(payload["observability"]["metrics_path"], "/api/metrics")
+        self.assertEqual(payload["observability"]["metrics_path"], "/api/v1/metrics")
+        self.assertEqual(payload["contracts"]["capabilities_path"], "/api/v1/capabilities")
         self.assertEqual(len(payload["ambient_context"]), 3)
 
     @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
@@ -360,3 +395,71 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DashboardApiContractTests(unittest.TestCase):
+    def setUp(self):
+        self._patches = [
+            patch("projects.dashboard._start_ws_server"),
+            patch("projects.dashboard._prime_operator_status_cache"),
+            patch("projects.dashboard._dashboard_projects", return_value=[{"name": "mac-butler"}]),
+            patch("projects.dashboard.operator_snapshot", return_value={"state": "listening", "focus_project": "mac-butler"}),
+        ]
+        for patcher in self._patches:
+            patcher.start()
+        dashboard._SERVER = None
+        dashboard._SERVER_THREAD = None
+        self.server = dashboard.serve_dashboard()
+        self.base_url = dashboard.dashboard_url()
+
+    def tearDown(self):
+        if dashboard._SERVER is not None:
+            dashboard._SERVER.shutdown()
+            dashboard._SERVER.server_close()
+        if dashboard._SERVER_THREAD is not None:
+            dashboard._SERVER_THREAD.join(timeout=2)
+        dashboard._SERVER = None
+        dashboard._SERVER_THREAD = None
+        for patcher in reversed(self._patches):
+            patcher.stop()
+
+    def _get_json(self, path: str) -> tuple[int, dict]:
+        try:
+            with urlopen(f"{self.base_url}{path}", timeout=2) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def _get_text(self, path: str) -> tuple[int, str]:
+        with urlopen(f"{self.base_url}{path}", timeout=2) as response:
+            return response.status, response.read().decode("utf-8")
+
+    def test_v1_operator_endpoint_returns_typed_response_envelope(self):
+        status, payload = self._get_json("/api/v1/operator")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["contract_version"], "1.0")
+        self.assertEqual(payload["kind"], "operator")
+        self.assertEqual(payload["data"]["state"], "listening")
+
+    def test_v1_capabilities_endpoint_returns_stable_capability_descriptors(self):
+        status, payload = self._get_json("/api/v1/capabilities")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["kind"], "capabilities")
+        capability_ids = [item["capability_id"] for item in payload["data"]]
+        self.assertIn("K03", capability_ids)
+        self.assertIn("T14", capability_ids)
+
+    def test_legacy_operator_endpoint_is_removed(self):
+        status, payload = self._get_json("/api/operator")
+
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "not_found")
+
+    def test_root_route_serves_fresh_generated_html(self):
+        with patch("projects.dashboard.generate_dashboard", return_value="<!doctype html><html><body>fresh-hud</body></html>"):
+            status, body = self._get_text("/")
+
+        self.assertEqual(status, 200)
+        self.assertIn("fresh-hud", body)

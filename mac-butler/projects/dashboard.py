@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 try:
     import websockets
@@ -35,11 +35,19 @@ except ImportError:
     from open_project import open_project
     from project_store import load_projects
     from project_store import _load_raw as _load_projects_raw
+from capabilities import list_public_capabilities
+from capabilities.contracts import (
+    CONTRACT_VERSION,
+    ApiError,
+    ApiResponse,
+    CommandRequest,
+    CommandResult,
+    HudEventEnvelope,
+)
 from utils import _clip_text
 
 ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = ROOT.parent
-DASHBOARD_PATH = ROOT / "dashboard.html"
 FRONTEND_ROOT = ROOT / "frontend"
 FRONTEND_INDEX_PATH = FRONTEND_ROOT / "index.html"
 FRONTEND_STYLE_PATH = FRONTEND_ROOT / "style.css"
@@ -55,6 +63,9 @@ HUD_LOG_PATH = Path("/tmp/burry_hud.log")
 HOST = "127.0.0.1"
 PREFERRED_PORT = 3333
 WS_PREFERRED_PORT = 3334
+BACKEND_PORT = 3335
+BACKEND_BASE_URL = f"http://{HOST}:{BACKEND_PORT}"
+API_BASE_PATH = "/api/v1"
 PORT = PREFERRED_PORT
 WS_PORT = WS_PREFERRED_PORT
 USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "1").strip().lower() not in {"0", "false", "no", "off"}
@@ -270,6 +281,36 @@ def _url_ok(url: str) -> bool:
         return False
 
 
+def _backend_url(path: str) -> str:
+    clean = "/" + str(path or "").lstrip("/")
+    return f"{BACKEND_BASE_URL}{clean}"
+
+
+def _api_v1_path(path: str) -> str:
+    return f"{API_BASE_PATH}/{str(path or '').strip('/')}"
+
+
+def _backend_alive() -> bool:
+    return _url_ok(_backend_url("/api/v1/health"))
+
+
+def _backend_json_request(path: str, payload: dict | None = None, timeout: float = 3.0) -> dict:
+    body = json.dumps(payload or {}).encode("utf-8")
+    request = Request(
+        _backend_url(path),
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+    try:
+        parsed = json.loads(raw or "{}")
+    except Exception:
+        parsed = {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _prime_operator_status_cache(force: bool = False) -> None:
     global _SEARCH_ONLINE, _SEARCH_STATUS_PRIMED
 
@@ -315,7 +356,7 @@ def _runtime_telemetry_freshness(runtime_state: dict) -> tuple[bool, float | Non
 
 
 def _wait_for_dashboard_health(url: str, timeout: float = 6.0) -> bool:
-    health_url = f"{url.rstrip('/')}/health"
+    health_url = f"{url.rstrip('/')}{_api_v1_path('health')}"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if _url_ok(health_url):
@@ -452,7 +493,7 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
             }
         )
 
-    events = list(runtime_state.get("events") or [])[-10:]
+    events = list(runtime_state.get("events") or [])[-100:]
     last_intent = runtime_state.get("last_intent") or {}
     last_agent_result = runtime_state.get("last_agent_result") if isinstance(runtime_state.get("last_agent_result"), dict) else {}
     memory_recall = runtime_state.get("last_memory_recall") if isinstance(runtime_state.get("last_memory_recall"), dict) else {}
@@ -515,9 +556,15 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         "last_agent_result": last_agent_result,
         "events": events,
         "observability": {
-            "metrics_path": "/api/metrics",
-            "logs_path": "/api/logs",
-            "traces_path": "/api/traces",
+            "metrics_path": _api_v1_path("metrics"),
+            "logs_path": _api_v1_path("logs"),
+            "traces_path": _api_v1_path("traces"),
+        },
+        "contracts": {
+            "api_base": API_BASE_PATH,
+            "event_version": CONTRACT_VERSION,
+            "capabilities_path": _api_v1_path("capabilities"),
+            "release_notes_path": "/docs/phases/CONTRACT_RELEASE_NOTES.md",
         },
     }
 
@@ -559,13 +606,8 @@ def _dashboard_payload() -> dict:
 
 def _dispatch_command(text: str) -> None:
     try:
-        from butler import handle_input
-    except Exception as exc:
-        print(f"[dashboard] command dispatch unavailable: {exc}")
-        return
-
-    try:
-        handle_input(text, test_mode=False)
+        request = CommandRequest(text=text, source="hud")
+        _backend_json_request("/api/v1/run", request.to_dict(), timeout=2.5)
     except Exception as exc:
         print(f"[dashboard] command dispatch failed: {exc}")
 
@@ -576,18 +618,39 @@ def _command_status_label(text: str) -> str:
         return "error"
 
     try:
-        from butler import BACKGROUND_LANE_INTENTS, INSTANT_LANE_INTENTS
-        from intents.router import route
+        from runtime import load_runtime_state
         from state import state
     except Exception:
         return "executing"
 
-    intent = route(clean)
-    if intent.name in INSTANT_LANE_INTENTS:
-        return "executing"
-    if intent.name in BACKGROUND_LANE_INTENTS:
+    runtime_state = load_runtime_state() or {}
+    state_name = str(runtime_state.get("state", "") or "").strip().lower()
+    lowered = clean.lower()
+    is_question = lowered.startswith(
+        (
+            "what ",
+            "what's ",
+            "who ",
+            "when ",
+            "where ",
+            "why ",
+            "how ",
+            "is ",
+            "are ",
+            "can ",
+            "could ",
+            "would ",
+            "should ",
+            "do ",
+            "does ",
+            "did ",
+        )
+    )
+    if state_name in {"thinking", "speaking"}:
+        return "queued"
+    if any(token in lowered for token in ("latest", "news", "research", "look up", "search", "weather")):
         return "acknowledged"
-    if state.is_busy:
+    if bool(getattr(state, "is_busy", False)) and is_question:
         return "queued"
     return "executing"
 
@@ -621,32 +684,45 @@ def _traces_payload(limit: int = 40) -> list[dict]:
 
 def _dispatch_listen_once() -> None:
     try:
-        from butler import handle_input
-        from voice.stt import listen_for_command
-    except Exception as exc:
-        print(f"[dashboard] listen dispatch unavailable: {exc}")
-        return
-
-    try:
-        text = " ".join(str(listen_for_command(timeout=10.0) or "").split()).strip()
-        if text:
-            handle_input(text, test_mode=False)
+        request = CommandRequest(action="listen_once", source="hud", timeout=10.0)
+        _backend_json_request("/api/v1/listen_once", request.to_dict(), timeout=2.5)
     except Exception as exc:
         print(f"[dashboard] listen dispatch failed: {exc}")
 
 
-def _write_dashboard() -> None:
-    DASHBOARD_PATH.write_text(generate_dashboard(), encoding="utf-8")
+def _dispatch_interrupt(text: str) -> dict:
+    try:
+        request = CommandRequest(text=text, action="interrupt", source="hud")
+        return _backend_json_request("/api/v1/interrupt", request.to_dict(), timeout=2.5)
+    except Exception as exc:
+        print(f"[dashboard] interrupt dispatch failed: {exc}")
+        return {"status": "error", "error": str(exc)}
 
 
-def _event_stream_message(payload: dict) -> bytes:
-    body = json.dumps(payload, separators=(",", ":"))
+def _api_response(kind: str, data: dict | list) -> dict:
+    return ApiResponse(kind=kind, data=data).to_dict()
+
+
+def _api_error(error: str, *, status: int = 500, code: str = "") -> dict:
+    return ApiError(error=error, status=status, code=code).to_dict()
+
+
+def _is_legacy_api_path(path: str) -> bool:
+    clean = str(path or "").strip()
+    return clean == "/api" or clean.startswith("/api/")
+
+
+def _event_stream_message(payload: dict | list, event_type: str = "operator") -> bytes:
+    body = json.dumps(
+        HudEventEnvelope(type=event_type, data=payload if isinstance(payload, (dict, list)) else {}).to_dict(),
+        separators=(",", ":"),
+    )
     return f"data: {body}\n\n".encode("utf-8")
 
 
 def _ws_message(message_type: str, payload: dict | list) -> str:
     return json.dumps(
-        {"type": message_type, "payload": payload},
+        HudEventEnvelope(type=message_type, data=payload if isinstance(payload, (dict, list)) else {}).to_dict(),
         separators=(",", ":"),
     )
 
@@ -656,7 +732,7 @@ def broadcast_ws_event(payload: dict) -> None:
     if _WS_LOOP is None or not _WS_LOOP.is_running():
         return
     try:
-        message = json.dumps(payload, separators=(",", ":"))
+        message = json.dumps(HudEventEnvelope.from_payload(payload).to_dict(), separators=(",", ":"))
     except Exception:
         return
     asyncio.run_coroutine_threadsafe(_ws_broadcast(message), _WS_LOOP)
@@ -872,8 +948,8 @@ def _open_browser_window(url: str) -> None:
 def serve_dashboard():
     """
     Starts a simple HTTP server on localhost:3333.
-    GET /api/projects → returns projects.json as JSON
-    GET / → serves dashboard.html
+    GET /api/v1/projects → returns projects.json as JSON
+    GET / → serves freshly generated dashboard HTML
     Runs in background thread so it doesn't block Butler.
     """
 
@@ -882,7 +958,6 @@ def serve_dashboard():
         _prime_operator_status_cache(force=True)
         if _SERVER is not None and _SERVER_THREAD is not None and _SERVER_THREAD.is_alive():
             _start_ws_server()
-            _write_dashboard()
             return _SERVER
 
         class Handler(BaseHTTPRequestHandler):
@@ -928,10 +1003,22 @@ def serve_dashboard():
             def do_GET(self) -> None:  # noqa: N802
                 try:
                     parsed = urlparse(self.path)
-                    if parsed.path == "/health":
-                        self._send_json({"ok": True, "url": dashboard_url(), "port": PORT, "ws_url": dashboard_ws_url()})
+                    if parsed.path == _api_v1_path("health"):
+                        self._send_json(
+                            _api_response(
+                                "health",
+                                {
+                                    "ok": True,
+                                    "url": dashboard_url(),
+                                    "port": PORT,
+                                    "ws_url": dashboard_ws_url(),
+                                    "api_version": "v1",
+                                    "event_version": CONTRACT_VERSION,
+                                },
+                            )
+                        )
                         return
-                    if parsed.path == "/api/stream":
+                    if parsed.path == _api_v1_path("stream"):
                         self.send_response(200)
                         self.send_header("Content-Type", "text/event-stream")
                         self.send_header("Cache-Control", "no-cache")
@@ -943,7 +1030,7 @@ def serve_dashboard():
                             payload = operator_snapshot()
                             encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
                             if encoded != last_payload:
-                                self._safe_write(_event_stream_message(payload))
+                                self._safe_write(_event_stream_message(payload, "operator"))
                                 try:
                                     self.wfile.flush()
                                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -956,47 +1043,55 @@ def serve_dashboard():
                                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                                     return
                             time.sleep(STREAM_INTERVAL_SECONDS)
-                    if parsed.path == "/api/projects":
-                        self._send_json(_dashboard_projects())
+                    if parsed.path == _api_v1_path("projects"):
+                        self._send_json(_api_response("projects", _dashboard_projects()))
                         return
-                    if parsed.path == "/api/mac-activity":
-                        self._send_json(_mac_activity_payload())
+                    if parsed.path == _api_v1_path("mac-activity"):
+                        self._send_json(_api_response("mac_activity", _mac_activity_payload()))
                         return
-                    if parsed.path == "/api/graph":
-                        self._send_json(_graph_payload())
+                    if parsed.path == _api_v1_path("graph"):
+                        self._send_json(_api_response("graph", _graph_payload()))
                         return
-                    if parsed.path == "/api/tasks":
-                        self._send_json(_tasks_payload())
+                    if parsed.path == _api_v1_path("tasks"):
+                        self._send_json(_api_response("tasks", _tasks_payload()))
                         return
-                    if parsed.path == "/api/vps":
-                        self._send_json(_vps_payload())
+                    if parsed.path == _api_v1_path("vps"):
+                        self._send_json(_api_response("vps", _vps_payload()))
                         return
-                    if parsed.path == "/api/metrics":
-                        self._send_json(_metrics_payload())
+                    if parsed.path == _api_v1_path("metrics"):
+                        self._send_json(_api_response("metrics", _metrics_payload()))
                         return
-                    if parsed.path == "/api/logs":
+                    if parsed.path == _api_v1_path("logs"):
                         query = parse_qs(parsed.query or "")
                         try:
                             limit = int((query.get("limit") or ["40"])[0])
                         except Exception:
                             limit = 40
                         items = _logs_payload(limit)
-                        self._send_json({"items": items, "count": len(items)})
+                        self._send_json(_api_response("logs", {"items": items, "count": len(items)}))
                         return
-                    if parsed.path == "/api/traces":
+                    if parsed.path == _api_v1_path("traces"):
                         query = parse_qs(parsed.query or "")
                         try:
                             limit = int((query.get("limit") or ["40"])[0])
                         except Exception:
                             limit = 40
                         items = _traces_payload(limit)
-                        self._send_json({"items": items, "count": len(items)})
+                        self._send_json(_api_response("traces", {"items": items, "count": len(items)}))
                         return
-                    if parsed.path == "/api/status":
-                        self._send_json(_dashboard_payload())
+                    if parsed.path == _api_v1_path("status"):
+                        self._send_json(_api_response("status", _dashboard_payload()))
                         return
-                    if parsed.path == "/api/operator":
-                        self._send_json(operator_snapshot())
+                    if parsed.path == _api_v1_path("operator"):
+                        self._send_json(_api_response("operator", operator_snapshot()))
+                        return
+                    if parsed.path == _api_v1_path("capabilities"):
+                        self._send_json(
+                            _api_response(
+                                "capabilities",
+                                [descriptor.to_dict() for descriptor in list_public_capabilities()],
+                            )
+                        )
                         return
                     if parsed.path == "/style.css":
                         _serve_asset(self, FRONTEND_STYLE_PATH, "text/css; charset=utf-8")
@@ -1022,76 +1117,132 @@ def serve_dashboard():
                         _serve_asset(self, asset_path, content_type)
                         return
                     if parsed.path in {"/", "/index.html"}:
-                        _write_dashboard()
-                        body = DASHBOARD_PATH.read_bytes()
+                        body = generate_dashboard().encode("utf-8")
                         self.send_response(200)
                         self.send_header("Content-Type", "text/html; charset=utf-8")
                         self.send_header("Content-Length", str(len(body)))
                         self.end_headers()
                         self._safe_write(body)
                         return
+                    if parsed.path.startswith(API_BASE_PATH) or _is_legacy_api_path(parsed.path):
+                        self._send_json(_api_error("Not found", status=404, code="not_found"), status=404)
+                        return
                     self._send_text("Not found", status=404)
                 except Exception as exc:
+                    clean_path = str(urlparse(self.path).path or "")
+                    if clean_path.startswith(API_BASE_PATH) or _is_legacy_api_path(clean_path):
+                        self._send_json(_api_error(str(exc), status=500, code="dashboard_error"), status=500)
+                        return
                     self._send_text(f"Dashboard error: {exc}", status=500)
 
             def do_POST(self) -> None:  # noqa: N802
                 try:
                     parsed = urlparse(self.path)
-                    if parsed.path == "/api/command":
-                        payload = self._read_json_body()
-                        action = " ".join(str(payload.get("action", "")).split()).strip().lower()
+                    if parsed.path == _api_v1_path("command"):
+                        if not _backend_alive():
+                            self._send_json(
+                                CommandResult(
+                                    status="error",
+                                    error="Butler backend is offline.",
+                                ).to_dict(),
+                                status=503,
+                            )
+                            return
+                        request = CommandRequest.from_dict(self._read_json_body())
+                        action = request.action.lower()
                         if action == "listen_once":
                             worker = threading.Thread(target=_dispatch_listen_once, daemon=True)
                             worker.start()
                             self._send_json(
-                                {
-                                    "status": "accepted",
-                                    "action": action,
-                                    "queued_at": _timestamp(),
-                                },
+                                CommandResult(
+                                    status="accepted",
+                                    message="listen_once accepted",
+                                    data={"action": action, "queued_at": _timestamp()},
+                                ).to_dict(),
                                 status=202,
                             )
                             return
-                        text = " ".join(str(payload.get("text", "")).split()).strip()
+                        text = request.text
                         if not text:
-                            self._send_json({"status": "error", "error": "Command text required."}, status=400)
+                            self._send_json(
+                                CommandResult(status="error", error="Command text required.").to_dict(),
+                                status=400,
+                            )
                             return
                         status_label = _command_status_label(text)
                         worker = threading.Thread(target=_dispatch_command, args=(text,), daemon=True)
                         worker.start()
                         self._send_json(
-                            {
-                                "status": status_label,
-                                "status_label": status_label,
-                                "accepted": True,
-                                "text": text,
-                                "queued_at": _timestamp(),
-                            },
+                            CommandResult(
+                                status=status_label,
+                                message=f"{status_label} command accepted",
+                                data={
+                                    "status_label": status_label,
+                                    "accepted": True,
+                                    "text": text,
+                                    "queued_at": _timestamp(),
+                                },
+                            ).to_dict(),
                             status=202,
                         )
                         return
-                    if parsed.path == "/api/open_project":
+                    if parsed.path == _api_v1_path("open_project"):
                         name = parse_qs(parsed.query).get("name", [""])[0]
                         result = open_project(name)
                         status = 200 if result.get("status") == "ok" else 400
-                        self._send_json(result, status=status)
+                        self._send_json(_api_response("open_project", result), status=status)
                         return
-                    if parsed.path == "/api/interrupt":
+                    if parsed.path == _api_v1_path("interrupt"):
+                        if not _backend_alive():
+                            self._send_json(
+                                CommandResult(
+                                    status="error",
+                                    error="Butler backend is offline.",
+                                ).to_dict(),
+                                status=503,
+                            )
+                            return
+                        request = CommandRequest.from_dict(self._read_json_body())
                         # Human-in-loop: interrupt current Burry task (Phase 7)
-                        new_command = " ".join(str(payload.get("text", "")).split()).strip()
+                        new_command = request.text
                         if new_command:
-                            try:
-                                from butler import interrupt_burry
-                                interrupt_burry(new_command)
-                                self._send_json({"status": "interrupted", "new_command": new_command})
-                            except Exception as exc:
-                                self._send_json({"status": "error", "error": str(exc)}, status=500)
+                            result = _dispatch_interrupt(new_command)
+                            status_name = str(result.get("status", "") or "error")
+                            status = 200 if status_name == "interrupted" else 500
+                            self._send_json(
+                                CommandResult(
+                                    status=status_name if status_name in {
+                                        "accepted",
+                                        "queued",
+                                        "acknowledged",
+                                        "executing",
+                                        "ok",
+                                        "error",
+                                        "interrupted",
+                                    } else "error",
+                                    message=str(result.get("message", "") or ""),
+                                    data={
+                                        key: value
+                                        for key, value in result.items()
+                                        if key not in {"status", "message", "error", "contract_version"}
+                                    },
+                                    error=str(result.get("error", "") or ""),
+                                ).to_dict(),
+                                status=status,
+                            )
                         else:
-                            self._send_json({"status": "error", "error": "text required"}, status=400)
+                            self._send_json(CommandResult(status="error", error="text required").to_dict(), status=400)
+                        return
+                    if parsed.path.startswith(API_BASE_PATH) or _is_legacy_api_path(parsed.path):
+                        self._send_json(_api_error("Not found", status=404, code="not_found"), status=404)
                         return
                     self._send_text("Not found", status=404)
                 except Exception as exc:
-                    self._send_json({"status": "error", "error": str(exc)}, status=500)
+                    clean_path = str(urlparse(self.path).path or "")
+                    if clean_path.startswith(API_BASE_PATH) or _is_legacy_api_path(clean_path):
+                        self._send_json(_api_error(str(exc), status=500, code="dashboard_error"), status=500)
+                        return
+                    self._send_json(CommandResult(status="error", error=str(exc)).to_dict(), status=500)
 
             def log_message(self, format: str, *args) -> None:
                 return
@@ -1108,7 +1259,6 @@ def serve_dashboard():
         _SERVER_THREAD = threading.Thread(target=_SERVER.serve_forever, daemon=True)
         _SERVER_THREAD.start()
         _start_ws_server()
-        _write_dashboard()
         return _SERVER
 
 
@@ -1140,7 +1290,6 @@ def show_dashboard_window(force: bool = False) -> None:
 def open_dashboard():
     """Generate + serve + open in a direct app-style window."""
     _prime_operator_status_cache(force=True)
-    _write_dashboard()
     server = serve_dashboard()
     if server is not None:
         print(f"[Dashboard] Live HUD: {dashboard_url()}")

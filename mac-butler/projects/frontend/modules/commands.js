@@ -9,7 +9,7 @@ function collapseWhitespace(value) {
 }
 
 async function postCommand(body) {
-  const response = await fetch("/api/command", {
+  const response = await fetch("/api/v1/command", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -42,6 +42,8 @@ export function createCommandController({
   currentPillNote,
 }) {
   let keydownHandler = null;
+  let micHoldTimer = null;
+  let micRequestActive = false;
 
   function kickOperatorRefreshWindow() {
     if (!hasActiveStream()) {
@@ -73,7 +75,7 @@ export function createCommandController({
 
     try {
       const result = await postCommand({ text: clean, source: "hud" });
-      const status = String(result?.status_label || result?.status || "").trim().toLowerCase();
+      const status = String(result?.data?.status_label || result?.status_label || result?.status || "").trim().toLowerCase();
       if (result && result.status === "busy") {
         entry.text = clean + " (not received — Burry was busy)";
         entry.dropped = true;
@@ -97,6 +99,8 @@ export function createCommandController({
   }
 
   async function requestBackendMic() {
+    if (micRequestActive) return;
+    micRequestActive = true;
     refs.micButton.classList.add("is-recording");
     setButlerState("listening", "Backend Whisper is listening for one command.");
     try {
@@ -106,7 +110,26 @@ export function createCommandController({
       console.error(error);
       setButlerState(normalizeCurrentMode(), currentPillNote());
     } finally {
-      window.setTimeout(() => refs.micButton.classList.remove("is-recording"), 1200);
+      micRequestActive = false;
+      window.setTimeout(() => refs.micButton.classList.remove("is-recording"), 900);
+    }
+  }
+
+  function armMicHold() {
+    if (micHoldTimer || micRequestActive) return;
+    micHoldTimer = window.setTimeout(() => {
+      micHoldTimer = null;
+      requestBackendMic();
+    }, 180);
+  }
+
+  function clearMicHold() {
+    if (micHoldTimer) {
+      window.clearTimeout(micHoldTimer);
+      micHoldTimer = null;
+    }
+    if (!micRequestActive) {
+      refs.micButton.classList.remove("is-recording");
     }
   }
 
@@ -122,7 +145,7 @@ export function createCommandController({
         // Human-in-loop interrupt: if Burry is busy and there's text, interrupt it (Phase 7)
         const newCmd = refs.commandInput.value.trim();
         if (newCmd && document.body.dataset.state !== "idle") {
-          fetch("/api/interrupt", {
+          fetch("/api/v1/interrupt", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: newCmd }),
@@ -152,14 +175,25 @@ export function createCommandController({
       await sendCommand(text);
     });
 
-    refs.micButton.addEventListener("click", async () => {
-      await requestBackendMic();
+    refs.micButton.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      armMicHold();
+    });
+    refs.micButton.addEventListener("pointerup", clearMicHold);
+    refs.micButton.addEventListener("pointercancel", clearMicHold);
+    refs.micButton.addEventListener("pointerleave", clearMicHold);
+    refs.micButton.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        requestBackendMic();
+      }
     });
 
     setupKeyboardShortcuts();
   }
 
   function cleanup() {
+    clearMicHold();
     refs.micButton.classList.remove("is-recording");
     if (keydownHandler) {
       document.removeEventListener("keydown", keydownHandler);

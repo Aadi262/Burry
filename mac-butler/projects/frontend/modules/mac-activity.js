@@ -170,9 +170,10 @@ export function renderMacActivity(container, payload) {
 export function createMacActivityPanel({ container }) {
   async function refresh() {
     try {
-      const response = await fetch("/api/mac-activity");
+      const response = await fetch("/api/v1/mac-activity");
       if (!response.ok) return;
-      renderMacActivity(container, await response.json());
+      const payload = await response.json();
+      renderMacActivity(container, payload?.data ?? payload);
     } catch (error) {
       console.error(error);
     }

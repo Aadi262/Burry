@@ -429,17 +429,18 @@ function ensureSize() {
 
     try {
       const [projectsResponse, graphResponse] = await Promise.all([
-        fetch("/api/projects"),
-        fetch("/api/graph"),
+        fetch("/api/v1/projects"),
+        fetch("/api/v1/graph"),
       ]);
 
       if (projectsResponse.ok) {
         const payload = await projectsResponse.json();
-        nextProjects = Array.isArray(payload) ? payload : nextProjects;
+        nextProjects = Array.isArray(payload?.data) ? payload.data : nextProjects;
       }
       if (graphResponse.ok) {
         const payload = await graphResponse.json();
-        nextEdges = Array.isArray(payload.edges) ? payload.edges : [];
+        const data = payload?.data ?? payload;
+        nextEdges = Array.isArray(data?.edges) ? data.edges : [];
       }
     } catch (error) {
       console.error(error);

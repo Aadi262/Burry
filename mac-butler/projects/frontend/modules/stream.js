@@ -17,6 +17,7 @@ function normalizeText(value) {
 export function createOperatorStream({
   bootstrap,
   onConnectionChange,
+  appendEvent = () => {},
   onOperator,
   onProjects,
   refs = {},
@@ -148,6 +149,15 @@ export function createOperatorStream({
     const title = normalizeText(payload?.title || "Active Plan") || "Active Plan";
     renderPlanSteps(title, steps);
     appendTraceStep(`Plan updated: ${title}`, "plan");
+  }
+
+  function appendLiveEvent(kind, message, meta = {}) {
+    appendEvent({
+      at: meta?.at || new Date().toISOString(),
+      kind,
+      message,
+      meta,
+    });
   }
 
   function updateLiveToolExec(tool, result, status) {
@@ -303,39 +313,86 @@ export function createOperatorStream({
   function handleTransportMessage(raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed?.type === "agent_thinking") {
+      const eventType = normalizeText(parsed?.type || "").toLowerCase();
+      const payload = parsed?.data ?? parsed?.payload ?? {};
+      if (eventType === "agent_thinking") {
         onAgentThinking();
         return;
       }
-      if (parsed?.type === "agent_reply") {
-        onAgentReply(parsed.payload);
+      if (eventType === "agent_reply") {
+        onAgentReply(payload);
         return;
       }
-      if (parsed?.type === "agent_chunk") {
-        onAgentChunk(parsed.payload);
+      if (eventType === "agent_chunk") {
+        onAgentChunk(payload);
         return;
       }
-      if (parsed?.type === "tool_start") {
-        onToolStart(parsed.payload);
+      if (eventType === "tool_start") {
+        onToolStart(payload);
         return;
       }
-      if (parsed?.type === "tool_end") {
-        onToolEnd(parsed.payload);
+      if (eventType === "tool_end") {
+        onToolEnd(payload);
         return;
       }
-      if (parsed?.type === "plan_update") {
-        onPlanUpdate(parsed.payload);
+      if (eventType === "plan_update") {
+        onPlanUpdate(payload);
         return;
       }
-      if (parsed && parsed.type === "operator" && parsed.payload) {
-        applyOperatorPayload(parsed.payload);
+      if (eventType === "pending_update") {
+        const active = Boolean(payload.active);
+        const kind = normalizeText(payload.kind || "") || "pending";
+        const nextField = normalizeText(payload.next_field || "");
+        appendLiveEvent(
+          "pending_update",
+          active
+            ? `Pending ${kind}${nextField ? ` - waiting for ${nextField}` : ""}`
+            : "Pending flow cleared",
+          payload,
+        );
         return;
       }
-      if (parsed && parsed.type === "projects") {
-        onProjects(Array.isArray(parsed.payload) ? parsed.payload : []);
+      if (eventType === "mood_update") {
+        appendLiveEvent(
+          "mood_update",
+          `Mood: ${normalizeText(payload.mood || "focused")}`,
+          payload,
+        );
         return;
       }
-      applyOperatorPayload(parsed && parsed.payload ? parsed.payload : parsed);
+      if (eventType === "memory_read") {
+        appendLiveEvent(
+          "memory_read",
+          `Memory read: ${normalizeText(payload.query || "recent context")}`,
+          payload,
+        );
+        return;
+      }
+      if (eventType === "classifier_result") {
+        appendLiveEvent(
+          "classifier_result",
+          `Classifier: ${normalizeText(payload.intent || "unknown")} (${payload.confidence ?? 0})`,
+          payload,
+        );
+        return;
+      }
+      if (eventType === "briefing_spoken") {
+        appendLiveEvent(
+          "briefing_spoken",
+          `Briefing: ${normalizeText(payload.text || "")}`,
+          payload,
+        );
+        return;
+      }
+      if (eventType === "operator" && payload) {
+        applyOperatorPayload(payload);
+        return;
+      }
+      if (eventType === "projects") {
+        onProjects(Array.isArray(payload) ? payload : []);
+        return;
+      }
+      applyOperatorPayload(parsed && (parsed.data || parsed.payload) ? payload : parsed);
     } catch (error) {
       console.error(error);
     }
@@ -343,9 +400,10 @@ export function createOperatorStream({
 
   async function refreshOperator() {
     try {
-      const response = await fetch("/api/operator");
+      const response = await fetch("/api/v1/operator");
       if (!response.ok) return;
-      applyOperatorPayload(await response.json());
+      const payload = await response.json();
+      applyOperatorPayload(payload?.data ?? payload);
     } catch (error) {
       console.error(error);
     }
@@ -353,9 +411,10 @@ export function createOperatorStream({
 
   async function refreshProjects() {
     try {
-      const response = await fetch("/api/projects");
+      const response = await fetch("/api/v1/projects");
       if (!response.ok) return;
-      onProjects(await response.json());
+      const payload = await response.json();
+      onProjects(Array.isArray(payload?.data) ? payload.data : []);
     } catch (error) {
       console.error(error);
     }

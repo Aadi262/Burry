@@ -71,11 +71,12 @@ const panels = createPanels({
   state,
   orb,
   events,
-  openProject: async (name) => fetch(`/api/open_project?name=${encodeURIComponent(name)}`, { method: "POST" }),
+  openProject: async (name) => fetch(`/api/v1/open_project?name=${encodeURIComponent(name)}`, { method: "POST" }),
 });
 
 const stream = createOperatorStream({
   bootstrap,
+  appendEvent: events.appendEvent,
   refs,
   setButlerState: panels.setButlerState,
   onConnectionChange: (connected) => {
@@ -104,9 +105,10 @@ const commands = createCommandController({
 
 async function refreshVps() {
   try {
-    const response = await fetch("/api/vps");
+    const response = await fetch("/api/v1/vps");
     if (!response.ok) return;
-    panels.setVpsStatus(await response.json());
+    const payload = await response.json();
+    panels.setVpsStatus(payload?.data ?? payload);
   } catch (error) {
     console.error(error);
   }

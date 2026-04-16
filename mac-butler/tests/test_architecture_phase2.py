@@ -4,6 +4,20 @@ from unittest.mock import patch
 
 import butler
 from agents import runner
+from capabilities.contracts import (
+    CONTRACT_VERSION,
+    ApiError,
+    ApiResponse,
+    CapabilityDescriptor,
+    ClassifierResult,
+    CommandRequest,
+    CommandResult,
+    HudEventEnvelope,
+    PendingState,
+    ToolInvocation,
+    ToolResult,
+    ToolSpec,
+)
 from memory import knowledge_base
 from projects import dashboard
 from state import State
@@ -52,6 +66,54 @@ class Phase2QuickWinTests(unittest.TestCase):
 
     def test_dashboard_stream_interval_is_half_second(self):
         self.assertEqual(dashboard.STREAM_INTERVAL_SECONDS, 0.5)
+
+    def test_command_request_and_result_preserve_contract_version(self):
+        request = CommandRequest.from_dict({"text": "open terminal", "source": "hud", "timeout": "3"})
+        result = CommandResult(status="accepted", data={"text": request.text}).to_dict()
+
+        self.assertEqual(request.contract_version, CONTRACT_VERSION)
+        self.assertEqual(request.timeout, 3.0)
+        self.assertEqual(result["contract_version"], CONTRACT_VERSION)
+        self.assertEqual(result["data"]["text"], "open terminal")
+        self.assertEqual(result["text"], "open terminal")
+
+    def test_hud_event_envelope_keeps_data_and_legacy_payload(self):
+        envelope = HudEventEnvelope(type="operator", data={"state": "listening"}).to_dict()
+
+        self.assertEqual(envelope["event_version"], CONTRACT_VERSION)
+        self.assertEqual(envelope["type"], "operator")
+        self.assertEqual(envelope["data"], {"state": "listening"})
+        self.assertEqual(envelope["payload"], {"state": "listening"})
+
+    def test_api_response_and_error_are_versioned(self):
+        response = ApiResponse(kind="operator", data={"state": "idle"}).to_dict()
+        error = ApiError(error="Not found", status=404, code="not_found").to_dict()
+
+        self.assertEqual(response["contract_version"], CONTRACT_VERSION)
+        self.assertEqual(response["kind"], "operator")
+        self.assertEqual(response["data"]["state"], "idle")
+        self.assertEqual(error["contract_version"], CONTRACT_VERSION)
+        self.assertEqual(error["status"], 404)
+        self.assertEqual(error["code"], "not_found")
+
+    def test_phase2_dtos_cover_tool_pending_and_classifier_shapes(self):
+        spec = ToolSpec(
+            name="open_terminal",
+            action_type="open_terminal",
+            kind="control",
+            description="Open Terminal",
+        )
+        descriptor = CapabilityDescriptor.from_tool_spec("T01", spec).to_dict()
+        invocation = ToolInvocation(tool="open_terminal", args={"profile": "default"}, capability_id="T01").to_dict()
+        result = ToolResult(tool="open_terminal", status="ok", capability_id="T01").to_dict()
+        pending = PendingState(active=True, kind="email", next_field="subject").to_dict()
+        classifier = ClassifierResult(intent="open_app", confidence=0.91).to_dict()
+
+        self.assertEqual(descriptor["capability_id"], "T01")
+        self.assertEqual(invocation["capability_id"], "T01")
+        self.assertEqual(result["capability_id"], "T01")
+        self.assertEqual(pending["next_field"], "subject")
+        self.assertEqual(classifier["intent"], "open_app")
 
 
 if __name__ == "__main__":
