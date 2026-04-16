@@ -26,8 +26,9 @@ class TriggerTests(unittest.TestCase):
         self.assertEqual(mock_publish.call_args.args[0], "briefing_spoken")
         mock_note_event.assert_called_once()
 
+    @patch("trigger._planning_keepalive_model", return_value="ollama_local::gemma4:e4b")
     @patch("trigger.requests.post")
-    def test_warm_planning_model_uses_keep_alive_request(self, mock_post):
+    def test_warm_planning_model_uses_keep_alive_request(self, mock_post, _mock_model):
         trigger._warm_planning_model()
 
         self.assertTrue(mock_post.called)

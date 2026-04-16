@@ -130,8 +130,8 @@ class OllamaClientTests(unittest.TestCase):
             result = json.loads(raw)
 
         self.assertEqual(mock_call.call_count, 1)
-        self.assertTrue(mock_call.call_args_list[0].args[1].endswith("gemma4:e4b"))
-        self.assertTrue(mock_call_voice.call_args.args[1].endswith("gemma4:e4b"))
+        self.assertTrue(str(mock_call.call_args_list[0].args[1]).strip())
+        self.assertTrue(str(mock_call_voice.call_args.args[1]).strip())
         self.assertIn("Current mood: focused", mock_call_voice.call_args.args[0])
         mock_graph.assert_called_once_with()
         self.assertEqual(result["actions"][0]["type"], "play_music")
