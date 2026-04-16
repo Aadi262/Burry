@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import requests
@@ -23,10 +24,11 @@ import requests
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
 from agentscope.pipeline import MsgHub, fanout_pipeline
-from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL
+from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL, split_model_ref
 from butler_secrets.loader import get_secret, get_vps_secret
 from brain.agentscope_backbone import ensure_agentscope_initialized
 from brain.ollama_client import (
+    _call,
     _get_available_models,
     _check_memory,
     _get_request_target_for_model,
@@ -70,8 +72,11 @@ def _get_installed_models() -> set[str]:
 
 def _pick_model(agent_type: str) -> str:
     model = pick_agent_model(agent_type)
+    provider, model_name = split_model_ref(model)
+    if provider not in {"auto", "ollama_local", "ollama_vps"}:
+        return model
     installed = _get_installed_models()
-    if installed and model not in installed and model.split(":")[0] not in installed:
+    if installed and model_name not in installed and model_name.split(":")[0] not in installed:
         preferred = ROUTED_MODELS.get(agent_type, ROUTED_MODELS["default"])
         print(f"[Agent] {preferred} not installed, using {model}")
     return model
@@ -87,21 +92,13 @@ def _prepare_model_request(model: str) -> None:
 
 def _call_model(prompt: str, model: str, max_tokens: int = 400, timeout: int = 90) -> str:
     _prepare_model_request(model)
-    url, headers, _backend = _get_request_target_for_model(model)
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "keep_alive": "2m",
-        "options": {
-            "temperature": 0.3,
-            "num_predict": max_tokens,
-            "num_ctx": 1024,
-        },
-    }
-    response = requests.post(url, json=payload, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    return response.json().get("response", "").strip()
+    return _call(
+        prompt,
+        model,
+        temperature=0.3,
+        max_tokens=max_tokens,
+        timeout_hint="agent",
+    )
 
 
 def _limit_words(text: str, limit: int = 150) -> str:
@@ -258,6 +255,42 @@ def _jina_fetch(url: str) -> str:
         return response.text[:600] if response.status_code == 200 else ""
     except Exception:
         return ""
+
+
+def _cached_page_text(url: str) -> str:
+    cleaned_url = str(url or "").strip()
+    if not cleaned_url:
+        return ""
+    try:
+        from memory.knowledge_base import get_indexed_document
+
+        payload = get_indexed_document(cleaned_url)
+    except Exception:
+        payload = None
+    return str((payload or {}).get("text", "") or "").strip()
+
+
+def _remember_page_text(url: str, text: str, title: str = "") -> None:
+    cleaned_url = str(url or "").strip()
+    cleaned_text = str(text or "").strip()
+    if not cleaned_url or not cleaned_text:
+        return
+    try:
+        from memory.knowledge_base import index_web_page
+
+        index_web_page(cleaned_url, cleaned_text, title=title)
+    except Exception:
+        pass
+
+
+def _cached_or_live_page_text(url: str, title: str = "") -> str:
+    cached = _cached_page_text(url)
+    if cached:
+        return cached
+    fetched = _jina_fetch(url)
+    if fetched:
+        _remember_page_text(url, fetched, title=title)
+    return fetched
 
 
 def _searxng_available(force_refresh: bool = False) -> bool:
@@ -505,7 +538,75 @@ def _clean_news_title(title: str) -> str:
     return cleaned.strip(" -:")
 
 
-def _collect_news_items(topic: str, count: int = 3) -> tuple[list[dict], list[str]]:
+def _google_news_rss_query(topic: str, hours: int = 24) -> str:
+    cleaned = " ".join(str(topic or "").split()).strip() or "latest news"
+    try:
+        window = max(int(hours or 24), 1)
+    except (TypeError, ValueError):
+        window = 24
+
+    if window <= 24:
+        suffix = " when:1d"
+    elif window <= 24 * 7:
+        suffix = " when:7d"
+    elif window <= 24 * 30:
+        suffix = " when:30d"
+    else:
+        suffix = ""
+    return f"{cleaned}{suffix}"
+
+
+def _google_news_rss_search(topic: str, count: int = 5, hours: int = 24) -> list[dict]:
+    try:
+        response = requests.get(
+            "https://news.google.com/rss/search",
+            params={
+                "q": _google_news_rss_query(topic, hours=hours),
+                "hl": "en-US",
+                "gl": "US",
+                "ceid": "US:en",
+            },
+            timeout=8,
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.text)
+    except Exception:
+        return []
+
+    items: list[dict] = []
+    seen: set[str] = set()
+    for node in root.findall(".//item"):
+        raw_source = html.unescape(str(node.findtext("source", "") or "")).strip()
+        raw_title = html.unescape(str(node.findtext("title", "") or "")).strip()
+        if raw_source and raw_title.lower().endswith(f" - {raw_source.lower()}"):
+            raw_title = raw_title[: -(len(raw_source) + 3)].strip()
+        title = _clean_news_title(raw_title)
+        url = html.unescape(str(node.findtext("link", "") or "")).strip()
+        description = _clean_article_excerpt(
+            _strip_html(html.unescape(str(node.findtext("description", "") or ""))),
+            max_chars=280,
+        )
+        published = html.unescape(str(node.findtext("pubDate", "") or "")).strip()
+        key = url or title.lower()
+        if not key or key in seen or not title:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "title": title,
+                "url": url,
+                "content": description,
+                "source": raw_source or _domain_label(url),
+                "published": published,
+                "query": topic,
+            }
+        )
+        if len(items) >= max(1, count):
+            break
+    return items
+
+
+def _collect_news_items(topic: str, count: int = 3, hours: int = 24) -> tuple[list[dict], list[str]]:
     search_query = f"{topic} latest news"
     items, sources = _collect_search_items(search_query, count=max(5, count * 2), categories="news")
     if not items:
@@ -514,13 +615,26 @@ def _collect_news_items(topic: str, count: int = 3) -> tuple[list[dict], list[st
         items, sources = _collect_search_items(topic, count=max(5, count * 2))
 
     enriched: list[dict] = []
+    seen: set[str] = set()
+
+    def add_enriched_item(payload: dict) -> None:
+        url = str(payload.get("url", "")).strip()
+        title = str(payload.get("title", "")).strip()
+        key = url or title.lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        enriched.append(payload)
+
     for item in items:
         url = str(item.get("url", "")).strip()
-        article_text = _clean_article_excerpt(_jina_fetch(url)) if url else ""
+        article_text = _clean_article_excerpt(
+            _cached_or_live_page_text(url, title=str(item.get("title", "")).strip())
+        ) if url else ""
         snippet = str(item.get("content", "")).strip()
         if not article_text and not snippet:
             continue
-        enriched.append(
+        add_enriched_item(
             {
                 **item,
                 "source": _domain_label(url),
@@ -529,6 +643,20 @@ def _collect_news_items(topic: str, count: int = 3) -> tuple[list[dict], list[st
         )
         if len(enriched) >= count:
             break
+
+    if len(enriched) < count:
+        rss_items = _google_news_rss_search(topic, count=max(5, count * 2), hours=hours)
+        if rss_items and "google_news_rss" not in sources:
+            sources.append("google_news_rss")
+        for item in rss_items:
+            add_enriched_item(
+                {
+                    **item,
+                    "article_text": _clean_article_excerpt(str(item.get("content", "")).strip(), max_chars=280),
+                }
+            )
+            if len(enriched) >= count:
+                break
 
     return enriched, sources
 
@@ -1062,7 +1190,7 @@ def _news_agent(data: dict, model: str) -> dict:
     hours = data.get("hours", 24)
     global _LAST_FETCH_DATA
     _LAST_FETCH_DATA = {}
-    items, sources = _collect_news_items(topic, count=3)
+    items, sources = _collect_news_items(topic, count=3, hours=hours)
 
     if items:
         material = "\n".join(
@@ -1209,7 +1337,7 @@ def _fetch_agent(data: dict, model: str) -> dict:
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
 
-    text = _jina_fetch(url)
+    text = _cached_or_live_page_text(url)
     if not text or len(text.strip()) < 40:
         return {"status": "ok", "result": f"I couldn't read {url} right now.", "data": {"url": url}}
 
@@ -1412,7 +1540,11 @@ def _rerank_and_fetch(results: list[dict], query: str) -> str:
         scored.sort(key=lambda item: item[0], reverse=True)
         ranked = [result for _, result in scored]
 
-    top_content = _jina_fetch(str(ranked[0].get("url", "")).strip()) if ranked else ""
+    top_content = ""
+    if ranked:
+        top_url = str(ranked[0].get("url", "")).strip()
+        top_title = str(ranked[0].get("title", "")).strip()
+        top_content = _cached_or_live_page_text(top_url, title=top_title)
     snippets = "\n".join(
         f"{result.get('title', '')}: {str(result.get('content', ''))[:120]}".strip(": ")
         for result in ranked[:4]

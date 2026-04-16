@@ -11,7 +11,9 @@ import hashlib
 import inspect
 import json
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
+import urllib.parse
 
 from butler_config import EMBED_MODEL, OLLAMA_LOCAL_URL
 
@@ -90,7 +92,7 @@ def _record_agentscope_titles(documents: list, title: str) -> None:
       _AGENTSCOPE_DOC_TITLES[doc_id] = title
 
 
-def _add_to_agentscope_kb(file_path: Path, text: str, title: str) -> None:
+def _add_to_agentscope_kb(text: str, title: str) -> None:
   if _AGENTSCOPE_KB is None:
     return
   try:
@@ -106,27 +108,87 @@ def _add_to_agentscope_kb(file_path: Path, text: str, title: str) -> None:
     pass
 
 
-def _index_custom_file(file_path: str, title: str = "") -> int:
+def _load_index_data() -> dict:
   _ensure_kb()
-  path = Path(file_path).expanduser()
-  if not path.exists():
+  try:
+    data = json.loads(KB_INDEX.read_text())
+  except Exception:
+    data = {"documents": [], "chunks": []}
+  if not isinstance(data, dict):
+    return {"documents": [], "chunks": []}
+  data.setdefault("documents", [])
+  data.setdefault("chunks", [])
+  return data
+
+
+def _write_index_data(data: dict) -> None:
+  KB_INDEX.write_text(json.dumps(data, indent=2))
+
+
+def _document_id(source: str) -> str:
+  return hashlib.md5(str(source or "").encode()).hexdigest()[:8]
+
+
+def _chunk_text(text: str, *, chunk_words: int = 500, overlap_words: int = 100) -> list[str]:
+  words = str(text or "").split()
+  if not words:
+    return []
+  step = max(chunk_words - overlap_words, 1)
+  return [
+    " ".join(words[index:index + chunk_words])
+    for index in range(0, len(words), step)
+  ]
+
+
+def _default_title(source: str, title: str = "") -> str:
+  cleaned = str(title or "").strip()
+  if cleaned:
+    return cleaned
+  source_text = str(source or "").strip()
+  if not source_text:
+    return "document"
+  parsed = urllib.parse.urlparse(source_text)
+  if parsed.scheme and parsed.netloc:
+    tail = Path(parsed.path).name.strip()
+    return tail or parsed.netloc
+  return Path(source_text).name or source_text
+
+
+def _upsert_document(
+  source: str,
+  text: str,
+  *,
+  title: str = "",
+  kind: str = "file",
+  path: str = "",
+  url: str = "",
+) -> int:
+  normalized_source = str(source or "").strip()
+  body = str(text or "").strip()
+  if not normalized_source or not body:
     return 0
 
-  text = path.read_text(errors="ignore")
-  words = text.split()
-  chunks = [" ".join(words[i:i + 500]) for i in range(0, len(words), 400)]
+  chunks = _chunk_text(body)
+  if not chunks:
+    return 0
 
-  data = json.loads(KB_INDEX.read_text())
-  doc_id = hashlib.md5(str(path).encode()).hexdigest()[:8]
+  data = _load_index_data()
+  doc_id = _document_id(normalized_source)
+  updated_at = datetime.now(timezone.utc).isoformat()
+  doc_title = _default_title(normalized_source, title)
 
   data["documents"] = [doc for doc in data["documents"] if doc.get("id") != doc_id]
   data["chunks"] = [chunk for chunk in data["chunks"] if chunk.get("doc_id") != doc_id]
 
   data["documents"].append({
     "id": doc_id,
-    "path": str(path),
-    "title": title or path.name,
+    "source": normalized_source,
+    "path": path,
+    "url": url,
+    "kind": kind,
+    "title": doc_title,
     "chunks": len(chunks),
+    "updated_at": updated_at,
   })
 
   for index, chunk in enumerate(chunks):
@@ -134,11 +196,32 @@ def _index_custom_file(file_path: str, title: str = "") -> int:
       "doc_id": doc_id,
       "chunk_id": f"{doc_id}_{index}",
       "text": chunk,
-      "title": title or path.name,
+      "title": doc_title,
+      "source": normalized_source,
+      "path": path,
+      "url": url,
+      "kind": kind,
+      "updated_at": updated_at,
     })
 
-  KB_INDEX.write_text(json.dumps(data, indent=2))
+  _write_index_data(data)
   return len(chunks)
+
+
+def _index_custom_file(file_path: str, title: str = "") -> int:
+  _ensure_kb()
+  path = Path(file_path).expanduser()
+  if not path.exists():
+    return 0
+
+  text = path.read_text(errors="ignore")
+  return _upsert_document(
+    str(path),
+    text,
+    title=title or path.name,
+    kind="file",
+    path=str(path),
+  )
 
 
 def init_agentscope_rag(data_dirs: list[str]) -> bool:
@@ -248,15 +331,57 @@ def index_file(file_path: str, title: str = "") -> int:
     text = path.read_text(errors="ignore")
   except Exception:
     return count
-  _add_to_agentscope_kb(path, text, title or path.name)
+  _add_to_agentscope_kb(text, title or path.name)
   return count
+
+
+def index_web_page(url: str, text: str, title: str = "") -> int:
+  """Cache fetched page text so repeated retrieval can reuse a local snapshot."""
+  cleaned_url = str(url or "").strip()
+  body = str(text or "").strip()
+  if not cleaned_url or not body:
+    return 0
+  count = _upsert_document(
+    cleaned_url,
+    body,
+    title=title,
+    kind="web_page",
+    url=cleaned_url,
+  )
+  _add_to_agentscope_kb(body, title or _default_title(cleaned_url))
+  return count
+
+
+def get_indexed_document(source: str) -> dict | None:
+  """Return a cached document or page snapshot by exact source/path/URL."""
+  cleaned_source = str(source or "").strip()
+  if not cleaned_source:
+    return None
+
+  data = _load_index_data()
+  documents = list(data.get("documents", []))
+  chunks = list(data.get("chunks", []))
+
+  for document in reversed(documents):
+    fields = (
+      str(document.get("source", "")).strip(),
+      str(document.get("path", "")).strip(),
+      str(document.get("url", "")).strip(),
+    )
+    if cleaned_source not in fields:
+      continue
+    doc_id = str(document.get("id", "")).strip()
+    text = "\n\n".join(
+      str(chunk.get("text", "")).strip()
+      for chunk in chunks
+      if str(chunk.get("doc_id", "")).strip() == doc_id and str(chunk.get("text", "")).strip()
+    ).strip()
+    if not text:
+      return None
+    return {**document, "text": text[:24000]}
+  return None
 
 
 def list_indexed_files() -> list[dict]:
   """Return the list of indexed documents from the fallback JSON store."""
-  _ensure_kb()
-  try:
-    data = json.loads(KB_INDEX.read_text())
-    return data.get("documents", [])
-  except Exception:
-    return []
+  return list(_load_index_data().get("documents", []))

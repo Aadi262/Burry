@@ -3,9 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from agents.runner import (
     _call_model,
+    _collect_news_items,
     _collect_search_items,
     _fetch_agent,
     _fetch_github_trending_items,
+    _google_news_rss_search,
     _github_agent,
     _news_agent,
     _pick_model,
@@ -32,23 +34,22 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(seen, ["All good"])
 
     @patch("agents.runner._prepare_model_request")
-    @patch("agents.runner.requests.post")
-    def test_call_model_uses_short_keep_alive_and_small_context(
+    @patch("agents.runner._call", return_value="ok")
+    def test_call_model_uses_central_provider_aware_caller(
         self,
-        mock_post,
+        mock_call,
         _mock_prepare,
     ):
-        response = MagicMock()
-        response.raise_for_status.return_value = None
-        response.json.return_value = {"response": "ok"}
-        mock_post.return_value = response
-
         result = _call_model("prompt", "test-model", max_tokens=80)
 
         self.assertEqual(result, "ok")
-        payload = mock_post.call_args.kwargs["json"]
-        self.assertEqual(payload["keep_alive"], "2m")
-        self.assertEqual(payload["options"]["num_ctx"], 1024)
+        mock_call.assert_called_once_with(
+            "prompt",
+            "test-model",
+            temperature=0.3,
+            max_tokens=80,
+            timeout_hint="agent",
+        )
 
     @patch("agents.runner._call_model", return_value="Qwen2.5 is Alibaba's multilingual model family.")
     @patch("agents.runner._fetch_search_text", return_value={"backend": "stub", "tool": "fake", "text": "Qwen2.5 is a model family."})
@@ -71,7 +72,8 @@ class AgentTests(unittest.TestCase):
         ),
     )
     def test_pick_model_uses_agent_chain_fallback(self, _mock_available, _mock_installed):
-        self.assertEqual(_pick_model("hackernews"), "phi4-mini:latest")
+        with patch("agents.runner.pick_agent_model", return_value="ollama_local::phi4-mini:latest"):
+            self.assertEqual(_pick_model("hackernews"), "ollama_local::phi4-mini:latest")
 
     @patch("agents.runner._call_model", return_value="- Story one\n- Story two\n- Story three")
     @patch("agents.runner._fetch_json")
@@ -150,6 +152,98 @@ class AgentTests(unittest.TestCase):
         self.assertIn("Headline 1", result["result"])
         self.assertIn("example.com", result["result"])
 
+    @patch("agents.runner.requests.get")
+    def test_google_news_rss_search_parses_feed_items(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.text = """
+        <rss>
+          <channel>
+            <item>
+              <title>Gemma 4 launches for enterprise AI - Reuters</title>
+              <link>https://news.google.com/rss/articles/abc</link>
+              <description><![CDATA[<div>Google expanded Gemma 4 deployment options for enterprise teams.</div>]]></description>
+              <source url="https://www.reuters.com">Reuters</source>
+              <pubDate>Sat, 12 Apr 2026 10:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """
+        mock_get.return_value = mock_response
+
+        items = _google_news_rss_search("Gemma 4", count=2, hours=24)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "Gemma 4 launches for enterprise AI")
+        self.assertEqual(items[0]["source"], "Reuters")
+        self.assertIn("enterprise teams", items[0]["content"])
+
+    @patch("agents.runner._google_news_rss_search")
+    @patch("agents.runner._collect_search_items")
+    def test_collect_news_items_uses_google_news_rss_when_search_backends_are_empty(
+        self,
+        mock_collect_search_items,
+        mock_rss_search,
+    ):
+        mock_collect_search_items.side_effect = [
+            ([], []),
+            ([], []),
+            ([], []),
+        ]
+        mock_rss_search.return_value = [
+            {
+                "title": "Gemma 4 launches for enterprise AI",
+                "url": "https://news.google.com/rss/articles/abc",
+                "content": "Google expanded Gemma 4 deployment options for enterprise teams.",
+                "source": "Reuters",
+                "published": "Sat, 12 Apr 2026 10:30:00 GMT",
+            },
+            {
+                "title": "NVIDIA updates enterprise inference stack",
+                "url": "https://news.google.com/rss/articles/def",
+                "content": "NVIDIA refreshed its enterprise inference tooling and deployment path.",
+                "source": "AP News",
+                "published": "Sat, 12 Apr 2026 09:00:00 GMT",
+            },
+        ]
+
+        items, sources = _collect_news_items("AI", count=2, hours=24)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["source"], "Reuters")
+        self.assertIn("google_news_rss", sources)
+
+    @patch("agents.runner._call_model", return_value="")
+    @patch("agents.runner._google_news_rss_search")
+    @patch("agents.runner._collect_search_items")
+    def test_news_agent_uses_google_news_rss_fallback_when_search_backends_are_empty(
+        self,
+        mock_collect_search_items,
+        mock_rss_search,
+        _mock_call_model,
+    ):
+        mock_collect_search_items.side_effect = [
+            ([], []),
+            ([], []),
+            ([], []),
+        ]
+        mock_rss_search.return_value = [
+            {
+                "title": "Gemma 4 launches for enterprise AI",
+                "url": "https://news.google.com/rss/articles/abc",
+                "content": "Google expanded Gemma 4 deployment options for enterprise teams.",
+                "source": "Reuters",
+                "published": "Sat, 12 Apr 2026 10:30:00 GMT",
+            }
+        ]
+
+        result = _news_agent({"topic": "AI", "hours": 24}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "news_crawl")
+        self.assertIn("google_news_rss", result["data"]["sources"])
+        self.assertIn("Reuters", result["result"])
+
     @patch("agents.runner._exa_search", return_value=[{"title": "Exa story", "url": "https://example.com/exa", "content": "Fresh result"}])
     @patch("agents.runner._duckduckgo_search", return_value=[])
     @patch("agents.runner._searxng_search", return_value=[])
@@ -168,12 +262,40 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn("exa", sources)
 
     @patch("agents.runner._jina_fetch", return_value="This page describes Gemma 4 features, pricing, and launch context.")
+    @patch("memory.knowledge_base.get_indexed_document", return_value=None)
     @patch("agents.runner._call_model", return_value="The page says Gemma 4 launched with stronger multimodal support and broader deployment options.")
-    def test_fetch_agent_reads_and_summarizes_url(self, _mock_call, _mock_fetch):
+    def test_fetch_agent_reads_and_summarizes_url(self, _mock_call, _mock_cached, _mock_fetch):
         result = _fetch_agent({"query": "read this https://example.com/post", "url": "https://example.com/post"}, "test-model")
         self.assertEqual(result["status"], "ok")
         self.assertIn("Gemma 4", result["result"])
         self.assertEqual(result["data"]["tool"], "jina_fetch")
+
+    @patch("agents.runner._call_model", return_value="Cached page summary.")
+    @patch("agents.runner._jina_fetch")
+    @patch(
+        "memory.knowledge_base.get_indexed_document",
+        return_value={"text": "Cached Gemma 4 page snapshot with stronger multimodal support and deployment guidance."},
+    )
+    def test_fetch_agent_uses_indexed_page_snapshot_before_live_fetch(self, _mock_cached, mock_jina, _mock_call):
+        result = _fetch_agent({"query": "read this https://example.com/post", "url": "https://example.com/post"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "Cached page summary.")
+        mock_jina.assert_not_called()
+
+    @patch("agents.runner._call_model", return_value="Fresh page summary.")
+    @patch("memory.knowledge_base.get_indexed_document", return_value=None)
+    @patch("memory.knowledge_base.index_web_page")
+    @patch("agents.runner._jina_fetch", return_value="Fresh Gemma 4 page text from live fetch.")
+    def test_fetch_agent_indexes_live_page_snapshot_for_reuse(self, _mock_fetch, mock_index, _mock_cached, _mock_call):
+        result = _fetch_agent({"query": "read this https://example.com/post", "url": "https://example.com/post"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        mock_index.assert_called_once_with(
+            "https://example.com/post",
+            "Fresh Gemma 4 page text from live fetch.",
+            title="",
+        )
 
     def test_search_agent_asks_for_clarification_on_too_short_query(self):
         result = _search_agent({"query": "what is"}, "test-model")
@@ -343,7 +465,8 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0]["title"], "Blaizzy/mlx-vlm")
 
-    def test_all_new_agents_have_fallback(self):
+    @patch("agents.runner._call_model", return_value="Fallback summary")
+    def test_all_new_agents_have_fallback(self, _mock_call_model):
         with patch("agents.runner._collect_search_items", return_value=([], [])):
             market = run_agent("market", {"topics": ["AI agents"]})
         with patch("agents.runner._fetch_json", side_effect=RuntimeError("network down")):

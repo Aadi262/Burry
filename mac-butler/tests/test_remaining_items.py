@@ -124,6 +124,26 @@ class TestKnowledgeBase(unittest.TestCase):
         except Exception as exc:
             self.fail(f"search_knowledge_base raised: {exc}")
 
+    def test_web_page_snapshots_can_be_indexed_and_read_back(self):
+        from memory import knowledge_base
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            kb_path = Path(tempdir) / "knowledge_base"
+            kb_index = kb_path / "index.json"
+            with patch.object(knowledge_base, "KB_PATH", kb_path), patch.object(knowledge_base, "KB_INDEX", kb_index):
+                count = knowledge_base.index_web_page(
+                    "https://example.com/gemma",
+                    "Gemma 4 launch notes and deployment guidance.",
+                    title="Gemma launch",
+                )
+                cached = knowledge_base.get_indexed_document("https://example.com/gemma")
+
+        self.assertGreater(count, 0)
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached["kind"], "web_page")
+        self.assertEqual(cached["title"], "Gemma launch")
+        self.assertIn("deployment guidance", cached["text"])
+
 
 class TestA2AServer(unittest.TestCase):
 
