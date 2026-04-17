@@ -7,21 +7,21 @@
     "path": "~/Burry/mac-butler",
     "repo": null,
     "description": "Local AI operator agent for macOS with voice, context, actions, and memory.",
-    "blurb": "mac-butler is a local operator runtime for macOS with frozen v1 HUD and A2A contracts. Next up is keeping the Phase 2 contract surface stable until Phase 3 is explicitly started.",
+    "blurb": "mac-butler is a local operator runtime for macOS with closed Phase 3A action coverage and active Phase 3B retrieval work. Next up is cutting retrieval latency and benchmarking the NVIDIA-first routing on real lookup tasks.",
     "status": "active",
-    "completion": 50,
+    "completion": 78,
     "deploy_target": "Local Mac + Ollama",
     "live": true,
     "live_url": "http://localhost:3333",
     "blockers": [
-      "Phase 3 feature completion has not started on top of the frozen v1 contract surface.",
-      "YouTube summarization and screen reading still need optional local dependencies to be installed.",
-      "Real Mail delivery, WhatsApp send, and calendar reads still depend on host permissions or explicit operator inputs."
+      "Retrieval latency still varies across search, news, and page-summary paths when provider fallbacks stack up.",
+      "Vision, NVIDIA speech, and some summarization paths still depend on optional local dependencies or credentials.",
+      "Real Mail delivery, WhatsApp send, and live calendar reads or writes still depend on host permissions or explicit operator inputs."
     ],
     "next_tasks": [
-      "Keep the `/api/v1` and HUD event contracts stable until Phase 3 is explicitly started.",
-      "Keep `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` aligned with runtime truth.",
-      "Do not reopen the closed Phase 2 contract surface casually while broader feature work resumes."
+      "Reduce retrieval latency on GitHub, news, and page-summary paths without reopening the closed Phase 3A surface.",
+      "Benchmark the NVIDIA-first model routing against local fallbacks on real lookup and review prompts.",
+      "Keep `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` aligned with runtime truth while Phase 3B moves."
     ],
     "status_files": [
       ".CODEX/Codex.md",
