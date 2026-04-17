@@ -83,6 +83,11 @@ class DaemonConfigTests(unittest.TestCase):
         self.assertTrue(bug_hunter.BUG_HUNTER_ENABLED)
         self.assertTrue(bug_hunter.BUG_HUNTER_MODEL.startswith("nvidia::"))
         self.assertEqual(mock_run_agent.call_args.kwargs["model_override"], bug_hunter.BUG_HUNTER_MODEL)
+        command = mock_subprocess.call_args.args[0]
+        self.assertIn("--phase1-host", command)
+        self.assertIn("--phase1-host-only", command)
+        self.assertIn("--phase3a-host", command)
+        self.assertIn("--phase3a-host-only", command)
 
 
 if __name__ == "__main__":

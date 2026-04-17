@@ -18,13 +18,20 @@ from executor.engine import Executor
 from runtime.notify import notify
 
 ROOT = Path(__file__).resolve().parent.parent
+SAFE_HOST_SMOKE_ARGS = (
+    "--json",
+    "--phase1-host",
+    "--phase1-host-only",
+    "--phase3a-host",
+    "--phase3a-host-only",
+)
 
 
 def run_bug_hunt_once() -> dict:
     command = [
         str(ROOT / "venv" / "bin" / "python"),
         str(ROOT / "scripts" / "system_check.py"),
-        "--json",
+        *SAFE_HOST_SMOKE_ARGS,
     ]
     probe = subprocess.run(
         command,
