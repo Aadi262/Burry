@@ -216,13 +216,13 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | K01 | Web search | search X | 🟡 | search uses SearXNG first and falls back through DuckDuckGo and Exa when available; quality still depends on backend reachability |
 | K02 | Latest news | latest news | 🟡 | current-news quality is much better than the old map claimed, but latency and quality still vary with backend reachability |
 | K03 | News on topic | latest news on claude mythos | 🟡 | `agents/runner.py` now hardens current-news lookups with Google News RSS fallback when search backends are empty or thin |
-| K04 | Weather | what's the weather in mumbai | 🟡 | question lane is fixed, but live lookup still depends on the search path instead of a dedicated weather provider |
-| K05 | Quick fact | who is president of america | 🟡 | question lane is fixed, but live quality still depends on search and available context |
+| K04 | Weather | what's the weather in mumbai | 🟡 | dedicated `wttr.in` lookup with Open-Meteo fallback is now live and regression-covered on current plus tomorrow phrasing; quality still depends on public-provider reachability |
+| K05 | Quick fact | who is president of america | 🟡 | direct DuckDuckGo instant-answer and Wikipedia summary lookup now run before generic search fallback, with dedicated direct-provider branch tests |
 | K06 | Summarize page | summarize this article | 🟡 | current page summarization and fetch reuse indexed page snapshots first, then fall back to Jina and direct HTML extraction when needed |
 | K07 | Summarize YouTube | summarize this video | 🟡 | current video summarization now falls back through captions, transcript APIs, `yt-dlp`, Whisper, and page extraction |
 | K08 | Research topic | research X deeply | 🟡 | works, but 2-5 minute latency is still too slow |
 | K09 | Project status | how is adpilot doing | 🟡 | partial |
-| K10 | GitHub status | any issues on adpilot | ❌ + 🔧 | GitHub token is not configured |
+| K10 | GitHub status | any issues on adpilot | 🟡 | tracked-project and direct `owner/repo` GitHub status now work through public API reads; token still improves private-repo access and rate limits |
 
 ### Vision and Screen
 
@@ -241,8 +241,8 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 
 | ID | Capability | Voice example | Effective status | Current gap or note |
 | --- | --- | --- | --- | --- |
-| I01 | Session memory | "with subject hello" after email | ✅ | email follow-up fields now carry across turns through pending state |
-| I02 | Multi-turn commands | two-part commands connected | ✅ | pending dialogue resolution is wired and regression-covered for the current compose flow |
+| I01 | Session memory | "with subject hello" after email | ✅ | email follow-up fields and recent turns now persist across short restarts through the `session_context.py` snapshot |
+| I02 | Multi-turn commands | two-part commands connected | ✅ | pending dialogue resolution is wired, regression-covered, and restored truthfully after short restarts |
 | I03 | Startup briefing | GitHub weather tasks on wake | 🟡 | startup briefing is wired with deterministic fallback; breadth is still limited |
 | I04 | Mood-aware responses | 3am tone vs morning tone | ❌ | mood-aware reply shaping is still too shallow to count as complete |
 | I05 | Brainstorm mode | "lets think about adpilot" | 🟡 | general conversation lane exists, but not a dedicated high-opinion brainstorm subsystem |
@@ -289,7 +289,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Setup requirement | Unlocks or improves |
 | --- | --- |
 | `bash scripts/start_searxng.sh` | improves K01, K02, K03, and K08 search and research quality |
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | unlocks K10 and improves I08 project-context quality |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | improves K10 for private repos and higher rate limits, and improves I08 project-context quality |
 | `NVIDIA_API_KEY` plus NVIDIA Riva Python clients | unlocks provider-primary LLM, TTS, and STT paths |
 | `VPS` credentials in `butler_secrets` | unlocks T13 and T14 |
 | `pip install pywhatkit pyautogui` | improves W02, W03, W05, W06, W07 and GUI-heavy flows |
@@ -304,18 +304,18 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Filesystem and Finder | `intents/router.py`, `executor/engine.py`, `capabilities/registry.py` | F01-F18 | common local path routing plus create/open/read/write/find/list/move/copy/rename/delete/zip flows are now landed; next gaps are broader naming variants, terminal-created files, and the Google Doc/Sheet create-new shortcuts |
 | Email and WhatsApp | `brain/session_context.py`, `intents/router.py`, `executor/engine.py`, `channels/*` when needed | E01-E08, W01-W07 | keep Gmail and WhatsApp on draft-or-compose semantics unless the host can verify delivery; add attachment flow, phone/contact normalization, and explicit operator confirmation before true send steps |
 | Calendar, reminders, tasks, and notes | `intents/router.py`, `executor/engine.py`, `skills/calendar_skill.py`, `context/obsidian_context.py` | C01-C10 | calendar and reminder verification are now truthful on supported hosts; next gaps are task-done wiring plus Obsidian search/read flows, while Calendar read/write remain setup-dependent on host automation access |
-| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval now exists through KB-backed page snapshots reused by page summary and fetch/search reads; next gaps are weather, fact lookup, GitHub status, and broader retrieval-latency reduction |
+| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status lookup now exist on the existing retrieval owners; next gaps are news latency and broader retrieval-latency reduction |
 | System control | `intents/router.py`, `executor/engine.py` | SY01-SY20 | deterministic volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, battery, wifi, dark-mode, and DND routing are now wired; safe host smoke is in place and the next gaps are disruptive-control smoke plus empty-trash, mission-control, and force-quit |
 | Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | finish open-in-Codex/Claude/Cursor, run-tests, git commit/push confirmation flows, and make VPS checks degrade truthfully when credentials are absent |
 | Vision and full computer control | `agents/vision.py`, `executor/engine.py`, `agents/browser_agent.py` | V01-V08, B11-B12, V06-V07 | treat screenshot capture, OCR, screen understanding, click targeting, and form fill as one stack: capture -> detect -> act -> verify; do not wire click/fill until the vision read path is stable |
-| Conversation, memory, and proactive behavior | `brain/session_context.py`, `brain/conversation.py`, `brain/mood_engine.py`, `daemon/heartbeat.py`, `memory/*` | I01-I10 | promote brainstorm, mood, yesterday memory, and proactive suggestions into explicit tested flows instead of leaving them as vague model behavior |
+| Conversation, memory, and proactive behavior | `brain/session_context.py`, `brain/conversation.py`, `brain/mood_engine.py`, `daemon/heartbeat.py`, `memory/*` | I01-I10 | recent-turn and pending-memory persistence now live in `session_context.py`; next gaps are brainstorm, mood, yesterday memory, and proactive suggestions as explicit tested flows |
 | HUD and telemetry | `runtime/telemetry.py`, `projects/dashboard.py`, `projects/frontend/modules/*` | H01-H20 | finish pending-state rendering, richer mood display, log download/filtering, and per-command timing on the existing WS envelope instead of adding parallel UI channels |
 
 ## Suggested Phase Sequence From Here
 
 | Slice | Main scope | Why this order |
 | --- | --- | --- |
-| Phase 3B — knowledge and retrieval breadth | weather/fact/news latency, GitHub status, page/article/video summarization reliability, indexed retrieval | indexed page retrieval is now started through cached page snapshots; weather, fact, GitHub status, and broader latency work still remain |
+| Phase 3B — knowledge and retrieval breadth | weather/fact/news latency, GitHub status, page/article/video summarization reliability, indexed retrieval | indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status lookup are now in place; next gaps are news latency, broader latency work, and using the new benchmark harness on live provider routes |
 | Phase 3C — messaging and project tooling | Gmail attachments, WhatsApp compose/send refinement, run-tests, editor openers, git confirmations, VPS checks | these flows already have partial wiring and mostly need completion plus truthful verification |
 | Phase 3D — HUD visibility and proactive loops | pending context UI, mood UI, logs/timing, smarter heartbeat suggestions | the runtime already publishes most of the signals; the HUD just does not expose them well enough yet |
 | Phase 4 — vision and full GUI control | screen reading, OCR, click/fill, PDF-on-screen, browser form control | this stack is heavier, setup-sensitive, and should land only after the deterministic action surface is reliable |

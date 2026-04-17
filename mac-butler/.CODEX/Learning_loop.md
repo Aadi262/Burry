@@ -587,3 +587,51 @@ Rule added:
  Any test for cache-backed retrieval must set the cache state explicitly; never let the repo's real local index decide which branch a regression executes.
 Verification:
  `venv/bin/pytest tests/test_agents.py tests/test_executor.py tests/test_remaining_items.py -q`
+
+HARD LESSON — routing tests should pin capability intent, not an older fallback backend
+Date: 2026-04-16
+What happened:
+ The first wider Phase 3B regression rerun failed even though the new weather path was correct, because the semantic-routing test still asserted that `lookup_weather` must call the old generic `search` agent.
+Root cause:
+ The regression had captured an implementation fallback instead of the capability contract. Once weather got its own dedicated provider path, the test became stale immediately.
+The fix:
+ `tests/test_pipeline_semantic_routing.py` now pins the `lookup_weather` capability and the dedicated `weather` agent action, while the generic-search branch stays covered separately in `tests/test_agents.py`.
+Rule added:
+ When a capability graduates from a generic fallback to a dedicated provider, update the route-level regression to assert the new owner and keep backend-fallback checks in the retrieval-owner tests.
+Verification:
+ `venv/bin/pytest tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py -q`
+
+HARD LESSON — new feature tests should target the new branches, not just rerun legacy happy-path coverage
+Date: 2026-04-16
+What happened:
+ The first retrieval patch had the right behavior, but the validation pass was still too shallow because most assertions were reusing older generic-search cases instead of pinning the new weather and direct-fact branches themselves.
+Root cause:
+ It is easy to mistake "the old suite still passes" for "the new behavior is well covered", especially when a feature moves from a fallback backend to a dedicated provider path.
+The fix:
+ The retrieval regressions now cover missing-input clarification, tomorrow-weather phrasing, DuckDuckGo infobox extraction, Wikipedia stripped-subject fallback, and the dedicated `weather` route explicitly.
+Rule added:
+ Every behavior change must add or tighten at least one test that directly exercises the new branch or failure mode; rerunning only legacy happy-path tests does not count as sufficient coverage.
+Verification:
+ `venv/bin/pytest tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py -q`
+
+HARD LESSON — pending-dialogue memory should persist in the session-context owner, not leak into parallel state stores
+Date: 2026-04-17
+What happened:
+ The runtime already persisted telemetry, project state, and long-term memory, but short-turn dialogue state in `brain/session_context.py` still vanished across a process restart because it only lived in RAM.
+Root cause:
+ Session-context ownership was treated like a purely transient helper even though the product relies on that owner for pending follow-ups and recent turns in the live hot path.
+The fix:
+ `brain/session_context.py` now writes a small persisted snapshot for recent turns and pending state, restores it on fresh startup when it is recent enough, and the new regressions pin both the restore and stale-snapshot skip branches.
+Rule added:
+ If an owner is the live source of truth for hot-path dialogue state, persistence belongs in that owner or its explicit storage boundary, not in an unrelated telemetry or long-term memory file.
+
+HARD LESSON — background smoke automation must use the same safe entrypoints the docs advertise
+Date: 2026-04-17
+What happened:
+ The background bug hunter was still shelling the broad default `system_check.py --json` path even though the live docs and phase tracker only advertised the safe phase-scoped host smoke surfaces.
+Root cause:
+ The daemon predates the newer phase-scoped smoke contract and never got reconciled after the safer host harness split landed.
+The fix:
+ `daemon/bug_hunter.py` now runs the documented `--phase1-host --phase1-host-only` and `--phase3a-host --phase3a-host-only` checks together, and the daemon regression now pins those exact arguments.
+Rule added:
+ Any background verifier or watchdog must call the same scoped smoke entrypoints the docs and operators rely on; never let a daemon silently widen the blast radius.

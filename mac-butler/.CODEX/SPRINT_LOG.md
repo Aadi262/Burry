@@ -68,6 +68,43 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Phase 3B Retrieval Test Tightening — 2026-04-16
+
+Completed
+- `tests/test_agents.py` now covers more than the basic happy path for the new retrieval work: missing weather location clarification, tomorrow forecast phrasing, DuckDuckGo infobox fact extraction, and Wikipedia stripped-subject fallback
+- `tests/test_pipeline_semantic_routing.py` now pins the dedicated `weather` agent route instead of the retired generic-search backend assumption
+- `.CODEX/Codex.md` and `.CODEX/AGENTS.md` now explicitly require new or tightened regressions for every changed behavior instead of treating old test reruns as sufficient
+
+Validation
+- `venv/bin/python -m py_compile agents/runner.py capabilities/registry.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py`
+- `venv/bin/pytest tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py -q`
+
+Still pending
+- GitHub status remains blocked on token-backed integration work
+- broader retrieval latency and news-latency work are still open beyond the new direct weather and fact sources
+
+Next
+- continue `Phase 3B` with GitHub-status and broader retrieval-latency work, using branch-specific tests by default for each new retrieval path
+
+Phase 3B Weather and Quick-Fact Retrieval — 2026-04-16
+
+Completed
+- `agents/runner.py` now has a dedicated weather agent that reads `wttr.in` first, falls back to Open-Meteo, and speaks concise current or tomorrow-focused summaries instead of routing weather through generic search
+- `agents/runner.py` now resolves quick facts through DuckDuckGo instant answers and Wikipedia summaries before the generic search path, so simple factual queries stop depending on search result snippets first
+- `capabilities/registry.py` now routes `lookup_weather` through the dedicated `weather` agent instead of the generic `search` agent
+- retrieval and routing regressions now pin the new direct-provider weather path, the direct-fact branch, and the preserved generic-search fallback behavior
+
+Validation
+- `venv/bin/python -m py_compile agents/runner.py capabilities/registry.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py`
+- `venv/bin/pytest tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py -q`
+
+Still pending
+- GitHub status remains blocked on token-backed integration work
+- broader retrieval latency and thinner news-latency work are still open beyond the new direct weather and fact sources
+
+Next
+- continue `Phase 3B` with GitHub-status and broader retrieval-latency reduction on top of the new indexed weather/fact retrieval base
+
 Phase 3B Indexed Retrieval Kickoff — 2026-04-16
 
 Completed
@@ -81,12 +118,11 @@ Validation
 - `venv/bin/pytest tests/test_agents.py tests/test_executor.py tests/test_remaining_items.py -q`
 
 Still pending
-- weather and quick-fact quality still depend on the generic search path instead of dedicated retrieval sources
 - GitHub status remains blocked on token-backed integration work
 - broader retrieval latency work is still open beyond the new indexed page snapshot reuse
 
 Next
-- continue `Phase 3B` on top of the new indexed retrieval base with weather, fact, GitHub-status, and broader latency improvements
+- continue `Phase 3B` on top of the new indexed retrieval base with GitHub-status and broader latency improvements
 
 Phase 3A Closure Session — 2026-04-13
 
@@ -118,6 +154,26 @@ Phase 3A deterministic action gaps are complete for the current advertised surfa
 
 Next
 start Phase 3B retrieval and knowledge quality work on top of the frozen v1 contracts
+
+Phase 3B Retrieval + Session Persistence — 2026-04-17
+
+Completed
+- `agents/runner.py`, `capabilities/registry.py`, `capabilities/planner.py`, and `projects/github_sync.py` now support deterministic GitHub-status lookup for tracked projects and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
+- `brain/session_context.py` now persists recent turns plus pending follow-up state to disk, restores recent snapshots on startup, and keeps the hot path non-blocking with a debounced snapshot write
+- `daemon/bug_hunter.py` now runs the documented safe phase-scoped host smoke entrypoints instead of the broad default smoke path
+- `projects/projects.json` was refreshed so the `mac-butler` dashboard card reflects active `Phase 3B` work instead of the stale “Phase 3 not started” state
+- `scripts/benchmark_models.py` now benchmarks configured Butler and agent role routing on representative prompts so NVIDIA-first selection and fallback timing can be inspected explicitly
+- `README.md`, `.CODEX/Codex.md`, `.CODEX/AGENTS.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, and `docs/phases/PHASE_PROGRESS.md` were aligned with the tested runtime truth
+
+Automated validation
+- `venv/bin/python -m py_compile brain/session_context.py agents/runner.py capabilities/registry.py capabilities/planner.py projects/github_sync.py daemon/bug_hunter.py scripts/benchmark_models.py tests/test_session_context.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_project_store.py tests/test_daemons.py tests/test_model_benchmark.py`
+- `venv/bin/pytest tests/test_session_context.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_project_store.py tests/test_daemons.py tests/test_model_benchmark.py -q`
+
+Status
+Phase 3B now includes dedicated GitHub-status retrieval on the frozen v1 contracts, while recent session-context memory survives short restarts
+
+Next
+reduce retrieval latency, run the live provider benchmark path against real hosts, and keep the stronger branch-specific regression bar on each new slice
 
 Phase 1 Closure Session — 2026-04-12
 

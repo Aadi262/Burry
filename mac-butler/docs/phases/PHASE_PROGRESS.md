@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,10 +11,10 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval now started through KB-backed page snapshots on top of the closed `Phase 3A` action surface
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
-- Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with weather, fact, GitHub-status, and broader latency improvements on top of the new indexed retrieval base
+- Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction and live provider benchmarking on top of the new indexed weather/fact/GitHub retrieval base
 
 ## Phase Status
 
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 74% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, current-news lookup has an RSS fallback, calendar reads cover next-event and week-style phrases, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 78% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback, calendar reads cover next-event and week-style phrases, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, and indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads; weather, fact lookup, GitHub status, and broader retrieval latency still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, and GitHub status now resolves tracked project repos before MCP fallback; broader retrieval latency and live provider benchmarking still remain |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -146,7 +146,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 ## Next Actions
 
 1. Continue `Phase 3B` retrieval and knowledge-quality work on the frozen v1 contracts
-2. Keep weather, fact, GitHub-status, and broader retrieval-latency work at the front of the `3B` queue now that indexed page retrieval has started
+2. Keep broader retrieval-latency work and the live provider benchmark path at the front of the `3B` queue now that indexed weather, quick-fact, and GitHub retrieval have landed
 3. Keep the v1 contract notes updated only if a future versioned migration becomes necessary
 4. Do not reopen the closed `3A` or Phase 2 surfaces casually while adding breadth
 
@@ -514,3 +514,39 @@ Append a new status block after each working session:
   `venv/bin/pytest tests/test_agents.py tests/test_executor.py tests/test_remaining_items.py -q`
 - Manual checks: none
 - Next action: continue `Phase 3B` with weather, fact, GitHub-status, and broader latency improvements on top of the new indexed retrieval base
+
+## Progress Update - 2026-04-16
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: retrieval coverage tightened beyond the initial happy-path pass
+- What moved:
+  added branch-specific regressions for weather clarification, tomorrow-forecast phrasing, DuckDuckGo infobox fact extraction, Wikipedia stripped-subject fallback, and the dedicated `lookup_weather -> weather` routing contract
+  updated the live session docs so every changed behavior now requires new or tightened regressions instead of only rerunning legacy tests
+- What is still blocked:
+  GitHub status still needs the token-backed integration path
+  broader retrieval latency and thinner news-latency work are still open
+- Tests run:
+  `venv/bin/python -m py_compile agents/runner.py capabilities/registry.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py`
+  `venv/bin/pytest tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py -q`
+- Manual checks: none
+- Next action: continue `Phase 3B` with GitHub-status and broader retrieval-latency work, using branch-specific regressions by default for each new retrieval path
+
+## Progress Update - 2026-04-17
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: GitHub-status retrieval landed and adjacent session-memory reliability moved forward
+- What moved:
+  `agents/runner.py`, `capabilities/registry.py`, `capabilities/planner.py`, and `projects/github_sync.py` now support deterministic GitHub-status lookup for tracked projects and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
+  `brain/session_context.py` now persists recent turns and pending follow-ups to disk and restores recent snapshots on startup instead of dropping them on restart
+  `daemon/bug_hunter.py` now runs only the documented safe phase-scoped host smoke entrypoints
+  `scripts/benchmark_models.py` now benchmarks configured Butler and agent role routing on representative prompts so NVIDIA-first routing can be inspected explicitly
+- What is still blocked:
+  broader retrieval latency and thinner news-latency work are still open
+  GitHub private-repo access and higher API limits still depend on `GITHUB_PERSONAL_ACCESS_TOKEN`
+  live provider benchmark evidence still depends on host credentials and reachable providers
+- Tests run:
+  `venv/bin/python -m py_compile brain/session_context.py agents/runner.py capabilities/registry.py capabilities/planner.py projects/github_sync.py daemon/bug_hunter.py scripts/benchmark_models.py tests/test_session_context.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_project_store.py tests/test_daemons.py tests/test_model_benchmark.py`
+  `venv/bin/pytest tests/test_session_context.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_project_store.py tests/test_daemons.py tests/test_model_benchmark.py -q`
+- Manual checks:
+  `venv/bin/python scripts/benchmark_models.py --json --dry-run`
+- Next action: reduce retrieval latency and run the live provider benchmark path against real hosts without reopening the closed `Phase 3A` surface

@@ -34,7 +34,8 @@ Do not let older planning files or deleted `.claude/*` era references override t
 5. Update `.CODEX/Capability_Map.md` if capability status, IDs, or setup requirements changed
 6. Update `docs/phases/PHASE_PROGRESS.md` with what moved and what remains
 7. Update `README.md` if user-facing behavior or setup requirements changed
-8. Run the relevant tests and host smoke checks before claiming a phase is closed
+8. Add or tighten regressions for every changed behavior; do not rely only on previously existing happy-path tests
+9. Run the relevant tests and host smoke checks before claiming a phase is closed
 
 Docs-only sessions still require a readback pass across the touched `.CODEX` and phase files before handoff.
 
@@ -170,6 +171,9 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - multilingual speech stack via NVIDIA Riva targets with local fallback chains
 - browser control now covers new tab, new window, close tab/window, back, refresh, and URL navigation on the resolved browser family
 - current-news lookup with search backends plus Google News RSS fallback
+- weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback
+- quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback
+- GitHub status lookup now resolves tracked project repos and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
 - calendar read now supports today, tomorrow, next event, and this-week phrasing with truthful permission fallback
 - filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases with fuzzy path resolution and verification-aware results
 - system-control routing now covers common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrasing on the existing executor actions
@@ -178,13 +182,14 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - save-video-summary flow into Obsidian when the vault is configured
 - Natural language understanding (not just trigger words)
 - Conversation mode with personality
-- Session memory across turns (session_context.py)
+- Session memory across turns, with recent turns and pending follow-ups now restored from disk across short restarts (`session_context.py`)
 - Default `butler.py` startup now stays alive in interactive STT mode
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
 - Routing order pinned: pending → instant → skills → classifier
 - Verification-aware outcomes for filesystem, browser, terminal, project-open, calendar add, reminders, Gmail compose, and WhatsApp flows
+- `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts so NVIDIA-vs-local routing can be inspected and timed explicitly
 - `scripts/system_check.py --phase1-host --phase1-host-only` now covers filesystem, browser, terminal, Gmail compose, WhatsApp open, reminders, and the operator-gated delivery checks
 - `scripts/system_check.py --phase3a-host --phase3a-host-only` now covers broader filesystem CRUD, self-contained browser navigation on local temp pages, reminder verification, calendar-write permission fallback, and safe system-control checks
 - Calendar read now fails truthfully with an explicit host-permission message instead of surfacing raw `osascript` errors
@@ -199,7 +204,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 
 ### Not Working Yet
 - Screen reading (llama3.2-vision not installed)
-- GitHub MCP (token not set)
+- richer GitHub MCP actions still depend on MCP server setup and token availability
 - SearXNG (Docker not always running)
 - WhatsApp file sending
 - Claude Code as coding brain (not wired)
@@ -211,7 +216,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 
 ### Needs Your Setup
 - bash scripts/start_searxng.sh (Docker must be running)
-- GITHUB_PERSONAL_ACCESS_TOKEN in butler_secrets
+- GITHUB_PERSONAL_ACCESS_TOKEN in butler_secrets for private-repo access, higher GitHub API limits, and better K10 or I08 coverage
 - NVIDIA_API_KEY in butler_secrets or env for NVIDIA-backed LLM routing
 - NVIDIA Riva Python clients installed for NVIDIA TTS/STT
 - OBSIDIAN_VAULT_PATH in butler_config.py

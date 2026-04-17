@@ -38,6 +38,7 @@ That means the product is built around:
 - derived completion, blockers, next tasks, health, and verification
 - fuzzy `open_project` flow with real editor fallback behavior
 - GitHub sync for public repos
+- direct GitHub repo-status lookup for tracked projects and `owner/repo` phrases
 - dark dashboard with project cards and next actions
 
 ### Operator Runtime
@@ -50,11 +51,15 @@ That means the product is built around:
 - system-control routing for common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, DND, and battery or wifi phrases
 - calendar read for today, tomorrow, next event, and this-week phrasing with truthful host-permission fallback
 - current-news lookup with search-first plus Google News RSS fallback when search backends are thin
+- weather lookup now uses dedicated public weather providers with `wttr.in` first and Open-Meteo fallback
+- quick facts now prefer DuckDuckGo instant answers and Wikipedia summaries before falling back to generic search
+- GitHub status now resolves tracked-project repos and direct `owner/repo` phrases through public API reads before MCP fallback
 - page summarization and page fetch now reuse indexed page snapshots, with Jina first and direct extraction fallback when live fetch is needed
 - video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
 - project-aware `what should i do next`
 - startup briefing with optional daily intelligence block
 - structured execution results written back into memory
+- recent turn memory and pending follow-ups now survive short restarts through a persisted `session_context.py` snapshot
 
 ### Reliability Notes
 
@@ -63,6 +68,7 @@ That means the product is built around:
 - Gmail compose and WhatsApp flows are verification-aware about what was actually opened
 - Mail send and WhatsApp desktop send still use degraded-state messaging when delivery cannot be confirmed
 - calendar read and calendar create now return explicit host-permission messages when Calendar automation access is unavailable instead of bubbling raw automation errors
+- the background bug hunter now runs only the documented safe phase-scoped host smoke entrypoints instead of the broad default smoke path
 - the live host smoke entrypoints are `venv/bin/python scripts/system_check.py --phase1-host --phase1-host-only` and `venv/bin/python scripts/system_check.py --phase3a-host --phase3a-host-only`
 
 ### Contract Surface
@@ -239,6 +245,7 @@ Useful direct entrypoints:
 ```bash
 venv/bin/python projects/dashboard.py
 venv/bin/python projects/github_sync.py
+venv/bin/python scripts/benchmark_models.py --json --dry-run
 venv/bin/python projects/open_project.py adpilot
 venv/bin/python trigger.py --clap
 ```
