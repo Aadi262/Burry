@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
+import json
+import tempfile
 import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from brain.session_context import SessionContext
@@ -42,6 +46,44 @@ class SessionContextTests(unittest.TestCase):
 
         self.assertFalse(ctx.has_pending())
         self.assertIsNone(ctx.get_pending())
+
+    @patch("brain.session_context._persistence_enabled", return_value=True)
+    @patch("brain.session_context._broadcast_pending")
+    def test_session_context_restores_recent_turns_and_pending_from_disk(self, _mock_broadcast, _mock_enabled):
+        with tempfile.TemporaryDirectory() as tempdir:
+            snapshot_path = Path(tempdir) / "session_context.json"
+            with patch("brain.session_context.SESSION_CONTEXT_PATH", snapshot_path):
+                writer = SessionContext()
+                writer.add_user("write mail to vedang")
+                writer.add_butler("What is the subject?")
+                writer.set_pending("compose_email", {"recipient": "vedang"}, ["subject", "body"])
+                writer.persist_now()
+
+                restored = SessionContext()
+                pending = restored.get_pending()
+
+        self.assertEqual(restored.turns[-2]["text"], "write mail to vedang")
+        self.assertEqual(restored.turns[-1]["text"], "What is the subject?")
+        self.assertEqual(pending["kind"], "compose_email")
+        self.assertEqual(pending["recipient"], "vedang")
+        self.assertEqual(pending["missing"], ["subject", "body"])
+
+    @patch("brain.session_context._persistence_enabled", return_value=True)
+    @patch("brain.session_context._broadcast_pending")
+    def test_session_context_skips_stale_snapshot_restore(self, _mock_broadcast, _mock_enabled):
+        with tempfile.TemporaryDirectory() as tempdir:
+            snapshot_path = Path(tempdir) / "session_context.json"
+            stale_payload = {
+                "turns": [{"role": "user", "text": "stale turn"}],
+                "pending": {"kind": "compose_email", "data": {"recipient": "vedang"}, "required": ["subject"]},
+                "updated_at": (datetime.now() - timedelta(days=2)).isoformat(timespec="seconds"),
+            }
+            snapshot_path.write_text(json.dumps(stale_payload), encoding="utf-8")
+            with patch("brain.session_context.SESSION_CONTEXT_PATH", snapshot_path):
+                restored = SessionContext()
+
+        self.assertEqual(restored.turns, [])
+        self.assertIsNone(restored.get_pending())
 
 
 if __name__ == "__main__":

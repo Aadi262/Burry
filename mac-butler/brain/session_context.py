@@ -2,13 +2,37 @@
 
 from __future__ import annotations
 
+import json
+import os
+import threading
 from datetime import datetime
+from pathlib import Path
 
 from capabilities.contracts import PendingState
+
+SESSION_CONTEXT_PATH = Path(__file__).resolve().parent.parent / "memory" / "session_context.json"
+SESSION_CONTEXT_MAX_AGE_SECONDS = 6 * 60 * 60
+SESSION_CONTEXT_PERSIST_DELAY_SECONDS = 0.15
 
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _persistence_enabled() -> bool:
+    return not bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _snapshot_recent_enough(saved_at: str) -> bool:
+    cleaned = str(saved_at or "").strip()
+    if not cleaned:
+        return False
+    try:
+        saved_dt = datetime.fromisoformat(cleaned)
+    except Exception:
+        return False
+    age_seconds = max(0.0, (datetime.now() - saved_dt).total_seconds())
+    return age_seconds <= SESSION_CONTEXT_MAX_AGE_SECONDS
 
 
 def _broadcast_pending(payload: dict) -> None:
@@ -22,12 +46,82 @@ def _broadcast_pending(payload: dict) -> None:
 
 class SessionContext:
     def __init__(self) -> None:
-        self.reset()
+        self.turns: list[dict[str, str]] = []
+        self._pending: dict | None = None
+        self._persist_lock = threading.Lock()
+        self._persist_timer: threading.Timer | None = None
+        self._restore_from_disk()
+        self._broadcast_pending_state()
 
-    def reset(self) -> None:
+    def _snapshot(self) -> dict:
+        return {
+            "turns": [dict(turn) for turn in self.turns[-12:]],
+            "pending": dict(self._pending) if isinstance(self._pending, dict) else None,
+            "updated_at": _now_iso(),
+        }
+
+    def _restore_from_disk(self) -> None:
+        if not _persistence_enabled() or not SESSION_CONTEXT_PATH.exists():
+            return
+        try:
+            payload = json.loads(SESSION_CONTEXT_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(payload, dict) or not _snapshot_recent_enough(payload.get("updated_at", "")):
+            return
+        turns = payload.get("turns")
+        pending = payload.get("pending")
+        if isinstance(turns, list):
+            self.turns = [
+                {
+                    "role": str(item.get("role", "")).strip(),
+                    "text": " ".join(str(item.get("text", "")).split()).strip(),
+                }
+                for item in turns[-12:]
+                if isinstance(item, dict) and str(item.get("role", "")).strip() and str(item.get("text", "")).strip()
+            ]
+        if isinstance(pending, dict):
+            self._pending = {
+                "kind": str(pending.get("kind", "") or "").strip(),
+                "data": dict(pending.get("data") or {}),
+                "required": [str(field).strip() for field in list(pending.get("required") or []) if str(field).strip()],
+                "created_at": str(pending.get("created_at", "") or _now_iso()),
+                "updated_at": str(pending.get("updated_at", "") or _now_iso()),
+            }
+
+    def _persist_state(self) -> None:
+        if not _persistence_enabled():
+            return
+        snapshot = self._snapshot()
+        SESSION_CONTEXT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_CONTEXT_PATH.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+
+    def _schedule_persist(self) -> None:
+        if not _persistence_enabled():
+            return
+        with self._persist_lock:
+            if self._persist_timer is not None:
+                self._persist_timer.cancel()
+            self._persist_timer = threading.Timer(SESSION_CONTEXT_PERSIST_DELAY_SECONDS, self.persist_now)
+            self._persist_timer.daemon = True
+            self._persist_timer.start()
+
+    def persist_now(self) -> None:
+        with self._persist_lock:
+            if self._persist_timer is not None:
+                self._persist_timer.cancel()
+                self._persist_timer = None
+        try:
+            self._persist_state()
+        except Exception:
+            return
+
+    def reset(self, *, persist: bool = True) -> None:
         self.turns: list[dict[str, str]] = []
         self._pending: dict | None = None
         self._broadcast_pending_state()
+        if persist:
+            self._schedule_persist()
 
     def add_user(self, text: str) -> None:
         cleaned = " ".join(str(text or "").split()).strip()
@@ -35,6 +129,7 @@ class SessionContext:
             return
         self.turns.append({"role": "user", "text": cleaned})
         self.turns = self.turns[-12:]
+        self._schedule_persist()
 
     def add_butler(self, text: str) -> None:
         cleaned = " ".join(str(text or "").split()).strip()
@@ -42,6 +137,7 @@ class SessionContext:
             return
         self.turns.append({"role": "butler", "text": cleaned})
         self.turns = self.turns[-12:]
+        self._schedule_persist()
 
     def _pending_snapshot(self) -> dict:
         if self._pending is None:
@@ -98,6 +194,7 @@ class SessionContext:
             "updated_at": now,
         }
         self._broadcast_pending_state()
+        self._schedule_persist()
 
     def get_pending(self) -> dict | None:
         if self._pending is None:
@@ -124,11 +221,13 @@ class SessionContext:
         self._pending.setdefault("data", {})[target] = cleaned
         self._pending["updated_at"] = _now_iso()
         self._broadcast_pending_state()
+        self._schedule_persist()
         return self.get_pending()
 
     def clear_pending(self) -> None:
         self._pending = None
         self._broadcast_pending_state()
+        self._schedule_persist()
 
     def has_pending(self) -> bool:
         return self._pending is not None
