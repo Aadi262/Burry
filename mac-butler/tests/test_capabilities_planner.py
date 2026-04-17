@@ -44,6 +44,15 @@ class SemanticPlannerTests(unittest.TestCase):
         self.assertEqual(task.tool, "lookup_weather")
         self.assertEqual(task.args["query"], "weather in mumbai")
 
+    @patch("capabilities.planner._project_names_with_repos", return_value=["Adpilot"])
+    def test_github_issue_phrase_maps_to_github_status_lookup(self, _mock_projects):
+        task = plan_semantic_task("any issues on adpilot", current_intent="unknown")
+
+        self.assertIsNotNone(task)
+        self.assertEqual(task.tool, "lookup_github_status")
+        self.assertEqual(task.args["query"], "any issues on adpilot")
+        self.assertEqual(task.intent_name, "lookup_github_status")
+
     def test_youtube_play_overrides_spotify_route(self):
         task = plan_semantic_task("play shape of you on youtube", current_intent="spotify_play")
         self.assertIsNotNone(task)
@@ -67,6 +76,22 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         self.assertTrue(spec.sync_execution)
         self.assertEqual(spec.capability_id, "T14")
+
+    def test_lookup_weather_builds_weather_agent_action(self):
+        action = build_action("lookup_weather", {"query": "weather in mumbai"})
+
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "weather")
+        self.assertEqual(action["query"], "weather in mumbai")
+        self.assertEqual(action["capability_id"], "K04")
+
+    def test_lookup_github_status_builds_github_agent_action(self):
+        action = build_action("lookup_github_status", {"query": "any issues on adpilot"})
+
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "github")
+        self.assertEqual(action["query"], "any issues on adpilot")
+        self.assertEqual(action["capability_id"], "K10")
 
     def test_compose_email_builds_browser_action(self):
         action = build_action(

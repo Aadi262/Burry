@@ -135,6 +135,41 @@ def resolve_youtube_query(text: str) -> str:
     return _clean_name(cleaned)
 
 
+def _project_names_with_repos() -> list[str]:
+    try:
+        from projects.project_store import load_projects
+
+        projects = load_projects()
+    except Exception:
+        return []
+
+    names: list[str] = []
+    for project in projects:
+        if not str(project.get("repo", "") or "").strip():
+            continue
+        names.append(str(project.get("name", "") or "").strip())
+        names.extend(str(alias).strip() for alias in list(project.get("aliases") or []) if str(alias).strip())
+    return [name for name in names if name]
+
+
+def _looks_like_github_status_request(text: str) -> bool:
+    lowered = _normalized(text).lower()
+    if not lowered:
+        return False
+    if re.search(r"\b[a-z0-9_.-]+/[a-z0-9_.-]+\b", lowered):
+        return True
+    explicit_markers = ("github", "repo", "repository", "pull request", "pull requests", "open pr", "open prs")
+    if any(marker in lowered for marker in explicit_markers):
+        return True
+    if any(token in lowered for token in ("issue", "issues", "commit", "commits", "workflow", "workflows", "release", "releases")):
+        normalized = f" {lowered} "
+        for candidate in _project_names_with_repos():
+            cleaned_candidate = f" {_normalized(candidate).lower()} "
+            if cleaned_candidate.strip() and cleaned_candidate in normalized:
+                return True
+    return False
+
+
 def _clarify(goal: str, question: str, *, intent_name: str, confidence: float = 0.45) -> CapabilityTask:
     return CapabilityTask(
         kind="clarify",
@@ -207,6 +242,19 @@ def _plan_from_heuristics(text: str, *, current_intent: str = "") -> CapabilityT
             force_override=current_intent in {"vps_status", "docker_status"},
         )
 
+    if _looks_like_github_status_request(cleaned):
+        repo_hint = re.search(r"\b[a-z0-9_.-]+/[a-z0-9_.-]+\b", lowered)
+        project_hint = repo_hint.group(0) if repo_hint else cleaned.rstrip("?")
+        return CapabilityTask(
+            kind="lookup",
+            goal=f"Check GitHub status for {project_hint}",
+            tool="lookup_github_status",
+            args={"query": cleaned.rstrip("?")},
+            confidence=0.88,
+            intent_name="lookup_github_status",
+            force_override=current_intent in {"project_status", "github_status"},
+        )
+
     if "weather" in lowered:
         query = resolve_weather_query(cleaned)
         if not query or query.lower() == "weather":
@@ -254,6 +302,8 @@ def _canonical_tool_name(name: str) -> str:
         "weather": "lookup_weather",
         "search": "lookup_web",
         "live_lookup": "lookup_web",
+        "github_status": "lookup_github_status",
+        "repo_status": "lookup_github_status",
         "news": "lookup_news",
         "youtube_play": "play_youtube",
     }

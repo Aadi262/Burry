@@ -168,7 +168,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         latency_budget_s=8.0,
         sync_execution=True,
         public=True,
-        action_builder=_run_agent_action("search"),
+        action_builder=_run_agent_action("weather"),
         aliases=("weather", "weather_lookup"),
     ),
     "lookup_web": ToolSpec(
@@ -183,6 +183,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         public=True,
         action_builder=_run_agent_action("search"),
         aliases=("search_web", "live_lookup"),
+    ),
+    "lookup_github_status": ToolSpec(
+        name="lookup_github_status",
+        action_type="run_agent",
+        kind="lookup",
+        description="Check GitHub issues, pull requests, and recent repo activity for a tracked project or repo.",
+        capability_id="K10",
+        required_args=("query",),
+        latency_budget_s=8.0,
+        sync_execution=True,
+        public=True,
+        action_builder=_run_agent_action("github"),
+        aliases=("github_status", "repo_status"),
     ),
     "lookup_news": ToolSpec(
         name="lookup_news",

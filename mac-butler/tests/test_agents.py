@@ -5,6 +5,7 @@ from agents.runner import (
     _call_model,
     _collect_news_items,
     _collect_search_items,
+    _duckduckgo_instant_fact,
     _fetch_agent,
     _fetch_github_trending_items,
     _google_news_rss_search,
@@ -12,6 +13,8 @@ from agents.runner import (
     _news_agent,
     _pick_model,
     _search_agent,
+    _weather_agent,
+    _wikipedia_fact_summary,
     run_agent,
     run_agent_async,
 )
@@ -51,18 +54,206 @@ class AgentTests(unittest.TestCase):
             timeout_hint="agent",
         )
 
+    @patch("agents.runner._quick_fact_lookup", return_value=None)
     @patch("agents.runner._call_model", return_value="Qwen2.5 is Alibaba's multilingual model family.")
     @patch("agents.runner._fetch_search_text", return_value={"backend": "stub", "tool": "fake", "text": "Qwen2.5 is a model family."})
-    def test_search_agent_uses_fetched_material(self, _mock_fetch, _mock_call):
+    def test_search_agent_uses_fetched_material(self, _mock_fetch, _mock_call, _mock_fact):
         result = _search_agent({"query": "what is Qwen2.5"}, "test-model")
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["result"])
+
+    @patch("agents.runner._collect_search_items")
+    @patch(
+        "agents.runner._quick_fact_lookup",
+        return_value={
+            "answer": "Qwen2.5 is Alibaba's open-weight model family.",
+            "source": "wikipedia",
+            "url": "https://en.wikipedia.org/wiki/Qwen",
+        },
+    )
+    def test_search_agent_uses_direct_fact_lookup_before_generic_search(self, _mock_fact, mock_collect):
+        result = _search_agent({"query": "what is Qwen2.5"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "quick_fact")
+        self.assertIn("wikipedia", result["data"]["sources"])
+        mock_collect.assert_not_called()
+
+    @patch("agents.runner._quick_fact_lookup", return_value=None)
+    @patch("agents.runner._call_model", return_value="")
+    @patch("agents.runner._collect_search_items")
+    def test_search_agent_falls_back_to_generic_search_when_direct_fact_lookup_is_empty(self, mock_collect, _mock_call, _mock_fact):
+        mock_collect.return_value = (
+            [
+                {
+                    "title": "Claude launches a new product",
+                    "url": "https://example.com/claude",
+                    "content": "Anthropic introduced a new Claude product for teams.",
+                }
+            ],
+            ["exa"],
+        )
+
+        result = _search_agent({"query": "what is the new product from claude"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "search_lookup")
 
     @patch("agents.runner.list_server_tools", return_value=[{"name": "list_pull_requests"}, {"name": "search_issues"}])
     def test_github_agent_lists_tools_when_no_tool_requested(self, _mock_tools):
         result = _github_agent({}, "test-model")
         self.assertEqual(result["status"], "ok")
         self.assertIn("list_pull_requests", result["result"])
+
+    @patch(
+        "projects.github_sync.fetch_repo_status",
+        return_value={
+            "repo": "Aadi262/Adpilot",
+            "full_name": "Aadi262/Adpilot",
+            "default_branch": "main",
+            "pushed_at": "2026-04-16T12:00:00Z",
+            "open_issues": 2,
+            "open_pull_requests": 1,
+            "latest_commit": {"message": "Fix deploy health check", "date": "2026-04-16T11:45:00Z"},
+            "workflow": {"name": "CI", "status": "completed", "conclusion": "success"},
+            "issues": [{"number": 14, "title": "Fix auth loop"}],
+            "pull_requests": [{"number": 22, "title": "Ship deploy guardrails"}],
+        },
+    )
+    @patch("projects.project_store.load_projects", return_value=[{"name": "Adpilot", "aliases": ["adpilot"], "repo": "Aadi262/Adpilot"}])
+    @patch("agents.runner.list_server_tools")
+    @patch("agents.runner._call_model", return_value="Adpilot has 2 open issues and 1 open pull request. Latest push was 2026-04-16.")
+    def test_github_agent_uses_tracked_project_repo_status_before_mcp_tools(
+        self,
+        _mock_call_model,
+        mock_list_tools,
+        _mock_load_projects,
+        _mock_fetch_status,
+    ):
+        result = _github_agent({"query": "any issues on adpilot"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "repo_status")
+        self.assertEqual(result["data"]["repo"], "Aadi262/Adpilot")
+        self.assertIn("open issues", result["result"])
+        mock_list_tools.assert_not_called()
+
+    def test_github_agent_asks_for_repo_when_query_has_no_repo_hint(self):
+        result = _github_agent({"query": "check github status"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "Which GitHub repo or tracked project should I check?")
+
+    @patch(
+        "agents.runner._wttr_weather_lookup",
+        return_value={
+            "provider": "wttr",
+            "location": "Mumbai, Maharashtra, India",
+            "condition": "Partly cloudy",
+            "temp_c": "31",
+            "feels_like_c": "34",
+            "high_c": "33",
+            "low_c": "27",
+            "rain_chance": 20,
+        },
+    )
+    @patch("agents.runner._open_meteo_weather_lookup")
+    def test_weather_agent_uses_dedicated_weather_provider_first(self, mock_open_meteo, _mock_wttr):
+        result = run_agent("weather", {"query": "weather in mumbai"})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "weather_lookup")
+        self.assertEqual(result["data"]["provider"], "wttr")
+        self.assertIn("Mumbai", result["result"])
+        mock_open_meteo.assert_not_called()
+
+    def test_weather_agent_asks_for_location_when_query_is_missing(self):
+        result = _weather_agent({"query": "weather"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "Which location should I check the weather for?")
+        self.assertEqual(result["data"], {})
+
+    @patch(
+        "agents.runner._wttr_weather_lookup",
+        return_value={
+            "provider": "wttr",
+            "location": "Mumbai, Maharashtra, India",
+            "condition": "Light rain",
+            "temp_c": "31",
+            "feels_like_c": "33",
+            "high_c": "34",
+            "low_c": "28",
+            "rain_chance": 70,
+        },
+    )
+    @patch("agents.runner._open_meteo_weather_lookup")
+    def test_weather_agent_formats_tomorrow_forecast_queries(self, mock_open_meteo, _mock_wttr):
+        result = _weather_agent({"query": "what's the weather in mumbai tomorrow"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["provider"], "wttr")
+        self.assertTrue(result["result"].startswith("Tomorrow in Mumbai"))
+        self.assertIn("70% chance of rain", result["result"])
+        mock_open_meteo.assert_not_called()
+
+    @patch("agents.runner._wttr_weather_lookup", return_value=None)
+    @patch(
+        "agents.runner._open_meteo_weather_lookup",
+        return_value={
+            "provider": "open_meteo",
+            "location": "San Francisco, California, United States",
+            "condition": "clear",
+            "temp_c": "17",
+            "feels_like_c": "17",
+            "high_c": "19",
+            "low_c": "12",
+            "rain_chance": 0,
+        },
+    )
+    def test_weather_agent_falls_back_to_open_meteo(self, _mock_open_meteo, _mock_wttr):
+        result = run_agent("weather", {"query": "weather in san francisco"})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["provider"], "open_meteo")
+        self.assertIn("San Francisco", result["result"])
+
+    @patch(
+        "agents.runner._fetch_json",
+        return_value={
+            "Infobox": {
+                "content": [
+                    {"label": "Born", "value": "1995"},
+                    {"label": "Known for", "value": "Reasoning models"},
+                ]
+            }
+        },
+    )
+    def test_duckduckgo_instant_fact_uses_infobox_rows_when_no_abstract_exists(self, _mock_fetch):
+        result = _duckduckgo_instant_fact("who is qwen")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["source"], "duckduckgo")
+        self.assertIn("Born: 1995", result["answer"])
+        self.assertIn("Known for: Reasoning models", result["answer"])
+
+    @patch("agents.runner._fetch_json")
+    def test_wikipedia_fact_summary_falls_back_to_stripped_subject_candidate(self, mock_fetch_json):
+        mock_fetch_json.side_effect = [
+            ["who is president of america", [], [], []],
+            ["president of america", ["President of the United States"], [""], ["https://example.com/potus"]],
+            {
+                "extract": "The president of the United States is the head of state of the United States.",
+                "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/President_of_the_United_States"}},
+            },
+        ]
+
+        result = _wikipedia_fact_summary("who is president of america")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["source"], "wikipedia")
+        self.assertEqual(result["title"], "President of the United States")
+        self.assertEqual(result["url"], "https://en.wikipedia.org/wiki/President_of_the_United_States")
 
     @patch("agents.runner._get_installed_models", return_value={"phi4-mini:latest"})
     @patch(
@@ -302,9 +493,10 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["result"], "Tell me what to look up.")
 
+    @patch("agents.runner._quick_fact_lookup", return_value=None)
     @patch("agents.runner._call_model", return_value="")
     @patch("agents.runner._collect_search_items")
-    def test_search_agent_falls_back_to_first_result_when_model_returns_empty(self, mock_collect_search_items, _mock_call):
+    def test_search_agent_falls_back_to_first_result_when_model_returns_empty(self, mock_collect_search_items, _mock_call, _mock_fact):
         mock_collect_search_items.return_value = (
             [
                 {
@@ -321,6 +513,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertIn("Claude launches a new product", result["result"])
 
+    @patch("agents.runner._quick_fact_lookup", return_value=None)
     @patch(
         "agents.runner._call_model",
         return_value=(
@@ -329,7 +522,7 @@ class AgentTests(unittest.TestCase):
         ),
     )
     @patch("agents.runner._collect_search_items")
-    def test_search_agent_rejects_repeated_title_dump(self, mock_collect_search_items, _mock_call):
+    def test_search_agent_rejects_repeated_title_dump(self, mock_collect_search_items, _mock_call, _mock_fact):
         mock_collect_search_items.return_value = (
             [
                 {

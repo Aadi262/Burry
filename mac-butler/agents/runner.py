@@ -51,6 +51,37 @@ _LAST_FETCH_DATA: dict = {}
 _SEARXNG_AVAILABLE: bool | None = None
 REDDIT_HEADERS = {"User-Agent": "Butler/1.0"}
 GITHUB_HEADERS = {"User-Agent": "Butler/1.0"}
+LOOKUP_HEADERS = {"User-Agent": "Butler/1.0", "Accept": "application/json"}
+OPEN_METEO_WEATHER_CODES = {
+    0: "clear",
+    1: "mostly clear",
+    2: "partly cloudy",
+    3: "overcast",
+    45: "foggy",
+    48: "foggy",
+    51: "light drizzle",
+    53: "drizzle",
+    55: "heavy drizzle",
+    56: "freezing drizzle",
+    57: "freezing drizzle",
+    61: "light rain",
+    63: "rain",
+    65: "heavy rain",
+    66: "freezing rain",
+    67: "freezing rain",
+    71: "light snow",
+    73: "snow",
+    75: "heavy snow",
+    77: "snow grains",
+    80: "rain showers",
+    81: "rain showers",
+    82: "heavy showers",
+    85: "snow showers",
+    86: "snow showers",
+    95: "thunderstorms",
+    96: "thunderstorms",
+    99: "thunderstorms",
+}
 
 
 def _ensure_agentscope_runner_init() -> None:
@@ -291,6 +322,390 @@ def _cached_or_live_page_text(url: str, title: str = "") -> str:
     if fetched:
         _remember_page_text(url, fetched, title=title)
     return fetched
+
+
+def _strip_trailing_punctuation(text: str) -> str:
+    return str(text or "").strip().strip(" \t\r\n.,!?;:")
+
+
+def _first_sentence(text: str, *, word_limit: int = 40) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return ""
+    sentence = re.split(r"(?<=[.!?])\s+", cleaned, maxsplit=1)[0].strip() or cleaned
+    sentence = _limit_words(sentence, limit=word_limit).strip()
+    if sentence and sentence[-1] not in ".!?":
+        sentence = f"{sentence}."
+    return sentence
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def _fact_subject_candidates(query: str) -> list[str]:
+    cleaned = _strip_trailing_punctuation(" ".join(str(query or "").split()))
+    if not cleaned:
+        return []
+
+    variants = [cleaned]
+    stripped = re.sub(
+        r"^(?:who|what|when|where|why|how)\s+(?:is|are|was|were|did|does|do|can|could|should|would)\s+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    stripped = re.sub(r"^(?:tell me about|define|explain)\s+", "", stripped, flags=re.IGNORECASE)
+    stripped = re.sub(r"^(?:the\s+)", "", stripped, flags=re.IGNORECASE)
+    stripped = _strip_trailing_punctuation(stripped)
+    if stripped and stripped.lower() != cleaned.lower():
+        variants.append(stripped)
+    return [candidate for idx, candidate in enumerate(variants) if candidate and candidate.lower() not in {item.lower() for item in variants[:idx]}]
+
+
+def _is_quick_fact_query(query: str) -> bool:
+    lowered = " ".join(str(query or "").lower().split()).strip(" ?")
+    if not lowered:
+        return False
+    patterns = (
+        r"^(?:who|what|when|where|why|how)\s+",
+        r"^(?:tell me about|define|explain)\s+",
+    )
+    if any(re.search(pattern, lowered) for pattern in patterns):
+        return True
+    return any(
+        token in lowered
+        for token in (
+            " president ",
+            " prime minister ",
+            " ceo ",
+            " founder ",
+            " founded ",
+            " capital of ",
+            " population of ",
+        )
+    )
+
+
+def _duckduckgo_instant_fact(query: str) -> dict | None:
+    try:
+        payload = _fetch_json(
+            "https://api.duckduckgo.com/",
+            params={
+                "q": query,
+                "format": "json",
+                "no_redirect": 1,
+                "no_html": 1,
+                "skip_disambig": 1,
+                "t": "burry-butler",
+            },
+            headers=LOOKUP_HEADERS,
+            timeout=5,
+        )
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    answer = ""
+    for field in ("Answer", "AbstractText", "Abstract", "Definition"):
+        value = _strip_trailing_punctuation(payload.get(field, ""))
+        if value:
+            answer = value
+            break
+
+    if not answer:
+        content_rows = ((payload.get("Infobox") or {}).get("content") or []) if isinstance(payload.get("Infobox"), dict) else []
+        rows: list[str] = []
+        for row in content_rows[:2]:
+            if not isinstance(row, dict):
+                continue
+            label = _strip_trailing_punctuation(row.get("label", ""))
+            value = _strip_trailing_punctuation(_strip_html(row.get("value", "")))
+            if label and value:
+                rows.append(f"{label}: {value}")
+        answer = "; ".join(rows)
+
+    answer = _first_sentence(answer, word_limit=40)
+    if not answer:
+        return None
+
+    source = _strip_trailing_punctuation(payload.get("AbstractSource", "") or payload.get("DefinitionSource", "")) or "duckduckgo"
+    url = str(payload.get("AbstractURL", "") or payload.get("DefinitionURL", "") or "").strip()
+    return {"answer": answer, "source": source, "url": url}
+
+
+def _wikipedia_fact_summary(query: str) -> dict | None:
+    for candidate in _fact_subject_candidates(query):
+        try:
+            search_payload = _fetch_json(
+                "https://en.wikipedia.org/w/api.php",
+                params={
+                    "action": "opensearch",
+                    "search": candidate,
+                    "limit": 1,
+                    "namespace": 0,
+                    "format": "json",
+                },
+                headers=LOOKUP_HEADERS,
+                timeout=5,
+            )
+        except Exception:
+            continue
+
+        titles = search_payload[1] if isinstance(search_payload, list) and len(search_payload) > 1 and isinstance(search_payload[1], list) else []
+        urls = search_payload[3] if isinstance(search_payload, list) and len(search_payload) > 3 and isinstance(search_payload[3], list) else []
+        if not titles:
+            continue
+
+        title = str(titles[0] or "").strip()
+        if not title:
+            continue
+        try:
+            summary_payload = _fetch_json(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(title)}",
+                headers=LOOKUP_HEADERS,
+                timeout=5,
+            )
+        except Exception:
+            continue
+        if not isinstance(summary_payload, dict):
+            continue
+
+        answer = _first_sentence(summary_payload.get("extract", ""), word_limit=42)
+        if not answer:
+            continue
+        page_url = (
+            ((summary_payload.get("content_urls") or {}).get("desktop") or {}).get("page")
+            if isinstance(summary_payload.get("content_urls"), dict)
+            else ""
+        )
+        return {
+            "answer": answer,
+            "source": "wikipedia",
+            "url": str(page_url or (urls[0] if urls else "") or "").strip(),
+            "title": title,
+        }
+    return None
+
+
+def _quick_fact_lookup(query: str) -> dict | None:
+    if not _is_quick_fact_query(query):
+        return None
+    for resolver in (_duckduckgo_instant_fact, _wikipedia_fact_summary):
+        payload = resolver(query)
+        if payload and str(payload.get("answer", "")).strip():
+            return payload
+    return None
+
+
+def _weather_day_offset(query: str) -> int:
+    lowered = " ".join(str(query or "").lower().split())
+    if "tomorrow" in lowered:
+        return 1
+    return 0
+
+
+def _weather_location_from_query(query: str) -> str:
+    cleaned = " ".join(str(query or "").split())
+    if not cleaned:
+        return ""
+    if re.fullmatch(r"(?:what(?:'s| is)\s+)?(?:the\s+)?weather(?:\s+like)?", cleaned, flags=re.IGNORECASE):
+        return ""
+    patterns = (
+        r"^(?:what(?:'s| is)\s+)?(?:the\s+)?weather(?:\s+like)?\s+(?:in|for|at)\s+",
+        r"^(?:weather)\s+(?:in|for|at)\s+",
+        r"^(?:what(?:'s| is)\s+)?(?:the\s+)?weather(?:\s+like)?\s+",
+        r"^(?:in|for|at)\s+",
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:today|right now|currently|now|tomorrow)\b", " ", cleaned, flags=re.IGNORECASE)
+    if re.fullmatch(r"(?:what(?:'s| is)\s+)?(?:the\s+)?weather(?:\s+like)?", cleaned, flags=re.IGNORECASE):
+        return ""
+    return _strip_trailing_punctuation(" ".join(cleaned.split()))
+
+
+def _wttr_weather_lookup(location: str, *, day_offset: int = 0) -> dict | None:
+    try:
+        response = requests.get(
+            f"https://wttr.in/{urllib.parse.quote(location)}",
+            params={"format": "j1"},
+            headers=LOOKUP_HEADERS,
+            timeout=6,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    nearest = ((payload.get("nearest_area") or [{}])[0]) if isinstance(payload.get("nearest_area"), list) else {}
+    area = _strip_trailing_punctuation((((nearest.get("areaName") or [{}])[0]) if isinstance(nearest.get("areaName"), list) else {}).get("value", ""))
+    region = _strip_trailing_punctuation((((nearest.get("region") or [{}])[0]) if isinstance(nearest.get("region"), list) else {}).get("value", ""))
+    country = _strip_trailing_punctuation((((nearest.get("country") or [{}])[0]) if isinstance(nearest.get("country"), list) else {}).get("value", ""))
+    location_name = ", ".join(part for part in (area, region, country) if part)
+
+    current = ((payload.get("current_condition") or [{}])[0]) if isinstance(payload.get("current_condition"), list) else {}
+    days = payload.get("weather") or []
+    if not isinstance(days, list) or not days:
+        return None
+    day_payload = days[min(max(day_offset, 0), len(days) - 1)] if isinstance(days[0], dict) else {}
+    hourly = day_payload.get("hourly") or []
+    representative_hour = hourly[min(4, len(hourly) - 1)] if isinstance(hourly, list) and hourly else {}
+
+    condition = ""
+    if day_offset <= 0:
+        condition = _strip_trailing_punctuation((((current.get("weatherDesc") or [{}])[0]) if isinstance(current.get("weatherDesc"), list) else {}).get("value", ""))
+    if not condition:
+        condition = _strip_trailing_punctuation((((representative_hour.get("weatherDesc") or [{}])[0]) if isinstance(representative_hour.get("weatherDesc"), list) else {}).get("value", ""))
+
+    rain_chance = max(_safe_int(hour.get("chanceofrain"), 0) for hour in hourly if isinstance(hour, dict)) if hourly else 0
+    return {
+        "provider": "wttr",
+        "location": location_name or location,
+        "condition": condition,
+        "temp_c": str(current.get("temp_C", "")).strip(),
+        "feels_like_c": str(current.get("FeelsLikeC", "")).strip(),
+        "high_c": str(day_payload.get("maxtempC", "")).strip(),
+        "low_c": str(day_payload.get("mintempC", "")).strip(),
+        "rain_chance": rain_chance,
+    }
+
+
+def _open_meteo_weather_lookup(location: str, *, day_offset: int = 0) -> dict | None:
+    try:
+        geocode = _fetch_json(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": location, "count": 1, "language": "en", "format": "json"},
+            headers=LOOKUP_HEADERS,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    results = geocode.get("results") if isinstance(geocode, dict) else None
+    if not isinstance(results, list) or not results:
+        return None
+    top = results[0] if isinstance(results[0], dict) else {}
+    latitude = top.get("latitude")
+    longitude = top.get("longitude")
+    if latitude is None or longitude is None:
+        return None
+
+    try:
+        forecast = _fetch_json(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m,apparent_temperature,weather_code",
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "forecast_days": max(day_offset + 1, 2),
+                "timezone": "auto",
+            },
+            headers=LOOKUP_HEADERS,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if not isinstance(forecast, dict):
+        return None
+
+    current = forecast.get("current") or {}
+    daily = forecast.get("daily") or {}
+    weather_codes = daily.get("weather_code") or []
+    highs = daily.get("temperature_2m_max") or []
+    lows = daily.get("temperature_2m_min") or []
+    rain_chances = daily.get("precipitation_probability_max") or []
+    index = min(max(day_offset, 0), len(weather_codes) - 1) if weather_codes else 0
+
+    name = ", ".join(
+        part
+        for part in (
+            _strip_trailing_punctuation(top.get("name", "")),
+            _strip_trailing_punctuation(top.get("admin1", "")),
+            _strip_trailing_punctuation(top.get("country", "")),
+        )
+        if part
+    )
+    weather_code = weather_codes[index] if index < len(weather_codes) else current.get("weather_code")
+    condition = OPEN_METEO_WEATHER_CODES.get(_safe_int(weather_code), "current weather")
+    return {
+        "provider": "open_meteo",
+        "location": name or location,
+        "condition": condition,
+        "temp_c": str(current.get("temperature_2m", "")).strip(),
+        "feels_like_c": str(current.get("apparent_temperature", "")).strip(),
+        "high_c": str(highs[index]).strip() if index < len(highs) else "",
+        "low_c": str(lows[index]).strip() if index < len(lows) else "",
+        "rain_chance": _safe_int(rain_chances[index], 0) if index < len(rain_chances) else 0,
+    }
+
+
+def _format_weather_report(report: dict, *, day_offset: int = 0) -> str:
+    location = str(report.get("location", "") or "that location").strip()
+    condition = str(report.get("condition", "") or "steady conditions").strip().lower()
+    temp_c = str(report.get("temp_c", "")).strip()
+    feels_like_c = str(report.get("feels_like_c", "")).strip()
+    high_c = str(report.get("high_c", "")).strip()
+    low_c = str(report.get("low_c", "")).strip()
+    rain_chance = _safe_int(report.get("rain_chance"), 0)
+
+    if day_offset > 0:
+        parts = [f"Tomorrow in {location} looks {condition}"]
+        range_bits = [f"{low_c}C" if low_c else "", f"{high_c}C" if high_c else ""]
+        range_bits = [bit for bit in range_bits if bit]
+        if len(range_bits) == 2:
+            parts.append(f"with a {range_bits[0]} to {range_bits[1]} range")
+        elif range_bits:
+            parts.append(f"around {range_bits[0]}")
+        if rain_chance:
+            parts.append(f"and about a {rain_chance}% chance of rain")
+        return _first_sentence(" ".join(parts), word_limit=32)
+
+    parts = [f"{location} is {temp_c}C and {condition} right now" if temp_c else f"{location} is {condition} right now"]
+    if feels_like_c and feels_like_c != temp_c:
+        parts.append(f"feels like {feels_like_c}C")
+    if low_c and high_c:
+        parts.append(f"with a {low_c}C to {high_c}C range today")
+    if rain_chance:
+        parts.append(f"and about a {rain_chance}% chance of rain")
+    return _first_sentence(" ".join(parts), word_limit=36)
+
+
+def _weather_agent(data: dict, _model: str) -> dict:
+    query = " ".join(str(data.get("query", "")).split()).strip()
+    location = _weather_location_from_query(query)
+    if not location:
+        return {"status": "ok", "result": "Which location should I check the weather for?", "data": {}}
+
+    day_offset = _weather_day_offset(query)
+    for resolver in (_wttr_weather_lookup, _open_meteo_weather_lookup):
+        report = resolver(location, day_offset=day_offset)
+        if not report:
+            continue
+        return {
+            "status": "ok",
+            "result": _format_weather_report(report, day_offset=day_offset),
+            "data": {
+                "tool": "weather_lookup",
+                "provider": report.get("provider"),
+                "location": report.get("location", location),
+                "query": query or location,
+            },
+        }
+
+    return {
+        "status": "ok",
+        "result": f"I couldn't check the weather for {location} right now.",
+        "data": {"tool": "weather_lookup", "location": location, "query": query or location},
+    }
 
 
 def _searxng_available(force_refresh: bool = False) -> bool:
@@ -981,12 +1396,14 @@ def run_agent(agent_type: str, input_data: dict, model_override: str | None = No
     Run a specialist agent and return structured results.
 
     agent_type:
-      news | vps | memory | code | search | github | bugfinder
+      weather | news | vps | memory | code | search | github | bugfinder
     """
     model = str(model_override or "").strip() or _pick_model(agent_type)
     print(f"[Agent/{agent_type}] Using model: {model}")
 
     try:
+        if agent_type == "weather":
+            return _weather_agent(input_data, model)
         if agent_type == "news":
             return _news_agent(input_data, model)
         if agent_type == "vps":
@@ -1262,6 +1679,19 @@ def _search_agent(data: dict, model: str) -> dict:
     _LAST_FETCH_DATA = {}
     if query.lower() in {"what is", "what's", "search", "find", "look up"}:
         return {"status": "ok", "result": "Tell me what to look up.", "data": {}}
+
+    fact = _quick_fact_lookup(query)
+    if fact is not None:
+        return {
+            "status": "ok",
+            "result": str(fact.get("answer", "")).strip() or f"I couldn't look that up right now: {query}",
+            "data": {
+                "tool": "quick_fact",
+                "query": query,
+                "sources": [str(fact.get("source", "fact_lookup")).strip() or "fact_lookup"],
+                "url": str(fact.get("url", "")).strip(),
+            },
+        }
 
     items, sources = _collect_search_items(query, count=3)
     if items:
@@ -1693,10 +2123,160 @@ Output only the code:"""
     return {"status": "ok", "result": code, "data": {"language": language}}
 
 
+def _github_repo_from_query(query: str) -> dict[str, str]:
+    cleaned = " ".join(str(query or "").split()).strip()
+    if not cleaned:
+        return {}
+
+    direct = re.search(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b", cleaned)
+    if direct:
+        repo = direct.group(1).strip()
+        return {"repo": repo, "project_name": repo}
+
+    normalized_query = f" {_normalized_compare_text(cleaned)} "
+    try:
+        from projects.project_store import load_projects
+
+        projects = load_projects()
+    except Exception:
+        projects = []
+
+    best_match: dict[str, str] = {}
+    best_score = 0
+    for project in projects:
+        repo = str(project.get("repo", "") or "").strip()
+        if not repo:
+            continue
+        candidates = [str(project.get("name", "") or "").strip()]
+        candidates.extend(str(alias).strip() for alias in list(project.get("aliases") or []) if str(alias).strip())
+        for candidate in candidates:
+            normalized_candidate = _normalized_compare_text(candidate)
+            if not normalized_candidate:
+                continue
+            wrapped_candidate = f" {normalized_candidate} "
+            score = 0
+            if wrapped_candidate in normalized_query:
+                score = len(normalized_candidate.split()) * 10
+            elif normalized_candidate in normalized_query:
+                score = len(normalized_candidate.split()) * 5
+            if score > best_score:
+                best_score = score
+                best_match = {
+                    "repo": repo,
+                    "project_name": str(project.get("name", "") or repo).strip(),
+                }
+    return best_match
+
+
+def _github_status_prompt(question: str, status: dict[str, object]) -> str:
+    repo_name = str(status.get("full_name", "") or status.get("repo", "")).strip() or "the repo"
+    latest_commit = status.get("latest_commit") if isinstance(status.get("latest_commit"), dict) else {}
+    workflow = status.get("workflow") if isinstance(status.get("workflow"), dict) else {}
+    issues = status.get("issues") if isinstance(status.get("issues"), list) else []
+    pull_requests = status.get("pull_requests") if isinstance(status.get("pull_requests"), list) else []
+    issue_lines = "\n".join(f"- #{item.get('number')}: {item.get('title')}" for item in issues[:3] if isinstance(item, dict))
+    pr_lines = "\n".join(f"- #{item.get('number')}: {item.get('title')}" for item in pull_requests[:3] if isinstance(item, dict))
+    return f"""Answer this GitHub repo-status question directly.
+Question: {question}
+
+Repo status:
+- Repo: {repo_name}
+- Open issues: {status.get("open_issues")}
+- Open pull requests: {status.get("open_pull_requests")}
+- Default branch: {status.get("default_branch")}
+- Latest push: {status.get("pushed_at")}
+- Latest commit date: {latest_commit.get("date", "")}
+- Latest commit message: {latest_commit.get("message", "")}
+- Latest workflow: {workflow.get("name", "")} / {workflow.get("status", "")} / {workflow.get("conclusion", "")}
+Open issues:
+{issue_lines or "- none in sample"}
+Open pull requests:
+{pr_lines or "- none in sample"}
+
+Answer in under 80 words. If the repo is public and the token is missing, do not complain about the token unless data is missing."""
+
+
+def _github_status_fallback(status: dict[str, object], project_name: str = "") -> str:
+    repo_name = str(project_name or status.get("full_name", "") or status.get("repo", "")).strip() or "That repo"
+    open_issues = status.get("open_issues")
+    open_pull_requests = status.get("open_pull_requests")
+    pushed_at = str(status.get("pushed_at", "") or "").strip()
+    default_branch = str(status.get("default_branch", "") or "").strip()
+    latest_commit = status.get("latest_commit") if isinstance(status.get("latest_commit"), dict) else {}
+    latest_message = str(latest_commit.get("message", "") or "").splitlines()[0].strip()
+
+    parts = [repo_name]
+    if open_issues is not None and open_pull_requests is not None:
+        issue_label = "issue" if int(open_issues or 0) == 1 else "issues"
+        pr_label = "pull request" if int(open_pull_requests or 0) == 1 else "pull requests"
+        parts.append(f"has {open_issues} open {issue_label} and {open_pull_requests} open {pr_label}")
+    elif open_issues is not None:
+        issue_label = "issue" if int(open_issues or 0) == 1 else "issues"
+        parts.append(f"has {open_issues} open {issue_label}")
+
+    if pushed_at and default_branch:
+        parts.append(f"latest push was {pushed_at[:10]} on {default_branch}")
+    elif pushed_at:
+        parts.append(f"latest push was {pushed_at[:10]}")
+
+    if latest_message:
+        parts.append(f'latest commit says "{latest_message[:90]}"')
+
+    summary = ". ".join(part.rstrip(".") for part in parts if part).strip()
+    if summary and not summary.endswith("."):
+        summary += "."
+    return summary or "GitHub status is available, but the summary came back empty."
+
+
 def _github_agent(data: dict, model: str) -> dict:
     tool_name = data.get("tool", "")
     arguments = data.get("arguments", {}) if isinstance(data.get("arguments"), dict) else {}
-    question = data.get("question", "")
+    question = str(data.get("question", "") or data.get("query", "") or "").strip()
+
+    if not tool_name and question:
+        repo_match = _github_repo_from_query(question)
+        repo = str(repo_match.get("repo", "") or "").strip()
+        if not repo:
+            return {
+                "status": "ok",
+                "result": "Which GitHub repo or tracked project should I check?",
+                "data": {},
+            }
+
+        try:
+            from projects.github_sync import GITHUB_TOKEN_ENV, fetch_repo_status
+
+            status = fetch_repo_status(repo, item_limit=3)
+            token_env = GITHUB_TOKEN_ENV
+        except Exception:
+            status = None
+            token_env = "GITHUB_PERSONAL_ACCESS_TOKEN"
+
+        if not isinstance(status, dict):
+            return {
+                "status": "ok",
+                "result": f"I couldn't read GitHub status for {repo}. Configure {token_env} if this is a private repo or GitHub is rate-limiting requests.",
+                "data": {"repo": repo},
+            }
+
+        prompt = _github_status_prompt(question, status)
+        try:
+            answer = _call_model(prompt, model, max_tokens=140)
+            cleaned_answer = _clean_spoken_result(answer)
+        except Exception:
+            cleaned_answer = ""
+        if not cleaned_answer:
+            cleaned_answer = _github_status_fallback(status, project_name=str(repo_match.get("project_name", "") or ""))
+        return {
+            "status": "ok",
+            "result": cleaned_answer,
+            "data": {
+                "tool": "repo_status",
+                "repo": repo,
+                "project_name": str(repo_match.get("project_name", "") or "").strip(),
+                "status": status,
+            },
+        }
 
     if not tool_name:
         tools = list_server_tools("github")
