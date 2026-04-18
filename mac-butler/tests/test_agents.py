@@ -7,6 +7,7 @@ from agents.runner import (
     _collect_search_items,
     _duckduckgo_instant_fact,
     _fetch_agent,
+    _fetch_search_text,
     _fetch_github_trending_items,
     _google_news_rss_search,
     _github_agent,
@@ -451,6 +452,131 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(items[0]["title"], "DDG story")
         self.assertIn("duckduckgo", sources)
         self.assertNotIn("exa", sources)
+
+    @patch.dict("agents.runner._RETRIEVAL_RESULT_CACHE", {}, clear=True)
+    @patch("agents.runner._retrieval_cache_enabled", return_value=True)
+    @patch("agents.runner._exa_search", return_value=[])
+    @patch("agents.runner._duckduckgo_search", return_value=[])
+    @patch(
+        "agents.runner._searxng_search",
+        return_value=[
+            {
+                "title": "Low-latency retrieval win",
+                "url": "https://example.com/latency",
+                "content": "Retriever now reuses cached search results for repeated queries.",
+            }
+        ],
+    )
+    def test_collect_search_items_reuses_cached_results_for_repeated_query(
+        self,
+        mock_searxng,
+        _mock_ddg,
+        _mock_exa,
+        _mock_cache_enabled,
+    ):
+        first_items, first_sources = _collect_search_items("latency cache query", count=1)
+        second_items, second_sources = _collect_search_items("latency cache query", count=1)
+
+        self.assertEqual(first_items, second_items)
+        self.assertEqual(first_sources, second_sources)
+        mock_searxng.assert_called_once()
+
+    @patch("agents.runner._google_news_rss_search", return_value=[])
+    @patch("agents.runner._jina_fetch")
+    @patch("agents.runner._cached_page_text", return_value="")
+    @patch("agents.runner._collect_search_items")
+    def test_collect_news_items_skips_live_fetch_when_search_snippet_is_rich(
+        self,
+        mock_collect_search_items,
+        _mock_cached,
+        mock_jina,
+        _mock_rss,
+    ):
+        mock_collect_search_items.return_value = (
+            [
+                {
+                    "title": "Retriever ships a faster cache path",
+                    "url": "https://example.com/cache",
+                    "content": (
+                        "The retrieval owner now reuses prior search results for repeated questions, "
+                        "skips unnecessary live page fetches when the provider snippet already carries enough detail, "
+                        "and keeps the spoken answer branch fast for repeat lookups in the same session."
+                    ),
+                }
+            ],
+            ["searxng"],
+        )
+
+        items, sources = _collect_news_items("retrieval latency", count=1, hours=24)
+
+        mock_jina.assert_not_called()
+        self.assertEqual(items[0]["article_text"], "")
+        self.assertIn("skips unnecessary live page fetches", items[0]["content"])
+        self.assertEqual(sources, ["searxng"])
+
+    @patch("agents.runner._google_news_rss_search", return_value=[])
+    @patch("agents.runner._remember_page_text")
+    @patch("agents.runner._jina_fetch", return_value="Fresh live article text that adds the missing latency details and rollout context.")
+    @patch("agents.runner._cached_page_text", return_value="")
+    @patch("agents.runner._collect_search_items")
+    def test_collect_news_items_fetches_live_page_when_search_snippet_is_thin(
+        self,
+        mock_collect_search_items,
+        _mock_cached,
+        mock_jina,
+        mock_remember,
+        _mock_rss,
+    ):
+        mock_collect_search_items.return_value = (
+            [
+                {
+                    "title": "Retriever update",
+                    "url": "https://example.com/update",
+                    "content": "Small update.",
+                }
+            ],
+            ["searxng"],
+        )
+
+        items, _sources = _collect_news_items("retrieval latency thin snippet", count=1, hours=24)
+
+        mock_jina.assert_called_once_with("https://example.com/update")
+        mock_remember.assert_called_once()
+        self.assertIn("Fresh live article text", items[0]["article_text"])
+
+    @patch("agents.runner._retrieval_cache_enabled", return_value=False)
+    @patch("agents.runner._jina_fetch")
+    @patch("agents.runner._cached_page_text", return_value="")
+    @patch("agents.runner._embed", return_value=[])
+    @patch("agents.runner._duckduckgo_search", return_value=[])
+    @patch("agents.runner._exa_search", return_value=[])
+    @patch(
+        "agents.runner._searxng_search",
+        return_value=[
+            {
+                "title": "Retriever gets faster on repeated lookups",
+                "url": "https://example.com/retrieval",
+                "content": (
+                    "The provider snippet already explains the repeated-query cache, the snippet-first rule, "
+                    "and the lower latency for repeat search and news lookups without needing a second page fetch."
+                ),
+            }
+        ],
+    )
+    def test_fetch_search_text_skips_live_page_fetch_when_top_snippet_is_rich(
+        self,
+        _mock_searxng,
+        _mock_exa,
+        _mock_ddg,
+        _mock_embed,
+        _mock_cached,
+        mock_jina,
+        _mock_cache_enabled,
+    ):
+        material = _fetch_search_text("retrieval latency rich snippet", count=1)
+
+        mock_jina.assert_not_called()
+        self.assertIn("Retriever gets faster on repeated lookups", material)
 
     @patch("agents.runner._jina_fetch", return_value="This page describes Gemma 4 features, pricing, and launch context.")
     @patch("memory.knowledge_base.get_indexed_document", return_value=None)

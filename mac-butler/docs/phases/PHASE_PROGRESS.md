@@ -11,7 +11,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, and retrieval latency starting to move through repeated-query caching and snippet-first enrichment
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
 - Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction and live provider benchmarking on top of the new indexed weather/fact/GitHub retrieval base
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 78% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback, calendar reads cover next-event and week-style phrases, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 79% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, calendar reads cover next-event and week-style phrases, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, and GitHub status now resolves tracked project repos before MCP fallback; broader retrieval latency and live provider benchmarking still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -550,3 +550,21 @@ Append a new status block after each working session:
 - Manual checks:
   `venv/bin/python scripts/benchmark_models.py --json --dry-run`
 - Next action: reduce retrieval latency and run the live provider benchmark path against real hosts without reopening the closed `Phase 3A` surface
+
+## Progress Update - 2026-04-18
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: retrieval latency moved forward on the existing owners
+- What moved:
+  `agents/runner.py` now reuses a short-lived in-process cache for repeated search and news queries
+  news enrichment now skips the live page fetch when the provider snippet is already rich enough and still fetches plus indexes the page when the snippet is too thin
+  semantic top-result fetch now also avoids an unnecessary live page read when the leading snippet already carries enough detail
+  focused regressions now pin repeated-query cache reuse, rich-snippet skip behavior, thin-snippet fetch behavior, and the semantic top-result skip path directly
+- What is still blocked:
+  broader retrieval latency still needs live-provider timing evidence on real hosts
+  current-news quality still depends on backend reachability even though avoidable fetches are lower now
+- Tests run:
+  `venv/bin/python -m py_compile agents/runner.py tests/test_agents.py`
+  `venv/bin/pytest tests/test_agents.py -q`
+- Manual checks: none
+- Next action: run the benchmark harness against live providers and keep trimming the remaining retrieval-latency hotspots without reopening the closed `Phase 3A` surface

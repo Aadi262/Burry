@@ -50,7 +50,7 @@ That means the product is built around:
 - filesystem routing for create/open/read/write/find/list, move/copy/rename/delete, and zip flows on common local paths
 - system-control routing for common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, DND, and battery or wifi phrases
 - calendar read for today, tomorrow, next event, and this-week phrasing with truthful host-permission fallback
-- current-news lookup with search-first plus Google News RSS fallback when search backends are thin
+- current-news lookup with search-first plus Google News RSS fallback when search backends are thin, plus repeated-query caching and snippet-first enrichment to cut avoidable live fetches
 - weather lookup now uses dedicated public weather providers with `wttr.in` first and Open-Meteo fallback
 - quick facts now prefer DuckDuckGo instant answers and Wikipedia summaries before falling back to generic search
 - GitHub status now resolves tracked-project repos and direct `owner/repo` phrases through public API reads before MCP fallback

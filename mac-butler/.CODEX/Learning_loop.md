@@ -635,3 +635,14 @@ The fix:
  `daemon/bug_hunter.py` now runs the documented `--phase1-host --phase1-host-only` and `--phase3a-host --phase3a-host-only` checks together, and the daemon regression now pins those exact arguments.
 Rule added:
  Any background verifier or watchdog must call the same scoped smoke entrypoints the docs and operators rely on; never let a daemon silently widen the blast radius.
+
+HARD LESSON — latency work needs branch tests for both the skip path and the fetch path
+Date: 2026-04-18
+What happened:
+ The retrieval latency slice only becomes trustworthy if the code proves both that rich provider snippets skip the expensive live page fetch and that thin snippets still trigger the fetch when needed.
+Root cause:
+ Performance changes are easy to validate only on the “faster” branch and accidentally miss the thin-content fallback that keeps answer quality intact.
+The fix:
+ The new retrieval regressions now pin repeated-query cache reuse, rich-snippet skip behavior, thin-snippet fetch behavior, and the top-result semantic fetch skip branch directly in `tests/test_agents.py`.
+Rule added:
+ Any latency optimization that skips work conditionally must add at least one regression for the fast path and one for the quality-preserving fallback path.

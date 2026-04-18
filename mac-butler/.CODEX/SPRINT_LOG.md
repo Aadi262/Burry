@@ -175,6 +175,22 @@ Phase 3B now includes dedicated GitHub-status retrieval on the frozen v1 contrac
 Next
 reduce retrieval latency, run the live provider benchmark path against real hosts, and keep the stronger branch-specific regression bar on each new slice
 
+Phase 3B Retrieval Latency Reduction — 2026-04-18
+
+Completed
+- `agents/runner.py` now reuses a short-lived in-process cache for repeated search and news queries on the existing retrieval owners
+- news enrichment now skips the live Jina page fetch when the provider snippet is already rich enough, while still fetching and indexing the page text when the snippet is too thin
+- semantic top-result fetch now also avoids an unnecessary live page read when the leading provider snippet already carries enough detail
+- added new branch-specific regressions for repeated-query cache reuse, rich-snippet skip behavior, thin-snippet fetch behavior, and the top-result semantic skip path
+
+Validation
+- `venv/bin/python -m py_compile agents/runner.py tests/test_agents.py`
+- `venv/bin/pytest tests/test_agents.py -q`
+
+Still pending
+- broader retrieval latency still needs live-provider timing evidence on real hosts through `scripts/benchmark_models.py`
+- current-news quality still depends on backend reachability even though avoidable fetches are lower now
+
 Phase 1 Closure Session — 2026-04-12
 
 Completed

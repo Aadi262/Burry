@@ -7,6 +7,7 @@ Specialist agent runner for Butler's delegated tasks.
 from __future__ import annotations
 
 import asyncio
+import copy
 import html
 import json
 import os
@@ -49,6 +50,8 @@ _installed_models_checked_at = 0.0
 _INSTALLED_MODELS_TTL_SECONDS = 300
 _LAST_FETCH_DATA: dict = {}
 _SEARXNG_AVAILABLE: bool | None = None
+_RETRIEVAL_RESULT_CACHE: dict[str, dict] = {}
+_RETRIEVAL_RESULT_CACHE_TTL_SECONDS = 180
 REDDIT_HEADERS = {"User-Agent": "Butler/1.0"}
 GITHUB_HEADERS = {"User-Agent": "Butler/1.0"}
 LOOKUP_HEADERS = {"User-Agent": "Butler/1.0", "Accept": "application/json"}
@@ -299,6 +302,37 @@ def _cached_page_text(url: str) -> str:
     except Exception:
         payload = None
     return str((payload or {}).get("text", "") or "").strip()
+
+
+def _retrieval_cache_enabled() -> bool:
+    return not bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _cache_key(prefix: str, *parts: object) -> str:
+    serialized = "::".join(" ".join(str(part or "").split()).strip().lower() for part in parts)
+    return f"{prefix}::{serialized}"
+
+
+def _get_cached_value(key: str):
+    if not _retrieval_cache_enabled():
+        return None
+    payload = _RETRIEVAL_RESULT_CACHE.get(key)
+    if not isinstance(payload, dict):
+        return None
+    stored_at = float(payload.get("stored_at", 0.0) or 0.0)
+    if stored_at <= 0 or (time.monotonic() - stored_at) > _RETRIEVAL_RESULT_CACHE_TTL_SECONDS:
+        _RETRIEVAL_RESULT_CACHE.pop(key, None)
+        return None
+    return copy.deepcopy(payload.get("value"))
+
+
+def _set_cached_value(key: str, value) -> None:
+    if not _retrieval_cache_enabled():
+        return
+    _RETRIEVAL_RESULT_CACHE[key] = {
+        "stored_at": time.monotonic(),
+        "value": copy.deepcopy(value),
+    }
 
 
 def _remember_page_text(url: str, text: str, title: str = "") -> None:
@@ -863,6 +897,13 @@ def _duckduckgo_search(query: str, num: int = 5) -> list:
 
 
 def _collect_search_items(query: str, count: int = 5, categories: str = "general") -> tuple[list[dict], list[str]]:
+    cache_key = _cache_key("search_items", query, count, categories)
+    cached = _get_cached_value(cache_key)
+    if isinstance(cached, (list, tuple)) and len(cached) == 2:
+        cached_items = cached[0] if isinstance(cached[0], list) else []
+        cached_sources = cached[1] if isinstance(cached[1], list) else []
+        return cached_items, cached_sources
+
     sources: list[str] = []
     seen: set[str] = set()
     items: list[dict] = []
@@ -897,6 +938,7 @@ def _collect_search_items(query: str, count: int = 5, categories: str = "general
     if len(items) < count:
         add_results(_exa_search(query, num=max(5, count)), "exa")
 
+    _set_cached_value(cache_key, (items, sources))
     return items, sources
 
 
@@ -944,6 +986,25 @@ def _clean_article_excerpt(text: str, max_chars: int = 600) -> str:
         return excerpt
     truncated = excerpt[:max_chars].rsplit(" ", 1)[0].strip()
     return f"{truncated}..." if truncated else excerpt[:max_chars]
+
+
+def _snippet_is_rich_enough(text: str, *, min_chars: int = 140) -> bool:
+    excerpt = _clean_article_excerpt(text, max_chars=max(220, min_chars))
+    if len(excerpt) < min_chars:
+        return False
+    return len(excerpt.split()) >= 18
+
+
+def _preferred_result_text(url: str, *, title: str = "", snippet: str = "") -> str:
+    cached = _clean_article_excerpt(_cached_page_text(url))
+    if cached:
+        return cached
+    if _snippet_is_rich_enough(snippet):
+        return ""
+    fetched = _clean_article_excerpt(_jina_fetch(url))
+    if fetched:
+        _remember_page_text(url, fetched, title=title)
+    return fetched
 
 
 def _clean_news_title(title: str) -> str:
@@ -1022,6 +1083,13 @@ def _google_news_rss_search(topic: str, count: int = 5, hours: int = 24) -> list
 
 
 def _collect_news_items(topic: str, count: int = 3, hours: int = 24) -> tuple[list[dict], list[str]]:
+    cache_key = _cache_key("news_items", topic, count, hours)
+    cached = _get_cached_value(cache_key)
+    if isinstance(cached, (list, tuple)) and len(cached) == 2:
+        cached_items = cached[0] if isinstance(cached[0], list) else []
+        cached_sources = cached[1] if isinstance(cached[1], list) else []
+        return cached_items, cached_sources
+
     search_query = f"{topic} latest news"
     items, sources = _collect_search_items(search_query, count=max(5, count * 2), categories="news")
     if not items:
@@ -1043,10 +1111,12 @@ def _collect_news_items(topic: str, count: int = 3, hours: int = 24) -> tuple[li
 
     for item in items:
         url = str(item.get("url", "")).strip()
-        article_text = _clean_article_excerpt(
-            _cached_or_live_page_text(url, title=str(item.get("title", "")).strip())
+        snippet = _clean_article_excerpt(str(item.get("content", "")).strip(), max_chars=280)
+        article_text = _preferred_result_text(
+            url,
+            title=str(item.get("title", "")).strip(),
+            snippet=snippet,
         ) if url else ""
-        snippet = str(item.get("content", "")).strip()
         if not article_text and not snippet:
             continue
         add_enriched_item(
@@ -1073,6 +1143,7 @@ def _collect_news_items(topic: str, count: int = 3, hours: int = 24) -> tuple[li
             if len(enriched) >= count:
                 break
 
+    _set_cached_value(cache_key, (enriched, sources))
     return enriched, sources
 
 
@@ -1974,7 +2045,8 @@ def _rerank_and_fetch(results: list[dict], query: str) -> str:
     if ranked:
         top_url = str(ranked[0].get("url", "")).strip()
         top_title = str(ranked[0].get("title", "")).strip()
-        top_content = _cached_or_live_page_text(top_url, title=top_title)
+        top_snippet = _clean_article_excerpt(str(ranked[0].get("content", "")).strip(), max_chars=320)
+        top_content = _preferred_result_text(top_url, title=top_title, snippet=top_snippet)
     snippets = "\n".join(
         f"{result.get('title', '')}: {str(result.get('content', ''))[:120]}".strip(": ")
         for result in ranked[:4]

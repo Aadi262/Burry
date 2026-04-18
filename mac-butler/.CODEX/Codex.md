@@ -170,7 +170,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - NVIDIA-backed primary model roles with local Ollama fallbacks preserved
 - multilingual speech stack via NVIDIA Riva targets with local fallback chains
 - browser control now covers new tab, new window, close tab/window, back, refresh, and URL navigation on the resolved browser family
-- current-news lookup with search backends plus Google News RSS fallback
+- current-news lookup with search backends plus Google News RSS fallback, repeated-query caching, and snippet-first enrichment so rich provider results avoid unnecessary live page fetches
 - weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback
 - quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback
 - GitHub status lookup now resolves tracked project repos and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
