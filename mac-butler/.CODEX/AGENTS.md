@@ -42,6 +42,7 @@ Do not reorder this without code, tests, and docs moving together.
 - No `asyncio.run()` inside AgentScope tools or agents
 - No blocking WebSocket broadcast on the hot path
 - No second router, second tool registry, second LLM caller, or second hot-path memory writer
+- No second long-running Butler runtime; passive backend startup must refuse duplicate owners instead of racing for audio or ports
 - No feature is shipped without `route -> tool -> verify -> narrate -> tests`
 - No behavior change is complete without at least one new or tightened regression that targets the changed branch, not just the old happy path
 - No stale doc is allowed to override code, tests, `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, `docs/phases/PHASE.md`, or `docs/phases/PHASE_PROGRESS.md`
@@ -51,6 +52,9 @@ Do not reorder this without code, tests, and docs moving together.
 ## Runtime shape
 
 - Provider selection is config-driven from `butler_config.py`
+- Plain `butler.py` startup is passive standby only; `--clap-only` keeps wake-word disabled, and wake, briefing, plus live STT begin only after a trigger or explicit HUD/API command
+- Dashboard runtime is localhost-first on `127.0.0.1:7532`; native pywebview HUD and browser auto-open must stay opt-in, not automatic
+- Current-news paths must reject provider timeout filler such as "I'm still thinking" and return collected source material or a truthful unavailable message
 - Fast voice, classifier, and conversation roles are NVIDIA-first with local Ollama fallback
 - Planning and coding roles are provider-aware and must stay behind `brain/ollama_client.py`
 - TTS follows `nvidia_riva_tts -> kokoro -> edge -> say`

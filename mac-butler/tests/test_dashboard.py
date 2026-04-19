@@ -1,5 +1,7 @@
 import asyncio
+import importlib
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,6 +24,30 @@ from projects.dashboard import (
 
 
 class DashboardTests(unittest.TestCase):
+    def test_dashboard_defaults_to_localhost_7532_without_native_hud(self):
+        with patch.dict(os.environ, {}, clear=True):
+            importlib.reload(dashboard)
+            try:
+                self.assertEqual(dashboard.PREFERRED_PORT, 7532)
+                self.assertEqual(dashboard.WS_PREFERRED_PORT, 7533)
+                self.assertFalse(dashboard.USE_NATIVE_HUD)
+                self.assertFalse(dashboard.ALLOW_BROWSER_HUD)
+            finally:
+                importlib.reload(dashboard)
+
+    def test_configured_port_uses_env_override_and_bounds(self):
+        with patch.dict(os.environ, {"BURRY_HUD_PORT": "7642"}, clear=False):
+            importlib.reload(dashboard)
+            try:
+                self.assertEqual(dashboard._configured_port("BURRY_HUD_PORT", 3333), 7642)
+                self.assertEqual(dashboard.PREFERRED_PORT, 7642)
+                self.assertEqual(dashboard.WS_PREFERRED_PORT, 7643)
+            finally:
+                with patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("BURRY_HUD_PORT", None)
+                    os.environ.pop("BURRY_HUD_WS_PORT", None)
+                    importlib.reload(dashboard)
+
     @patch("state.StateMachine.is_busy", new_callable=PropertyMock, return_value=True)
     @patch("runtime.load_runtime_state", return_value={"state": "idle"})
     def test_command_status_label_uses_lane_statuses(self, _mock_runtime_state, _mock_is_busy):
@@ -292,6 +318,21 @@ class DashboardTests(unittest.TestCase):
             dashboard.show_dashboard_window(force=True)
 
         mock_spawn_native.assert_called_once()
+        mock_open_browser.assert_not_called()
+
+    @patch("projects.dashboard._open_browser_window")
+    @patch("projects.dashboard._wait_for_dashboard_health", return_value=True)
+    @patch("projects.dashboard._spawn_native_shell")
+    def test_show_dashboard_window_is_localhost_only_without_hud_opt_in(
+        self,
+        mock_spawn_native,
+        _mock_health,
+        mock_open_browser,
+    ):
+        with patch.object(dashboard, "USE_NATIVE_HUD", False), patch.object(dashboard, "ALLOW_BROWSER_HUD", False):
+            dashboard.show_dashboard_window(force=True)
+
+        mock_spawn_native.assert_not_called()
         mock_open_browser.assert_not_called()
 
     @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})

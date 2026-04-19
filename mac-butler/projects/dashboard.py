@@ -61,14 +61,24 @@ NATIVE_SHELL_PATH = ROOT / "native_shell.py"
 HUD_PID_PATH = Path("/tmp/burry_hud.pid")
 HUD_LOG_PATH = Path("/tmp/burry_hud.log")
 HOST = "127.0.0.1"
-PREFERRED_PORT = 3333
-WS_PREFERRED_PORT = 3334
-BACKEND_PORT = 3335
+
+
+def _configured_port(env_name: str, default: int) -> int:
+    try:
+        value = int(str(os.environ.get(env_name, "") or "").strip())
+    except Exception:
+        value = default
+    return value if 1 <= value <= 65535 else default
+
+
+PREFERRED_PORT = _configured_port("BURRY_HUD_PORT", 7532)
+WS_PREFERRED_PORT = _configured_port("BURRY_HUD_WS_PORT", PREFERRED_PORT + 1)
+BACKEND_PORT = _configured_port("BURRY_BACKEND_PORT", 3335)
 BACKEND_BASE_URL = f"http://{HOST}:{BACKEND_PORT}"
 API_BASE_PATH = "/api/v1"
 PORT = PREFERRED_PORT
 WS_PORT = WS_PREFERRED_PORT
-USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "1").strip().lower() not in {"0", "false", "no", "off"}
+USE_NATIVE_HUD = os.environ.get("BURRY_USE_NATIVE_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
 ALLOW_BROWSER_HUD = os.environ.get("BURRY_ALLOW_BROWSER_HUD", "").strip().lower() in {"1", "true", "yes", "on"}
 _SERVER: ThreadingHTTPServer | None = None
 _SERVER_THREAD: threading.Thread | None = None
@@ -947,7 +957,7 @@ def _open_browser_window(url: str) -> None:
 
 def serve_dashboard():
     """
-    Starts a simple HTTP server on localhost:3333.
+    Starts a simple HTTP server on localhost:7532 by default.
     GET /api/v1/projects → returns projects.json as JSON
     GET / → serves freshly generated dashboard HTML
     Runs in background thread so it doesn't block Butler.

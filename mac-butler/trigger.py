@@ -18,6 +18,7 @@ import requests
 
 from brain.session_context import ctx
 from daemon.clap_detector import ClapDetector
+from daemon.wake_word import start_wake_word_daemon, stop_wake_word_daemon
 from butler_config import BUTLER_MODEL_CHAINS, BUTLER_MODELS, OLLAMA_LOCAL_URL, OLLAMA_MODEL, split_model_ref
 from runtime import note_runtime_event, note_session_active, publish_ui_event
 from state import State, state
@@ -29,6 +30,7 @@ _shutdown_event = threading.Event()
 _session_thread: threading.Thread | None = None
 _clap_thread: threading.Thread | None = None
 _clap_detector: ClapDetector | None = None
+_wake_thread: threading.Thread | None = None
 
 
 def _planning_keepalive_model() -> str:
@@ -42,7 +44,7 @@ def _start_dashboard_server() -> None:
         try:
             from projects.dashboard import dashboard_url
         except Exception:
-            dashboard_url = lambda: "http://127.0.0.1:3333"
+            dashboard_url = lambda: "http://127.0.0.1:7532"
     except Exception as exc:
         print(f"[Dashboard] HUD startup skipped: {exc}")
         return
@@ -498,6 +500,36 @@ def start_clap_trigger():
         print(f"[Trigger] Clap mode unavailable: {exc}")
 
 
+def start_passive_triggers(*, enable_clap: bool = True, enable_wake: bool = True) -> dict[str, str]:
+    global _clap_thread, _wake_thread
+
+    status: dict[str, str] = {}
+
+    if enable_clap:
+        if _clap_thread is not None and _clap_thread.is_alive():
+            status["clap"] = "already_running"
+        else:
+            _clap_thread = threading.Thread(target=start_clap_trigger, daemon=True, name="burry-clap-trigger")
+            _clap_thread.start()
+            status["clap"] = "started"
+    else:
+        status["clap"] = "disabled"
+
+    if enable_wake:
+        try:
+            thread = start_wake_word_daemon()
+        except Exception as exc:
+            print(f"[Trigger] Wake word unavailable: {exc}")
+            status["wake"] = "error"
+        else:
+            _wake_thread = thread
+            status["wake"] = "started" if thread is not None else "unavailable"
+    else:
+        status["wake"] = "disabled"
+
+    return status
+
+
 def shutdown() -> None:
     _shutdown_event.set()
     _clear_session_flag()
@@ -505,6 +537,10 @@ def shutdown() -> None:
     try:
         if _clap_detector is not None:
             _clap_detector.stop()
+    except Exception:
+        pass
+    try:
+        stop_wake_word_daemon()
     except Exception:
         pass
     try:

@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-17
+Last updated: 2026-04-18
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,7 +11,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, and retrieval latency starting to move through repeated-query caching and snippet-first enrichment
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, and the live backend now hardened around passive standby plus duplicate-runtime refusal
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
 - Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction and live provider benchmarking on top of the new indexed weather/fact/GitHub retrieval base
@@ -50,7 +50,7 @@ Fix critical or high issues, stabilize runtime boundaries, and make current feat
 - `brain/tools_registry.py` exists as the single tool registry
 - `memory/bus.py` is the intended hot-path memory writer
 - dashboard command and mic paths now proxy to the live backend instead of running local split-brain execution
-- startup briefing and fresh-session reset paths exist
+- startup briefing is trigger-gated, fresh-session reset paths exist, plain `butler.py` launch now stays in passive standby until clap, wake phrase, or explicit HUD/API activation, and the localhost dashboard defaults to `7532` without native HUD auto-open
 - executor results now carry verification metadata and truthful degraded-state messaging for major side-effect families
 - touched core modules no longer import dashboard broadcast directly; runtime telemetry owns that bridge
 - toolkit wrappers now prefer verification-aware result text over optimistic raw strings
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -568,3 +568,39 @@ Append a new status block after each working session:
   `venv/bin/pytest tests/test_agents.py -q`
 - Manual checks: none
 - Next action: run the benchmark harness against live providers and keep trimming the remaining retrieval-latency hotspots without reopening the closed `Phase 3A` surface
+
+## Progress Update - 2026-04-18
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: runtime-entry hardening landed underneath the active retrieval work
+- What moved:
+  plain `butler.py` startup now enters passive standby instead of auto-STT
+  long-lived Butler startup now takes a live-runtime lock so duplicate backends refuse to start
+  passive standby now starts the clap path plus optional wake-word path through `trigger.py`, wake-word shutdown is explicit, and clap wake now ignores startup noise plus active sessions
+  new runtime regressions now cover passive standby selection, duplicate-lock refusal, duplicate-trigger ignore, clap false-trigger suppression, and wake-daemon shutdown
+  `projects/dashboard.py` now supports env-driven HUD port overrides, `butler.py --clap-only` now leaves spoken wake disabled for live host testing, and clap wake now requires a sharp transient instead of any sustained loud block
+- What is still blocked:
+  spoken wake still depends on the optional `openwakeword` host setup
+  broader retrieval latency still needs live-provider timing evidence on real hosts
+- Tests run:
+  `mac-butler/venv/bin/python -m py_compile butler.py trigger.py daemon/wake_word.py daemon/clap_detector.py tests/test_butler_runtime.py tests/test_trigger.py tests/test_daemons.py`
+  `mac-butler/venv/bin/pytest tests/test_butler_runtime.py tests/test_trigger.py tests/test_daemons.py -q`
+- Manual checks:
+  verified the duplicate-runtime cause against the live host logs before changing the startup path
+- Next action: continue `Phase 3B` retrieval and provider-latency work on top of the hardened passive backend surface
+
+## Progress Update - 2026-04-19
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: live timeout and operator-surface regression fixed
+- What moved:
+  stopped the live Butler/dashboard runtime processes and verified no Butler, dashboard, trigger, native shell, A2A server, or runner process remained
+  changed `projects/dashboard.py` so localhost `7532/7533` is the default dashboard surface and native pywebview HUD/browser auto-open require explicit opt-in
+  changed `agents/runner.py` so current-news model timeout filler like `I'm still thinking, give me a moment.` is rejected and replaced with collected headlines/snippets or a truthful unavailable message
+  updated `.CODEX/HUD_RUNBOOK.md`, `.CODEX/Codex.md`, `.CODEX/AGENTS.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, `.CODEX/SPRINT_LOG.md`, and `README.md` to match the runtime truth
+- Tests run:
+  `mac-butler/venv/bin/python -m py_compile mac-butler/agents/runner.py mac-butler/projects/dashboard.py mac-butler/trigger.py mac-butler/tests/test_agents.py mac-butler/tests/test_dashboard.py mac-butler/tests/test_trigger.py`
+  `mac-butler/venv/bin/pytest mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_items_exist mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_live_fetch_is_empty mac-butler/tests/test_dashboard.py::DashboardTests::test_dashboard_defaults_to_localhost_7532_without_native_hud mac-butler/tests/test_dashboard.py::DashboardTests::test_show_dashboard_window_is_localhost_only_without_hud_opt_in mac-butler/tests/test_trigger.py::TriggerTests::test_start_dashboard_server_announces_live_hud -q`
+- Manual checks:
+  `ps -ef | rg "butler\.py|projects/dashboard\.py|trigger\.py|native_shell\.py|daemon/heartbeat\.py|daemon/bug_hunter\.py|channels/a2a_server\.py|agents/runner\.py"` returned no live runtime processes
+- Next action: continue Phase `3B` provider latency benchmarking and retrieval quality work without reopening the localhost/native-HUD runtime policy

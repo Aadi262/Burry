@@ -413,6 +413,45 @@ Every live launch path must reset transient runtime state before starting STT or
 Verification:
 Fresh launch moved `last_reset_at`, cleared stale `last_heard_text`, `last_intent`, `turns`, and started the new session from a clean runtime snapshot.
 
+### MISTAKE 015 — passive backend launch cannot auto-enter STT or allow duplicate owners
+Date: 2026-04-18
+What happened:
+Plain `butler.py` startup still auto-entered interactive STT, and a second long-lived Butler process could start at the same time.
+Result:
+Two voice runtimes could speak in parallel, audio would crackle, and the HUD/runtime state no longer represented a single truthful owner.
+Root cause:
+Wake ownership was split between the documented `trigger.py` path and the default `butler.py` path, and there was no long-lived runtime lock at process startup.
+The fix:
+Make default `butler.py` startup passive standby, keep briefing and STT behind explicit trigger or HUD/API activation, hold a live-runtime file lock so duplicate backends refuse to start, and add clap startup arming plus active-session suppression so standby does not self-wake from launch noise.
+Rule added:
+Long-lived voice or backend launch paths must be singleton-guarded and must not auto-speak unless the user explicitly activated a session.
+
+### MISTAKE 016 — live wake behavior needs an explicit operator mode, not an implied default
+Date: 2026-04-18
+What happened:
+The runtime had passive standby, but there was no direct way to request clap-only wake for a live session and no clean way to move the HUD off the default localhost port during operator testing.
+Result:
+Live testing was forced through the default `3333/3334/3335` ports and the wake-word path stayed armed even when the operator wanted clap-only behavior.
+Root cause:
+The runtime shape was configurable in code, but not exposed through the entrypoint contract used during real local testing.
+The fix:
+Expose HUD port selection through environment variables and expose clap-only standby through `butler.py --clap-only`.
+Rule added:
+Any runtime mode needed for real host verification should be selectable from the supported entrypoints, not hidden behind a code edit.
+
+### MISTAKE 017 — clap wake should detect a transient, not just loudness
+Date: 2026-04-18
+What happened:
+Even in clap-only standby, the live host run could still wake immediately from a loud non-clap block after calibration.
+Result:
+Passive standby violated the operator expectation that clap-only means actual clap-only wake.
+Root cause:
+The detector only looked at RMS loudness, so sustained loud blocks could masquerade as a clap candidate.
+The fix:
+Require a sharp transient shape with peak and crest-ratio checks before treating a block as the first clap.
+Rule added:
+Physical gesture detectors need branch tests for false positives, not just positive-detection checks.
+
 HARD LESSON — routing fixes are not enough if timeout fallbacks are spoken as real answers
 Date: 2026-04-11
 What happened:
@@ -646,3 +685,25 @@ The fix:
  The new retrieval regressions now pin repeated-query cache reuse, rich-snippet skip behavior, thin-snippet fetch behavior, and the top-result semantic fetch skip branch directly in `tests/test_agents.py`.
 Rule added:
  Any latency optimization that skips work conditionally must add at least one regression for the fast path and one for the quality-preserving fallback path.
+
+HARD LESSON — timeout filler is not a user answer
+Date: 2026-04-19
+What happened:
+ A live `latest news` run routed to NVIDIA first, then to the Ollama fallback after the NVIDIA call failed or timed out, and the fallback timeout text `I'm still thinking, give me a moment.` was spoken as if it were a real news answer.
+Root cause:
+ The current-news agent validated empty and raw-artifact responses, but it did not classify low-signal model timeout filler as invalid model output.
+The fix:
+ `agents/runner.py` now rejects low-signal timeout filler in news summaries and returns collected headlines/snippets or a truthful fetch failure instead; new tests pin both the collected-items branch and the empty-live-fetch branch.
+Rule added:
+ Provider timeout/progress text must never cross from an internal model fallback into speech as a completed answer; every current-info route needs a regression for that failure mode.
+
+HARD LESSON — localhost dashboard and native HUD must not auto-open together
+Date: 2026-04-19
+What happened:
+ The runtime could serve localhost and auto-open the native pywebview HUD in the same launch, creating confusing split surfaces during live debugging.
+Root cause:
+ Native HUD launch was the default instead of an explicit operator opt-in.
+The fix:
+ `projects/dashboard.py` now defaults to localhost `7532/7533`, keeps native pywebview HUD and browser auto-open opt-in only, and the new dashboard regression proves no window opens without opt-in.
+Rule added:
+ A live runtime should have one operator surface by default; any parallel surface must be explicitly enabled and documented.

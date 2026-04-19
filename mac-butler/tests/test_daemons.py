@@ -1,15 +1,58 @@
 import json
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 from daemon import bug_hunter, heartbeat
-from daemon import wake_word
+from daemon import clap_detector, wake_word
 
 
 class DaemonConfigTests(unittest.TestCase):
     def test_start_wake_word_daemon_returns_none_without_dependencies(self):
         with patch("daemon.wake_word._load_dependencies", return_value=None):
             self.assertIsNone(wake_word.start_wake_word_daemon())
+
+    def test_stop_wake_word_daemon_joins_active_thread(self):
+        thread = MagicMock()
+        thread.is_alive.return_value = True
+        wake_word._WAKE_THREAD = thread
+        wake_word._WAKE_STOP.clear()
+
+        wake_word.stop_wake_word_daemon(timeout=0.25)
+
+        thread.join.assert_called_once_with(timeout=0.25)
+        self.assertTrue(wake_word._WAKE_STOP.is_set())
+        self.assertIsNone(wake_word._WAKE_THREAD)
+
+    def test_clap_detector_ignores_audio_before_arming_and_while_session_active(self):
+        detector = clap_detector.ClapDetector(on_clap_detected=MagicMock())
+        detector.threshold = 0.05
+        sample = np.ones((clap_detector.BLOCK_SIZE, 1), dtype=np.float32)
+
+        detector.armed_at = time.time() + 5.0
+        detector._audio_callback(sample, clap_detector.BLOCK_SIZE, None, None)
+        self.assertFalse(detector.waiting_for_second)
+
+        detector.armed_at = 0.0
+        detector.waiting_for_second = True
+        with patch("pathlib.Path.exists", return_value=True):
+            detector._audio_callback(sample, clap_detector.BLOCK_SIZE, None, None)
+        self.assertFalse(detector.waiting_for_second)
+
+    def test_clap_detector_requires_sharp_transient_shape(self):
+        detector = clap_detector.ClapDetector(on_clap_detected=MagicMock())
+        detector.threshold = 0.05
+        detector.armed_at = 0.0
+
+        sustained = np.ones((clap_detector.BLOCK_SIZE, 1), dtype=np.float32) * 0.3
+        detector._audio_callback(sustained, clap_detector.BLOCK_SIZE, None, None)
+        self.assertFalse(detector.waiting_for_second)
+
+        transient = np.zeros((clap_detector.BLOCK_SIZE, 1), dtype=np.float32)
+        transient[:4, 0] = 1.0
+        detector._audio_callback(transient, clap_detector.BLOCK_SIZE, None, None)
+        self.assertTrue(detector.waiting_for_second)
 
     def test_wake_word_score_uses_max_prediction_value(self):
         score = wake_word._score_from_prediction({"hey_burry": 0.18, "other": [0.3, 0.81]})

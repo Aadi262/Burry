@@ -58,6 +58,11 @@ That means the product is built around:
 - video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
 - project-aware `what should i do next`
 - startup briefing with optional daily intelligence block
+- plain `venv/bin/python butler.py` now starts a passive backend on `3335`; it stays quiet until clap, wake phrase, or explicit HUD/API activation
+- passive clap wake now arms after startup and ignores active sessions so standby does not immediately retrigger itself
+- clap wake now also requires a sharp transient instead of any sustained loud audio block
+- the dashboard now serves localhost on `7532/7533` by default; native pywebview HUD and browser auto-open are opt-in with `BURRY_USE_NATIVE_HUD=1` or `BURRY_ALLOW_BROWSER_HUD=1`
+- the news agent rejects model timeout filler such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - structured execution results written back into memory
 - recent turn memory and pending follow-ups now survive short restarts through a persisted `session_context.py` snapshot
 
@@ -68,6 +73,7 @@ That means the product is built around:
 - Gmail compose and WhatsApp flows are verification-aware about what was actually opened
 - Mail send and WhatsApp desktop send still use degraded-state messaging when delivery cannot be confirmed
 - calendar read and calendar create now return explicit host-permission messages when Calendar automation access is unavailable instead of bubbling raw automation errors
+- long-lived Butler startup now refuses a second live backend instead of allowing duplicate voice sessions to race for audio and ports
 - the background bug hunter now runs only the documented safe phase-scoped host smoke entrypoints instead of the broad default smoke path
 - the live host smoke entrypoints are `venv/bin/python scripts/system_check.py --phase1-host --phase1-host-only` and `venv/bin/python scripts/system_check.py --phase3a-host --phase3a-host-only`
 
@@ -96,7 +102,7 @@ That means the product is built around:
 - Kokoro local neural TTS on Apple Silicon
 - Edge and safe macOS `say` fallbacks
 - local Whisper fallbacks for STT
-- clap trigger and keyboard trigger paths
+- clap trigger, keyboard trigger, and optional wake-word trigger paths
 
 ## Current Model Shape
 
@@ -234,6 +240,20 @@ Run Butler:
 venv/bin/python butler.py
 ```
 
+This now starts the backend in passive standby on `127.0.0.1:3335`. It does not auto-speak or auto-enter live STT.
+
+If you want an explicit live voice session from the terminal:
+
+```bash
+venv/bin/python butler.py --interactive --stt
+```
+
+If you want passive standby with clap-only wake:
+
+```bash
+venv/bin/python butler.py --clap-only
+```
+
 Test mode:
 
 ```bash
@@ -248,6 +268,19 @@ venv/bin/python projects/github_sync.py
 venv/bin/python scripts/benchmark_models.py --json --dry-run
 venv/bin/python projects/open_project.py adpilot
 venv/bin/python trigger.py --clap
+```
+
+Run the localhost dashboard:
+
+```bash
+venv/bin/python projects/dashboard.py
+open http://127.0.0.1:7532
+```
+
+Override the dashboard port only when needed:
+
+```bash
+BURRY_HUD_PORT=7642 BURRY_HUD_WS_PORT=7643 venv/bin/python projects/dashboard.py
 ```
 
 ## Configuration
@@ -277,6 +310,10 @@ If you want infrastructure checks and SSH helpers, configure `VPS_HOSTS` and loc
 
 If you want the NVIDIA primary path, set `NVIDIA_API_KEY`.
 For speech, install the NVIDIA Riva Python clients on the host too; otherwise Butler falls back to local TTS/STT.
+
+### Wake Phrase
+
+If you want passive spoken wake in standby mode, install `openwakeword` plus `sounddevice`.
 
 ### MCP
 
@@ -327,6 +364,8 @@ mac-butler/
 For keyboard mode, grant Accessibility permissions to the app that runs Butler.
 
 For clap mode, grant Microphone access to the terminal app that runs Butler.
+
+For passive wake-phrase mode, grant Microphone access too and install the optional wake-word dependencies first.
 
 ## Notes
 

@@ -68,6 +68,54 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Localhost-Only HUD and News Timeout Guard — 2026-04-19
+
+Completed
+- stopped the remaining live Butler/dashboard runtime processes and verified no `butler.py`, dashboard, trigger, native shell, A2A server, or agent runner process remained
+- `projects/dashboard.py` now defaults to localhost `7532/7533`; native pywebview HUD and browser auto-open are opt-in only
+- `trigger.py` now announces the default localhost dashboard on `127.0.0.1:7532`
+- `agents/runner.py` now treats low-signal model timeout text like `I'm still thinking, give me a moment.` as invalid news output and falls back to collected headlines/snippets or a truthful unavailable message
+- `.CODEX/HUD_RUNBOOK.md`, `.CODEX/Codex.md`, `.CODEX/AGENTS.md`, `.CODEX/Capability_Map.md`, `README.md`, and phase docs were updated to reflect the localhost-only policy and timeout-filler guard
+
+Validation
+- `mac-butler/venv/bin/python -m py_compile mac-butler/agents/runner.py mac-butler/projects/dashboard.py mac-butler/trigger.py mac-butler/tests/test_agents.py mac-butler/tests/test_dashboard.py mac-butler/tests/test_trigger.py`
+- `mac-butler/venv/bin/pytest mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_items_exist mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_live_fetch_is_empty mac-butler/tests/test_dashboard.py::DashboardTests::test_dashboard_defaults_to_localhost_7532_without_native_hud mac-butler/tests/test_dashboard.py::DashboardTests::test_show_dashboard_window_is_localhost_only_without_hud_opt_in mac-butler/tests/test_trigger.py::TriggerTests::test_start_dashboard_server_announces_live_hud -q`
+- result: `5 passed`
+
+Runtime truth
+- future local dashboard runs should serve/open `http://127.0.0.1:7532`, not native HUD, unless native HUD is explicitly requested with `BURRY_USE_NATIVE_HUD=1`
+- the observed slow news reply came from NVIDIA failing/timing out, then the Ollama fallback timing out after 8s, after which fallback filler was spoken; that filler is now rejected in the news path
+
+Runtime Entry Hardening — 2026-04-18
+
+Completed
+- `butler.py` default no-flag startup now enters passive standby instead of auto-speaking and auto-entering interactive STT
+- `butler.py` now takes a live-runtime file lock so a second long-lived Butler backend refuses to start instead of duplicating the voice session
+- `trigger.py` now exposes passive clap plus wake startup for standby mode, `daemon/wake_word.py` now stops cleanly on shutdown, and `daemon/clap_detector.py` now ignores startup noise plus active-session noise so standby does not self-wake
+- `tests/test_butler_runtime.py` was added, and `tests/test_trigger.py` plus `tests/test_daemons.py` now pin the passive-standby, duplicate-lock, duplicate-trigger, and wake-daemon-shutdown branches
+
+Validation
+- `mac-butler/venv/bin/python -m py_compile butler.py trigger.py daemon/wake_word.py daemon/clap_detector.py tests/test_butler_runtime.py tests/test_trigger.py tests/test_daemons.py`
+- `mac-butler/venv/bin/pytest tests/test_butler_runtime.py tests/test_trigger.py tests/test_daemons.py -q`
+- result: `20 passed`
+
+Runtime truth
+- plain `venv/bin/python butler.py` is now a passive backend on `3335`; it does not auto-speak or auto-enter STT
+- wake remains trigger-gated: clap and explicit HUD/API commands work, while spoken wake requires the optional `openwakeword` host setup
+- the duplicate-voice root cause was split startup ownership plus no long-lived runtime lock; both are now hardened
+
+Local Port and Clap-Only Session — 2026-04-18
+
+Completed
+- `projects/dashboard.py` now accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT` so the HUD can run on a caller-chosen localhost port like `7532`
+- `butler.py` now accepts `--clap-only` so passive standby can leave wake-word disabled and wake only from clap or explicit HUD/API commands
+- `daemon/clap_detector.py` now requires a sharp transient shape instead of any sustained loud block, and `tests/test_daemons.py` now pins that branch alongside the env-driven HUD port override and clap-only standby selection
+
+Validation
+- `mac-butler/venv/bin/python -m py_compile butler.py projects/dashboard.py tests/test_butler_runtime.py tests/test_dashboard.py`
+- `mac-butler/venv/bin/pytest tests/test_daemons.py::DaemonConfigTests::test_clap_detector_ignores_audio_before_arming_and_while_session_active tests/test_daemons.py::DaemonConfigTests::test_clap_detector_requires_sharp_transient_shape tests/test_butler_runtime.py::ButlerRuntimeTests::test_main_default_startup_can_force_clap_only_standby tests/test_dashboard.py::DashboardTests::test_configured_port_uses_env_override_and_bounds -q`
+- result: `4 passed`
+
 Phase 3B Retrieval Test Tightening — 2026-04-16
 
 Completed

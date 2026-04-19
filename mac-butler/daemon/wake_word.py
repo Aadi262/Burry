@@ -134,7 +134,17 @@ def start_wake_word_daemon():
         return _WAKE_THREAD
 
 
-__all__ = ["start_wake_word_daemon"]
+def stop_wake_word_daemon(timeout: float = 1.5) -> None:
+    with _WAKE_LOCK:
+        global _WAKE_THREAD
+        thread = _WAKE_THREAD
+        _WAKE_STOP.set()
+        _WAKE_THREAD = None
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=timeout)
+
+
+__all__ = ["start_wake_word_daemon", "stop_wake_word_daemon"]
 
 
 def main() -> int:

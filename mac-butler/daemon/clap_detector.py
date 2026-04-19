@@ -16,6 +16,7 @@ Requires microphone permissions:
 
 import time
 import threading
+from pathlib import Path
 import numpy as np
 import sounddevice as sd
 
@@ -33,6 +34,10 @@ CLAP_WINDOW_MAX = 0.70   # Maximum gap between claps (seconds)
 COOLDOWN_SECONDS = 4.0    # Cooldown after triggering (avoid re-trigger during speech)
 CALIBRATION_SECONDS = 2   # How long to sample ambient noise
 THRESHOLD_MULTIPLIER = 3.0  # How many times above ambient = clap
+STARTUP_GRACE_SECONDS = 1.5
+SESSION_FLAG = Path("/tmp/butler_session.flag")
+CLAP_PEAK_MULTIPLIER = 4.0
+CLAP_MIN_CREST_RATIO = 4.0
 
 
 class ClapDetector:
@@ -57,6 +62,7 @@ class ClapDetector:
         self.device_name = None
         self.sample_rate = SAMPLE_RATE
         self.channels = CHANNELS
+        self.armed_at = 0.0
 
     def _resolve_input_device(self):
         """Pick a real microphone instead of trusting the macOS default device."""
@@ -131,17 +137,27 @@ class ClapDetector:
 
         now = time.time()
 
+        if self.armed_at and now < self.armed_at:
+            return
+
         # In cooldown? Skip.
         if (now - self.last_trigger_time) < COOLDOWN_SECONDS:
             return
 
         # Ignore clap processing while Butler is already active.
-        if butler_state.is_busy:
+        if butler_state.is_busy or SESSION_FLAG.exists():
             self.waiting_for_second = False
             return
 
-        # Calculate RMS amplitude of this block
+        # A clap should look like a sharp transient, not sustained loud audio.
         rms = np.sqrt(np.mean(indata ** 2))
+        peak = float(np.max(np.abs(indata))) if indata is not None else 0.0
+        crest_ratio = peak / max(float(rms), 1e-6)
+
+        if peak < max(self.threshold * CLAP_PEAK_MULTIPLIER, self.threshold) or crest_ratio < CLAP_MIN_CREST_RATIO:
+            if self.waiting_for_second and (now - self.last_clap_time) > CLAP_WINDOW_MAX:
+                self.waiting_for_second = False
+            return
 
         if rms > self.threshold:
             if self.waiting_for_second:
@@ -182,6 +198,7 @@ class ClapDetector:
         print("[Clap] 👂 Listening for double claps...")
         print("[Clap] Clap twice quickly to trigger Butler.")
         print("[Clap] Press Ctrl+C to stop.\n")
+        self.armed_at = time.time() + STARTUP_GRACE_SECONDS
 
         try:
             with sd.InputStream(

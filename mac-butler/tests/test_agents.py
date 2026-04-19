@@ -344,6 +344,51 @@ class AgentTests(unittest.TestCase):
         self.assertIn("Headline 1", result["result"])
         self.assertIn("example.com", result["result"])
 
+    @patch("agents.runner._call_model", return_value="I'm still thinking, give me a moment.")
+    @patch("agents.runner._collect_news_items")
+    def test_news_agent_rejects_timeout_filler_when_items_exist(self, mock_collect_news_items, _mock_call):
+        mock_collect_news_items.return_value = (
+            [
+                {
+                    "title": "Nvidia ships faster inference stack",
+                    "url": "https://example.com/nvidia",
+                    "source": "example.com",
+                    "article_text": "Nvidia published a faster serving stack for local inference workloads.",
+                    "content": "Nvidia inference update.",
+                },
+                {
+                    "title": "Search latency improves",
+                    "url": "https://example.com/search",
+                    "source": "example.com",
+                    "article_text": "Search providers reported lower latency after cache changes.",
+                    "content": "Search cache update.",
+                },
+            ],
+            ["searxng"],
+        )
+
+        result = _news_agent({"topic": "AI", "hours": 24}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("still thinking", result["result"].lower())
+        self.assertIn("Nvidia ships faster inference stack", result["result"])
+        self.assertEqual(result["data"]["tool"], "news_crawl")
+
+    @patch("agents.runner._fetch_headlines", return_value="")
+    @patch("agents.runner._call_model", return_value="I'm still thinking, give me a moment.")
+    @patch("agents.runner._collect_news_items", return_value=([], []))
+    def test_news_agent_rejects_timeout_filler_when_live_fetch_is_empty(
+        self,
+        _mock_collect_news_items,
+        _mock_call,
+        _mock_fetch_headlines,
+    ):
+        result = _news_agent({"topic": "AI", "hours": 24}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "I couldn't fetch live AI news right now.")
+        self.assertNotIn("still thinking", result["result"].lower())
+
     @patch("agents.runner.requests.get")
     def test_google_news_rss_search_parses_feed_items(self, mock_get):
         mock_response = MagicMock()

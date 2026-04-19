@@ -206,11 +206,25 @@ def _summary_has_raw_artifacts(text: str) -> bool:
         or " | " in text
         or text.count('"') % 2 == 1
         or "skip to main content" in lowered
+        or _is_low_signal_model_output(text)
     )
 
 
 def _normalized_compare_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def _is_low_signal_model_output(text: str) -> bool:
+    normalized = _normalized_compare_text(text)
+    if not normalized:
+        return False
+    if normalized in {
+        "something went wrong",
+        "i am still thinking give me a moment",
+        "i m still thinking give me a moment",
+    }:
+        return True
+    return "still thinking" in normalized and "give me a moment" in normalized
 
 
 def _dedupe_sentences(text: str) -> str:
@@ -1724,10 +1738,10 @@ News material:
     if not material or len(material.strip()) < 20:
         prompt = f"Summarize what you know about recent {topic} news in under 50 words."
         try:
-            summary = _limit_words(_call_model(prompt, model, max_tokens=100), limit=150)
+            summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=100), limit=150))
         except Exception:
-            summary = f"I couldn't fetch live {topic} news right now."
-        if not summary:
+            summary = ""
+        if not summary or _summary_has_raw_artifacts(summary):
             summary = f"I couldn't fetch live {topic} news right now."
         return {"status": "ok", "result": summary, "data": {}}
 
@@ -1738,7 +1752,10 @@ Material:
 {material[:2200]}
 
 Summary:"""
-    summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=160), limit=150))
+    try:
+        summary = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=160), limit=150))
+    except Exception:
+        summary = ""
     if not summary or _summary_has_raw_artifacts(summary):
         summary = _fallback_text_summary(material, f"I couldn't fetch live {topic} news right now.")
     return {"status": "ok", "result": summary, "data": search_data}

@@ -8,6 +8,14 @@ import trigger
 
 
 class TriggerTests(unittest.TestCase):
+    def tearDown(self):
+        trigger._session_active = False
+        trigger._session_thread = None
+        trigger._clap_thread = None
+        trigger._wake_thread = None
+        trigger._shutdown_event = threading.Event()
+        trigger.state.transition(trigger.State.IDLE)
+
     @patch("trigger.note_runtime_event")
     @patch("voice.speak")
     @patch("trigger.publish_ui_event")
@@ -44,7 +52,27 @@ class TriggerTests(unittest.TestCase):
         trigger._start_dashboard_server()
 
         printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
-        self.assertIn("http://127.0.0.1:3333", printed)
+        self.assertIn("http://127.0.0.1:7532", printed)
+
+    @patch("trigger.start_wake_word_daemon", return_value=object())
+    @patch("trigger.threading.Thread")
+    def test_start_passive_triggers_starts_clap_and_wake_paths(self, mock_thread, mock_wake):
+        worker = mock_thread.return_value
+        worker.is_alive.return_value = False
+        trigger._clap_thread = None
+        trigger._wake_thread = None
+
+        status = trigger.start_passive_triggers(enable_clap=True, enable_wake=True)
+
+        self.assertEqual(status["clap"], "started")
+        self.assertEqual(status["wake"], "started")
+        mock_thread.assert_called_once_with(
+            target=trigger.start_clap_trigger,
+            daemon=True,
+            name="burry-clap-trigger",
+        )
+        worker.start.assert_called_once()
+        mock_wake.assert_called_once()
 
     @patch("trigger._write_session_end_summary")
     @patch("trigger._observe_session_project_relationships")
@@ -121,6 +149,26 @@ class TriggerTests(unittest.TestCase):
         self.assertEqual(mock_observe.call_args.kwargs["text"], "open mac-butler run the tests")
         self.assertEqual(mock_observe.call_args.kwargs["speech"], "Opening the project. Tests are green.")
         self.assertEqual(mock_observe.call_args.kwargs["touched_projects"], ["mac-butler"])
+
+    @patch("butler.reset_live_session_state")
+    @patch("butler.reset_conversation_context")
+    @patch("trigger.note_session_active")
+    @patch("trigger.print")
+    def test_on_trigger_ignores_duplicate_active_session(
+        self,
+        _mock_print,
+        mock_note_session,
+        _mock_reset_context,
+        mock_reset_state,
+    ):
+        trigger._shutdown_event = threading.Event()
+        trigger._session_active = True
+        trigger.state.transition(trigger.State.IDLE)
+
+        trigger.on_trigger()
+
+        mock_reset_state.assert_not_called()
+        mock_note_session.assert_not_called()
 
 
 if __name__ == "__main__":

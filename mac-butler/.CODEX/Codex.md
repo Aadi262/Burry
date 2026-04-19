@@ -43,7 +43,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 
 ### Entry Points
 - butler.py          — main voice pipeline, 3500+ lines, God Object being split
-- trigger.py         — clap/keyboard trigger, starts session, calls briefing
+- trigger.py         — clap/wake/keyboard trigger owner, starts session, calls briefing
 - state.py           — global Butler state machine (IDLE/LISTENING/THINKING/SPEAKING)
 
 ### Brain
@@ -183,7 +183,9 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Natural language understanding (not just trigger words)
 - Conversation mode with personality
 - Session memory across turns, with recent turns and pending follow-ups now restored from disk across short restarts (`session_context.py`)
-- Default `butler.py` startup now stays alive in interactive STT mode
+- Default `butler.py` startup now holds the backend in passive standby, refuses duplicate live owners, and waits for clap, wake phrase, or explicit HUD/API activation before speaking; `--clap-only` disables wake-word arming, and passive clap wake now arms after startup, ignores active-session noise, and requires a sharp transient instead of any sustained loud block
+- `projects/dashboard.py` now serves localhost on `7532/7533` by default, accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT`, and keeps native pywebview HUD/browser auto-open behind explicit opt-ins
+- `agents/runner.py` now rejects low-signal current-news model timeout text such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
@@ -219,6 +221,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - GITHUB_PERSONAL_ACCESS_TOKEN in butler_secrets for private-repo access, higher GitHub API limits, and better K10 or I08 coverage
 - NVIDIA_API_KEY in butler_secrets or env for NVIDIA-backed LLM routing
 - NVIDIA Riva Python clients installed for NVIDIA TTS/STT
+- `venv/bin/pip install openwakeword sounddevice` if you want the passive wake-phrase path in addition to clap or HUD activation
 - OBSIDIAN_VAULT_PATH in butler_config.py
 - ollama pull llama3.2-vision
 

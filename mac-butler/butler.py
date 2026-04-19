@@ -10,6 +10,7 @@ from __future__ import annotations
 import atexit
 import argparse
 import asyncio
+import fcntl
 import json
 import os
 import queue
@@ -17,6 +18,7 @@ import random
 import re
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -38,7 +40,6 @@ from butler_config import (
     VPS_HOSTS,
 )
 from daemon.ambient import start_ambient_daemon
-from daemon.wake_word import start_wake_word_daemon
 from brain.session_context import ctx
 from brain.query_analyzer import analyze_query
 from context import build_structured_context
@@ -72,6 +73,7 @@ from runtime import (
     note_heard_text,
     note_intent,
     note_memory_recall,
+    note_runtime_event,
     note_session_active,
     note_tool_finished,
     note_tool_started,
@@ -234,6 +236,8 @@ _CTX_CACHE_TTL_SECONDS: float = 120.0
 _CTX_CACHE_LOCK = threading.Lock()
 _SHUTDOWN_HANDLERS_INSTALLED = False
 _SESSION_STATE_SAVED = False
+_LIVE_RUNTIME_LOCK_HANDLE = None
+_LIVE_RUNTIME_LOCK_PATH = Path(tempfile.gettempdir()) / "mac-butler-live-runtime.lock"
 _FOLLOWUP_PREFIXES = (
     "and ",
     "then ",
@@ -1531,6 +1535,101 @@ def _on_state_change(old_state: State, new_state: State) -> None:
 state.on_change(_on_state_change)
 
 
+def _acquire_live_runtime_lock() -> bool:
+    global _LIVE_RUNTIME_LOCK_HANDLE
+    if _LIVE_RUNTIME_LOCK_HANDLE is not None:
+        return True
+
+    _LIVE_RUNTIME_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handle = _LIVE_RUNTIME_LOCK_PATH.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        try:
+            handle.seek(0)
+            owner = handle.read().strip()
+        except Exception:
+            owner = ""
+        handle.close()
+        owner_note = f" (pid {owner})" if owner else ""
+        print(f"[Butler] Another live runtime is already active{owner_note}. Reuse it instead of starting a second voice session.")
+        return False
+
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    _LIVE_RUNTIME_LOCK_HANDLE = handle
+    return True
+
+
+def _release_live_runtime_lock() -> None:
+    global _LIVE_RUNTIME_LOCK_HANDLE
+    handle = _LIVE_RUNTIME_LOCK_HANDLE
+    _LIVE_RUNTIME_LOCK_HANDLE = None
+    if handle is None:
+        return
+    try:
+        handle.seek(0)
+        handle.truncate()
+        handle.flush()
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        handle.close()
+    except Exception:
+        pass
+
+
+def run_passive_service(
+    model: str | None = None,
+    test_mode: bool = False,
+    *,
+    enable_wake: bool = True,
+) -> None:
+    _ensure_watcher_started()
+    try:
+        from trigger import shutdown as shutdown_triggers
+        from trigger import start_passive_triggers
+    except Exception as exc:
+        print(f"[Butler] Passive standby unavailable: {exc}")
+        return
+
+    status = start_passive_triggers(enable_clap=True, enable_wake=enable_wake)
+    note_runtime_event(
+        "standby",
+        "Passive standby active. Waiting for a clap or explicit command."
+        if not enable_wake
+        else "Passive standby active. Waiting for a clap, wake phrase, or explicit command.",
+        {"triggers": status, "mode": "passive"},
+    )
+
+    print("\n" + "=" * 50)
+    print("  🎩 Mac Butler — Passive Standby")
+    print("=" * 50)
+    print("Backend is live on http://127.0.0.1:3335")
+    print("Voice stays quiet until an explicit wake event.")
+    if enable_wake:
+        print("Wake paths: clap, wake phrase, or HUD/API command.\n")
+    else:
+        print("Wake paths: clap or HUD/API command.\n")
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            shutdown_triggers()
+        except Exception:
+            pass
+        state.transition(State.IDLE)
+        if not test_mode:
+            print("\n[Butler] Passive standby stopped.")
+
+
 def run_interactive(use_stt: bool = False, model: str | None = None, test_mode: bool = False) -> None:
     _ensure_watcher_started()
     print("\n" + "=" * 50)
@@ -1588,6 +1687,7 @@ def _shutdown_handler(signum=None, frame=None) -> None:
     """Clean shutdown - save AgentScope session state before exit."""
     global _SESSION_STATE_SAVED
     if _SESSION_STATE_SAVED:
+        _release_live_runtime_lock()
         if signum is not None:
             raise SystemExit(0)
         return
@@ -1604,6 +1704,8 @@ def _shutdown_handler(signum=None, frame=None) -> None:
         shutdown_tracing()
     except Exception as exc:
         print(f"[Butler] Could not save session state: {exc}")
+    finally:
+        _release_live_runtime_lock()
     if signum is not None:
         raise SystemExit(0)
 
@@ -1630,8 +1732,9 @@ def main() -> None:
     parser.add_argument("--stt", action="store_true", help="Use voice STT input")
     parser.add_argument("--briefing", action="store_true", help="Run startup briefing only")
     parser.add_argument("--command", "-c", default=None, help="Run a single command")
+    parser.add_argument("--clap-only", action="store_true", help="Passive standby wakes only on clap or explicit HUD/API command")
     args = parser.parse_args()
-    default_live_session = not args.command and not args.interactive and not args.briefing
+    default_standby_mode = not args.command and not args.interactive and not args.briefing
 
     lightweight_command_mode = bool(args.command and not args.interactive and not args.stt and not args.briefing)
 
@@ -1646,7 +1749,6 @@ def main() -> None:
         configure_session_restore(enabled=False)
         _ensure_watcher_started()
         start_ambient_daemon()
-        start_wake_word_daemon()
         # Start iMessage channel so you can message Burry from iPhone (STEAL 8)
         try:
             from channels.imessage_channel import start_imessage_channel
@@ -1685,6 +1787,10 @@ def main() -> None:
         _save_backbone_session_state()
         return
 
+    requires_live_runtime_lock = bool(default_standby_mode or args.interactive or args.briefing)
+    if requires_live_runtime_lock and not _acquire_live_runtime_lock():
+        return
+
     if args.interactive:
         reset_live_session_state("interactive")
         run_interactive(use_stt=args.stt, model=args.model, test_mode=args.test)
@@ -1697,9 +1803,9 @@ def main() -> None:
         _save_backbone_session_state()
         return
 
-    if default_live_session:
-        reset_live_session_state("default_startup")
-        run_interactive(use_stt=True, model=args.model, test_mode=args.test)
+    if default_standby_mode:
+        reset_live_session_state("default_standby")
+        run_passive_service(model=args.model, test_mode=args.test, enable_wake=not args.clap_only)
         _save_backbone_session_state()
         return
 
