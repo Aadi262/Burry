@@ -679,3 +679,24 @@ Append a new status block after each working session:
   approved host live benchmark succeeded for `voice_brief`, `quick_fact_pm_india`, and `weather_new_delhi`
   host timings: voice `1.773s`, PM quick-fact `1.0648s`, weather `1.2833s`, retrieval summary `2 ok`, `0 error`, `0 over_budget`
 - Next action: use the real-task benchmark harness to drive the next Phase `3B` latency cuts on news, GitHub status, page/article, video, and deeper research routes
+
+## Progress Update - 2026-04-20
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: live localhost run verified and dashboard SearXNG status probe tightened
+- What moved:
+  verified one live backend on `3335`, one localhost dashboard on `7532`, and no native shell process
+  opened `http://127.0.0.1:7532/` for live inspection
+  ran `who is PM of India` through `/api/v1/run`; telemetry showed `lookup_web` and `Narendra Modi is the Prime Minister of India.`
+  fixed dashboard SearXNG status so the JSON `/search?q=butler-health&format=json` probe uses a 3s endpoint-specific timeout instead of the generic 1s URL timeout
+- What is still blocked:
+  sandboxed Python health checks can still fail against local Docker even when host-side runtime checks work
+  broader Phase `3B` latency cuts still remain for news, GitHub status, page/article, video, and deeper research routes
+- Tests run:
+  `venv/bin/python -m py_compile projects/dashboard.py tests/test_dashboard.py`
+  `venv/bin/pytest tests/test_dashboard.py::DashboardTests::test_prime_operator_status_uses_json_search_health_probe -q` -> `1 passed`
+- Manual checks:
+  `curl -sS http://127.0.0.1:7532/api/v1/health` returned dashboard healthy
+  `curl -sS http://127.0.0.1:3335/api/v1/health` returned backend healthy
+  host Python check confirmed `_url_ok(_searxng_health_url(), timeout=3.0)` and cached dashboard search status both return `True`
+- Next action: continue Phase `3B` latency cuts using the real-task benchmark harness

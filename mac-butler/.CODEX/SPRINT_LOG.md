@@ -84,6 +84,24 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Live Localhost Run — 2026-04-20
+
+Completed
+- verified the already-running localhost setup: one `butler.py --clap-only` backend, one `projects/dashboard.py` dashboard, and no native shell process
+- opened `http://127.0.0.1:7532/` for live inspection
+- ran `who is PM of India` through `/api/v1/run`; telemetry showed `lookup_web` execution and `Narendra Modi is the Prime Minister of India.`
+- fixed a live dashboard status bug where SearXNG showed offline because the JSON search health probe used the generic 1s URL timeout
+- changed `projects/dashboard.py` so the SearXNG status probe still uses `/search?q=butler-health&format=json` but allows a 3s timeout
+
+Validation
+- `venv/bin/python -m py_compile projects/dashboard.py tests/test_dashboard.py`
+- `venv/bin/pytest tests/test_dashboard.py::DashboardTests::test_prime_operator_status_uses_json_search_health_probe -q`
+- live host Python check: `_url_ok(_searxng_health_url(), timeout=3.0)` returned `True`
+
+Runtime truth
+- localhost backend and dashboard are healthy on `3335` and `7532`
+- dashboard provider status checks need endpoint-specific timeouts; the SearXNG JSON probe can exceed 1s on the local Docker path
+
 Phase 3B Real-Task Benchmarking — 2026-04-19
 
 Completed

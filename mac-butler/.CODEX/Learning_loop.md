@@ -806,3 +806,14 @@ The fix:
  `scripts/benchmark_models.py --real-tasks` now fails retrieval cases when output is low-signal filler, unavailable fallback text, or the expected tool is missing or wrong. New tests pin all three branches.
 Rule added:
  A benchmark is not just a timer; it must validate answer quality and the expected tool path before a fast result counts as a win.
+
+HARD LESSON — local health checks need realistic endpoint timeouts
+Date: 2026-04-20
+What happened:
+ The live HUD reported SearXNG as offline while PM lookup still worked and `curl` could reach the JSON search endpoint.
+Root cause:
+ `projects/dashboard.py` used the generic 1s `_url_ok` timeout for SearXNG status, but the local Docker SearXNG JSON search probe sometimes takes just over 1s.
+The fix:
+ `_url_ok` now accepts an endpoint-specific timeout, and `_prime_operator_status_cache()` uses a 3s timeout for `/search?q=butler-health&format=json`.
+Rule added:
+ Do not treat a fast generic health timeout as universal; provider probes need realistic timeout budgets that match the endpoint they call.

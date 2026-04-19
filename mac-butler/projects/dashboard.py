@@ -281,9 +281,9 @@ def _workspace_project_name(workspace: str, projects: list[dict]) -> str:
     return best[1] if best else candidate_path.name
 
 
-def _url_ok(url: str) -> bool:
+def _url_ok(url: str, *, timeout: float = 1.0) -> bool:
     try:
-        with urlopen(url, timeout=1.0) as response:
+        with urlopen(url, timeout=timeout) as response:
             return int(getattr(response, "status", 200)) < 500
     except URLError:
         return False
@@ -336,7 +336,7 @@ def _prime_operator_status_cache(force: bool = False) -> None:
         if _SEARCH_STATUS_PRIMED and not force:
             return
 
-    search_online = _url_ok(_searxng_health_url())
+    search_online = _url_ok(_searxng_health_url(), timeout=3.0)
     with _SEARCH_STATUS_LOCK:
         _SEARCH_ONLINE = search_online
         _SEARCH_STATUS_PRIMED = True

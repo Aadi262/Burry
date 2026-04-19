@@ -258,6 +258,7 @@ class DashboardTests(unittest.TestCase):
 
         probe_url = mock_url_ok.call_args.args[0]
         self.assertTrue(probe_url.endswith("/search?q=butler-health&format=json"))
+        self.assertEqual(mock_url_ok.call_args.kwargs["timeout"], 3.0)
         self.assertNotEqual(probe_url.rstrip("/").split("/")[-1], "")
 
     def test_event_stream_message_uses_sse_data_format(self):
