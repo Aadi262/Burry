@@ -197,7 +197,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Routing order pinned: pending → instant → skills → deterministic router → classifier
 - Verification-aware outcomes for filesystem, browser, terminal, project-open, calendar add, reminders, Gmail compose, and WhatsApp flows
 - Obsidian note writes now open notes through vault-relative `vault` + `file` URLs and daily notes no longer duplicate the date in filenames
-- `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts so NVIDIA-vs-local routing can be inspected and timed explicitly
+- `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts and can run explicit `--real-tasks` retrieval probes for PM quick-fact, weather, GitHub status, and news latency
 - `scripts/system_check.py --phase1-host --phase1-host-only` now covers filesystem, browser, terminal, Gmail compose, WhatsApp open, reminders, and the operator-gated delivery checks
 - `scripts/system_check.py --phase3a-host --phase3a-host-only` now covers broader filesystem CRUD, self-contained browser navigation on local temp pages, reminder verification, calendar-write permission fallback, and safe system-control checks
 - Calendar read now fails truthfully with an explicit host-permission message instead of surfacing raw `osascript` errors

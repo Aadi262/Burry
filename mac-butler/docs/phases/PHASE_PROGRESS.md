@@ -11,10 +11,10 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, and the live backend now hardened around passive standby plus duplicate-runtime refusal
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, real-task provider benchmarks now available through `scripts/benchmark_models.py --real-tasks`, and the live backend now hardened around passive standby plus duplicate-runtime refusal
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
-- Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction and live provider benchmarking on top of the new indexed weather/fact/GitHub retrieval base
+- Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction on the remaining retrieval routes using the new live real-task benchmark path
 
 ## Phase Status
 
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency, and `scripts/benchmark_models.py --real-tasks` now measures real retrieval tasks; broader retrieval latency still remains |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -657,3 +657,25 @@ Append a new status block after each working session:
   `curl -sS http://127.0.0.1:3335/api/v1/health` returned the backend health envelope
   process check showed one `butler.py --clap-only`, one `projects/dashboard.py`, and no native shell process
 - Next action: continue Phase `3B` retrieval latency work with live provider benchmarking and avoid reopening the closed Phase `3A` action surface
+
+## Progress Update - 2026-04-19
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: real-task benchmark harness landed and live host timing evidence collected
+- What moved:
+  `scripts/benchmark_models.py` now supports `--real-tasks` for end-to-end retrieval probes instead of model-only prompt timing
+  real-task cases now cover PM quick-fact, weather, GitHub repo status, and news
+  retrieval benchmark scoring now fails low-signal progress filler, unavailable fallback text, and missing or wrong expected tools
+  `README.md`, `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, and `.CODEX/Capability_Map.md` now document the real-task benchmark path
+- What is still blocked:
+  sandboxed live provider checks still cannot reach NVIDIA/public providers reliably, so real timing claims must use the approved host command path
+  broader Phase `3B` latency work still remains for news, GitHub, page/article, video, and deeper research routes
+- Tests run:
+  `venv/bin/python -m py_compile scripts/benchmark_models.py tests/test_model_benchmark.py`
+  `venv/bin/pytest tests/test_model_benchmark.py -q` -> `7 passed`
+  `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks --case voice_brief --task-case quick_fact_pm_india`
+- Manual checks:
+  sandboxed live benchmark failed truthfully with provider/unavailable fallback errors
+  approved host live benchmark succeeded for `voice_brief`, `quick_fact_pm_india`, and `weather_new_delhi`
+  host timings: voice `1.773s`, PM quick-fact `1.0648s`, weather `1.2833s`, retrieval summary `2 ok`, `0 error`, `0 over_budget`
+- Next action: use the real-task benchmark harness to drive the next Phase `3B` latency cuts on news, GitHub status, page/article, video, and deeper research routes

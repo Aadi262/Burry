@@ -795,3 +795,14 @@ The fix:
  `projects/dashboard.py` now builds a JSON SearXNG health URL with `/search?q=butler-health&format=json`, and `tests/test_dashboard.py` pins that exact probe.
 Rule added:
  Shared provider readiness semantics must be tested at every owner that reports them; a healthy HTML root page is not the same as a working JSON search backend.
+
+HARD LESSON — benchmark success must reject fallback-shaped answers
+Date: 2026-04-19
+What happened:
+ The first real-task benchmark run marked PM quick-fact and weather probes as `ok` even though they returned unavailable fallback text inside the sandbox.
+Root cause:
+ The benchmark measured latency and agent status but did not require the expected retrieval tool or reject fallback-shaped answers like `I couldn't look that up right now`.
+The fix:
+ `scripts/benchmark_models.py --real-tasks` now fails retrieval cases when output is low-signal filler, unavailable fallback text, or the expected tool is missing or wrong. New tests pin all three branches.
+Rule added:
+ A benchmark is not just a timer; it must validate answer quality and the expected tool path before a fast result counts as a win.

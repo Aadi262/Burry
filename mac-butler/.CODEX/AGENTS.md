@@ -71,7 +71,7 @@ Do not reorder this without code, tests, and docs moving together.
 
 - Run targeted compile and pytest coverage for every touched owner
 - Add or strengthen tests for every changed behavior; rerunning old tests alone is not enough, and branch/failure-path coverage beats loose smoke-only checks
-- When provider or model-routing behavior changes, run `venv/bin/python scripts/benchmark_models.py --json --dry-run` at minimum and use the live benchmark path before claiming latency wins
+- When provider or model-routing behavior changes, run `venv/bin/python scripts/benchmark_models.py --json --dry-run` at minimum; use `venv/bin/python scripts/benchmark_models.py --json --real-tasks ...` on the host before claiming retrieval latency wins
 - When contracts, dashboard, A2A, or telemetry change, run the relevant API/frontend regression slice
 - When host actions change, run `venv/bin/python scripts/system_check.py --json --phase1-host --phase1-host-only`, `venv/bin/python scripts/system_check.py --json --phase3a-host --phase3a-host-only`, or explicit manual host checks
 - Update `.CODEX/AGENTS.md` when operating rules, owner maps, or validation-floor guidance change; update `.CODEX/Codex.md`, `.CODEX/SPRINT_LOG.md`, `.CODEX/Learning_loop.md`, `.CODEX/Capability_Map.md` when runtime truth changes, `docs/phases/PHASE_PROGRESS.md`, and `README.md` when user-facing behavior changes

@@ -84,6 +84,29 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Phase 3B Real-Task Benchmarking — 2026-04-19
+
+Completed
+- extended `scripts/benchmark_models.py` with `--real-tasks` so provider benchmarks can run actual retrieval agents instead of only isolated model prompts
+- added real-task cases for PM quick-fact, New Delhi weather, GitHub repo status, and AI news
+- made retrieval benchmark results fail on low-signal progress filler, unavailable fallback text, and missing/wrong expected tools
+- added branch-specific benchmark regressions for dry-run real-task contracts, live task latency accounting, low-signal rejection, unavailable fallback rejection, and combined model plus retrieval reports
+
+Validation
+- `venv/bin/python -m py_compile scripts/benchmark_models.py tests/test_model_benchmark.py`
+- `venv/bin/pytest tests/test_model_benchmark.py -q`
+- result: `7 passed`
+- dry-run: `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks --case voice_brief --task-case quick_fact_pm_india`
+
+Live host check
+- sandboxed live benchmark correctly failed because provider/public-network access is blocked inside the sandbox
+- approved host run succeeded: `venv/bin/python scripts/benchmark_models.py --json --real-tasks --case voice_brief --task-case quick_fact_pm_india --task-case weather_new_delhi`
+- host timings: voice `1.773s`, PM quick-fact `1.0648s`, weather `1.2833s`; retrieval summary `2 ok`, `0 error`, `0 over_budget`
+
+Runtime truth
+- retrieval latency wins now require host real-task benchmark evidence, not just dry-run model selection
+- benchmark scoring must treat fallback/unavailable text as a failed provider route, not a successful answer
+
 Runtime Contract Drift Cleanup — 2026-04-19
 
 Completed

@@ -273,6 +273,7 @@ Useful direct entrypoints:
 venv/bin/python projects/dashboard.py
 venv/bin/python projects/github_sync.py
 venv/bin/python scripts/benchmark_models.py --json --dry-run
+venv/bin/python scripts/benchmark_models.py --json --real-tasks --case voice_brief --task-case quick_fact_pm_india
 venv/bin/python projects/open_project.py adpilot
 venv/bin/python trigger.py --clap
 ```
