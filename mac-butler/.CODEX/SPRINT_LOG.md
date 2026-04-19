@@ -84,6 +84,24 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Runtime Contract Drift Cleanup — 2026-04-19
+
+Completed
+- fixed the stale routing-flow text in `.CODEX/Codex.md` and `docs/phases/PHASE.md` so both required docs now explicitly pin `pending -> instant -> skills -> deterministic router -> classifier`
+- added `tests/test_docs_runtime_contract.py` to read the required docs directly and fail if the deterministic-router-before-classifier contract drifts again
+- changed `projects/dashboard.py` so dashboard operator status probes SearXNG through `/search?q=butler-health&format=json` instead of the root page, matching the backend readiness contract
+- restarted the localhost dashboard outside the sandbox after confirming sandboxed server bind fails with `[Errno 1] Operation not permitted`
+
+Validation
+- `venv/bin/python -m py_compile projects/dashboard.py tests/test_dashboard.py tests/test_docs_runtime_contract.py`
+- `venv/bin/pytest tests/test_docs_runtime_contract.py tests/test_dashboard.py::DashboardTests::test_prime_operator_status_uses_json_search_health_probe -q`
+- result: `3 passed`
+
+Manual checks
+- `curl -sS http://127.0.0.1:7532/api/v1/health` returned the versioned dashboard health envelope on port `7532`
+- `curl -sS http://127.0.0.1:3335/api/v1/health` returned the backend health envelope on port `3335`
+- live process check showed one `butler.py --clap-only` backend, one `projects/dashboard.py` localhost dashboard, and no native shell process
+
 Runtime Route Quality Hotfix — 2026-04-19
 
 Completed

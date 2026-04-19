@@ -73,15 +73,16 @@ The repo already expects a strict routing flow. Phase 1 should preserve it while
 3. pending follow-up is resolved first through `brain/session_context.py`
 4. instant patterns run before any skill or classifier work
 5. skills run after an instant miss and before the classifier
-6. the configured classifier role returns typed intent plus params
-7. high-confidence action goes direct to executor
-8. medium confidence asks one clarification
-9. low confidence falls into conversation mode
-10. `memory/bus.py` records asynchronously
-11. speech narrates the outcome
+6. high-confidence deterministic router matches run before the configured classifier
+7. the configured classifier role returns typed intent plus params only after deterministic misses
+8. high-confidence action goes direct to executor
+9. medium confidence asks one clarification
+10. low confidence falls into conversation mode
+11. `memory/bus.py` records asynchronously
+12. speech narrates the outcome
 
 Phase 1 source of truth for the hot path is now:
-`pending -> instant -> skills -> classifier -> lane -> executor -> memory bus -> speech`
+`pending -> instant -> skills -> deterministic router -> classifier -> lane -> executor -> memory bus -> speech`
 
 ## Hot-Path Constraints
 

@@ -251,6 +251,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(mock_ok.call_count, 3)
         self.assertTrue(all(call.args[0].endswith("/api/v1/health") for call in mock_ok.call_args_list))
 
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_prime_operator_status_uses_json_search_health_probe(self, mock_url_ok):
+        with patch.object(dashboard, "_SEARCH_STATUS_PRIMED", False), patch.object(dashboard, "_SEARCH_ONLINE", False):
+            dashboard._prime_operator_status_cache(force=True)
+
+        probe_url = mock_url_ok.call_args.args[0]
+        self.assertTrue(probe_url.endswith("/search?q=butler-health&format=json"))
+        self.assertNotEqual(probe_url.rstrip("/").split("/")[-1], "")
+
     def test_event_stream_message_uses_sse_data_format(self):
         payload = {"state": "listening", "focus_project": "mac-butler"}
         frame = _event_stream_message(payload).decode("utf-8")

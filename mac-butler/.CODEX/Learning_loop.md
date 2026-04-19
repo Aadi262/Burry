@@ -773,3 +773,25 @@ The fix:
  `intents/router.py` now accepts high-confidence deterministic matches before classifier fallback, and new regressions assert PM questions plus inline calendar creates do not call the classifier.
 Rule added:
  The classifier is a fallback for deterministic misses, not a prerequisite for known high-confidence local routes.
+
+HARD LESSON — required docs need executable contract checks
+Date: 2026-04-19
+What happened:
+ `.CODEX/AGENTS.md`, `.CODEX/ARCHITECTURE.md`, and `docs/phases/PHASE_PROGRESS.md` described deterministic-router-before-classifier correctly, but `.CODEX/Codex.md` and `docs/phases/PHASE.md` still had an older skills-to-classifier flow.
+Root cause:
+ The routing behavior had code and router regressions, but no test read the required docs as part of the contract.
+The fix:
+ `.CODEX/Codex.md` and `docs/phases/PHASE.md` now pin `pending -> instant -> skills -> deterministic router -> classifier`, and `tests/test_docs_runtime_contract.py` fails if required docs drift from that order again.
+Rule added:
+ Any mandatory operating contract in required docs should have at least one executable consistency check when drift has already caused confusion.
+
+HARD LESSON — dashboard status probes must use the same health contract as backend probes
+Date: 2026-04-19
+What happened:
+ Backend SearXNG readiness had moved to the JSON `/search` probe, but dashboard operator status still checked the SearXNG root page.
+Root cause:
+ The dashboard status probe was separate from the backend health path and did not get a matching regression.
+The fix:
+ `projects/dashboard.py` now builds a JSON SearXNG health URL with `/search?q=butler-health&format=json`, and `tests/test_dashboard.py` pins that exact probe.
+Rule added:
+ Shared provider readiness semantics must be tested at every owner that reports them; a healthy HTML root page is not the same as a working JSON search backend.

@@ -35,6 +35,9 @@ Burry is a local natural-language agent with a strict hot path:
 11. `memory/bus.py` records asynchronously
 12. speech narrates the verified outcome
 
+Hot-path source of truth:
+`pending -> instant -> skills -> deterministic router -> classifier -> lane -> executor -> memory bus -> speech`
+
 Do not reorder this without code, tests, and docs moving together.
 
 ## Non-negotiable rules

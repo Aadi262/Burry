@@ -304,6 +304,14 @@ def _backend_alive() -> bool:
     return _url_ok(_backend_url("/api/v1/health"))
 
 
+def _searxng_health_url() -> str:
+    try:
+        from butler_config import SEARXNG_URL
+    except Exception:
+        SEARXNG_URL = "http://localhost:8080"
+    return f"{str(SEARXNG_URL).rstrip('/')}/search?q=butler-health&format=json"
+
+
 def _backend_json_request(path: str, payload: dict | None = None, timeout: float = 3.0) -> dict:
     body = json.dumps(payload or {}).encode("utf-8")
     request = Request(
@@ -328,12 +336,7 @@ def _prime_operator_status_cache(force: bool = False) -> None:
         if _SEARCH_STATUS_PRIMED and not force:
             return
 
-    try:
-        from butler_config import SEARXNG_URL
-    except Exception:
-        SEARXNG_URL = "http://localhost:8080"
-
-    search_online = _url_ok(f"{SEARXNG_URL}/")
+    search_online = _url_ok(_searxng_health_url())
     with _SEARCH_STATUS_LOCK:
         _SEARCH_ONLINE = search_online
         _SEARCH_STATUS_PRIMED = True

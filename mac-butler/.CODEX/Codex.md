@@ -237,12 +237,16 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 3.  ctx.has_pending()? → resolve pending first
 4.  12 instant patterns → zero LLM cost
 5.  skills.match_skill() → email/calendar/imessage
-6.  config-driven classifier → intent + params JSON
-7.  confidence > 0.7 → executor directly
-8.  confidence 0.4-0.7 → ask clarifying question
-9.  confidence < 0.4 → conversation mode
-10. memory/bus.py → async write
-11. speak response
+6.  high-confidence deterministic router match → typed intent + params
+7.  config-driven classifier fallback → intent + params JSON
+8.  confidence > 0.7 → executor directly
+9.  confidence 0.4-0.7 → ask clarifying question
+10. confidence < 0.4 → conversation mode
+11. memory/bus.py → async write
+12. speak response
+
+Hot-path source of truth:
+`pending -> instant -> skills -> deterministic router -> classifier -> lane -> executor -> memory bus -> speech`
 
 ## MODELS (current runtime shape)
 - classifier:

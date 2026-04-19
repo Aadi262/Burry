@@ -637,3 +637,23 @@ Append a new status block after each working session:
   live PM test returned `Narendra Modi is the Prime Minister of India.` and live calendar test routed `add meeting tomorrow 3pm` to `calendar_add` without writing Calendar in test mode
   actual configured Obsidian URL builder emits `obsidian://open?vault=Burry&file=Daily/2026-04-19.md`
 - Next action: restart the live backend on localhost after commit, then continue Phase `3B` provider-latency benchmarking and retrieval-quality hardening
+
+## Progress Update - 2026-04-19
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: runtime contract drift and dashboard readiness probe tightened
+- What moved:
+  `.CODEX/Codex.md` and `docs/phases/PHASE.md` now explicitly match the live routing order: `pending -> instant -> skills -> deterministic router -> classifier`
+  `tests/test_docs_runtime_contract.py` now reads `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` so required-doc routing drift fails in CI
+  `projects/dashboard.py` now probes SearXNG with `/search?q=butler-health&format=json` for operator status instead of treating the root page as enough
+- What is still blocked:
+  live dashboard bind checks must run outside the sandbox; sandboxed server startup fails with `[Errno 1] Operation not permitted`
+  broader Phase `3B` provider-latency benchmarking is still the next real product slice
+- Tests run:
+  `venv/bin/python -m py_compile projects/dashboard.py tests/test_dashboard.py tests/test_docs_runtime_contract.py`
+  `venv/bin/pytest tests/test_docs_runtime_contract.py tests/test_dashboard.py::DashboardTests::test_prime_operator_status_uses_json_search_health_probe -q` -> `3 passed`
+- Manual checks:
+  `curl -sS http://127.0.0.1:7532/api/v1/health` returned the versioned dashboard health envelope
+  `curl -sS http://127.0.0.1:3335/api/v1/health` returned the backend health envelope
+  process check showed one `butler.py --clap-only`, one `projects/dashboard.py`, and no native shell process
+- Next action: continue Phase `3B` retrieval latency work with live provider benchmarking and avoid reopening the closed Phase `3A` action surface
