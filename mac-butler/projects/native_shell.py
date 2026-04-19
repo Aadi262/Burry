@@ -14,6 +14,7 @@ from urllib.request import urlopen
 import webview
 
 PID_PATH = Path("/tmp/burry_hud.pid")
+DEFAULT_HUD_URL = "http://127.0.0.1:7532"
 LOADING_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -148,7 +149,7 @@ def _bootstrap_window(window, url: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Native Burry HUD window")
-    parser.add_argument("--url", default="http://127.0.0.1:3333", help="HUD URL")
+    parser.add_argument("--url", default=DEFAULT_HUD_URL, help="HUD URL")
     parser.add_argument("--title", default="Burry", help="Window title")
     args = parser.parse_args()
 

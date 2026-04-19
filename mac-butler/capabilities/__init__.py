@@ -17,7 +17,7 @@ from .contracts import (
     TurnEvent,
     contract_timestamp,
 )
-from .planner import plan_semantic_task
+from .planner import looks_like_current_role_lookup, plan_semantic_task
 from .registry import (
     TOOL_SPECS,
     build_action,
@@ -48,6 +48,7 @@ __all__ = [
     "get_capability_descriptor",
     "get_tool_spec",
     "list_public_capabilities",
+    "looks_like_current_role_lookup",
     "plan_semantic_task",
     "tool_catalog_for_prompt",
 ]

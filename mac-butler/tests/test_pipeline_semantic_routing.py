@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import butler
+from intents.router import IntentResult
 
 
 class SemanticRoutingIntegrationTests(unittest.TestCase):
@@ -117,6 +118,42 @@ class SemanticRoutingIntegrationTests(unittest.TestCase):
         mock_note_intent.assert_any_call("news", {"topic": "AI", "hours": 24}, 1.0, raw="latest ai news")
         recorded_intent = mock_record.call_args.kwargs["intent_name"]
         self.assertEqual(recorded_intent, "news")
+
+    @patch("skills.match_skill", return_value=(None, {}))
+    @patch("butler.instant_route", return_value=None)
+    @patch("butler.route", return_value=IntentResult("question", confidence=0.9, raw="who is PM of India"))
+    @patch("pipeline.router._lightweight_reply", side_effect=AssertionError("current role lookup must not ask the lightweight model first"))
+    @patch("butler._get_cached_context", return_value={})
+    @patch("butler._warn_if_search_offline")
+    @patch("butler.note_intent")
+    @patch("butler.executor.run", return_value=[{"action": "run_agent", "status": "ok", "result": "Narendra Modi is the Prime Minister of India."}])
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    def test_handle_input_routes_pm_question_to_search_not_news_or_model_fallback(
+        self,
+        mock_speak,
+        mock_record,
+        mock_run,
+        mock_note_intent,
+        _mock_search_warning,
+        _mock_context,
+        mock_lightweight,
+        _mock_route,
+        _mock_instant,
+        _mock_skill,
+    ):
+        butler.handle_input("who is PM of India", test_mode=True)
+
+        mock_run.assert_called_once()
+        mock_lightweight.assert_not_called()
+        action = mock_run.call_args.args[0][0]
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "search")
+        self.assertEqual(action["query"], "who is PM of India")
+        mock_note_intent.assert_any_call("lookup_web", {"query": "who is PM of India"}, 0.76, raw="who is PM of India")
+        mock_speak.assert_called_once_with("Narendra Modi is the Prime Minister of India.", test_mode=True)
+        recorded_intent = mock_record.call_args.kwargs["intent_name"]
+        self.assertEqual(recorded_intent, "lookup_web")
 
 
 if __name__ == "__main__":

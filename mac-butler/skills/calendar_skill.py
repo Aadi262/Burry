@@ -1,11 +1,10 @@
-"""Calendar skill — read and create macOS Calendar events."""
+"""Calendar skill — read macOS Calendar events."""
 import subprocess
 
-DESCRIPTION = "Read and create macOS Calendar events"
+DESCRIPTION = "Read macOS Calendar events"
 TRIGGER_PATTERNS = [
     r"what(?:'s| is) (?:on )?my (?:calendar|schedule|agenda)(?: today| tomorrow)?",
     r"do I have (?:any )?(?:meetings?|events?) (?:today|tomorrow)?",
-    r"create (?:a )?(?:meeting|event|appointment) (?:called|named|titled)? ?(?P<title>.+?) (?:at|on) (?P<time>.+)",
 ]
 
 

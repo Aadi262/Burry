@@ -32,6 +32,13 @@ class SkillsLoaderTests(unittest.TestCase):
         self.assertEqual(entities["subject"], "test")
         self.assertEqual(entities["body"], "hello")
 
+    def test_calendar_create_commands_are_left_for_router_executor_path(self):
+        skills.load_skills()
+
+        skill, _entities = skills.match_skill("create a meeting called standup at tomorrow 3pm")
+
+        self.assertIsNone(skill)
+
 
 class IMessageChannelTests(unittest.TestCase):
     def tearDown(self):

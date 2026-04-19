@@ -2690,17 +2690,38 @@ end tell
         vault_folder = Path(OBSIDIAN_VAULT) / folder
         vault_folder.mkdir(parents=True, exist_ok=True)
         date_str = datetime.now().strftime("%Y-%m-%d")
-        filename = f"{date_str} {title}.md" if folder == "Daily" else f"{title}.md"
+        cleaned_title = self._collapse_text(title) or date_str
+        if folder == "Daily" and cleaned_title == date_str:
+            filename = f"{date_str}.md"
+        elif folder == "Daily":
+            filename = f"{date_str} {cleaned_title}.md"
+        else:
+            filename = f"{cleaned_title}.md"
         filepath = vault_folder / filename
         file_mode = "a" if filepath.exists() and folder == "Daily" else "w"
         with open(filepath, file_mode, encoding="utf-8") as handle:
             if file_mode == "w":
-                handle.write(f"# {title}\n\n{content}\n")
+                handle.write(f"# {cleaned_title}\n\n{content}\n")
             else:
                 handle.write(f"\n\n## {datetime.now().strftime('%H:%M')}\n{content}\n")
-        note_path = urllib.parse.quote(str(filepath))
-        subprocess.Popen(["open", f"obsidian://open?path={note_path}"])
+        subprocess.Popen(["open", self._obsidian_open_url(filepath)])
         return f"saved to Obsidian: {filename}"
+
+    def _obsidian_open_url(self, filepath: Path) -> str:
+        try:
+            vault_root = Path(OBSIDIAN_VAULT).expanduser().resolve()
+            relative = Path(filepath).expanduser().resolve().relative_to(vault_root)
+        except Exception:
+            note_path = urllib.parse.quote(str(filepath))
+            return f"obsidian://open?path={note_path}"
+
+        vault_name = self._collapse_text(OBSIDIAN_VAULT_NAME)
+        if not vault_name:
+            note_path = urllib.parse.quote(str(filepath))
+            return f"obsidian://open?path={note_path}"
+        vault_param = urllib.parse.quote(vault_name)
+        file_param = urllib.parse.quote(relative.as_posix())
+        return f"obsidian://open?vault={vault_param}&file={file_param}"
 
     def open_last_workspace(self) -> str:
         try:

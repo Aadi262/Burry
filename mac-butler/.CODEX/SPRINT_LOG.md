@@ -84,6 +84,40 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Runtime Route Quality Hotfix — 2026-04-19
+
+Completed
+- forced current-role fact questions like `who is PM of India` through `lookup_web` / search-agent execution before any lightweight model narration can answer stale or off-topic
+- expanded deterministic calendar-create parsing for inline natural-time phrases like `add meeting tomorrow 3pm` and named events like `create a meeting called standup at tomorrow 3pm`
+- made `skills/calendar_skill.py` read-only so calendar writes stay on the verified router/executor owner path
+- changed SearXNG readiness checks to hit `/search?q=butler-health&format=json` on the configured `SEARXNG_URL`
+- moved TTS fallback order to `nvidia_riva_tts -> edge -> kokoro -> say` so Edge is tried before the crackle-prone local Kokoro path when Riva is unavailable
+- fixed Obsidian note opening to use vault-relative `vault` + `file` URLs and stopped daily notes from becoming duplicate-date filenames like `2026-04-19 2026-04-19.md`
+- moved high-confidence deterministic router matches before classifier fallback so PM questions and inline calendar creates no longer wait on timed-out classifier models
+
+Validation
+- `venv/bin/python -m py_compile capabilities/planner.py capabilities/__init__.py pipeline/router.py intents/router.py skills/calendar_skill.py butler.py executor/engine.py agents/runner.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_intent_router.py tests/test_skills_and_imessage.py tests/test_butler_pipeline.py tests/test_tts.py tests/test_executor.py tests/test_agents.py`
+- `venv/bin/pytest tests/test_capabilities_planner.py::SemanticPlannerTests::test_pm_abbreviation_maps_to_web_lookup_without_model_planning tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_routes_pm_question_to_search_not_news_or_model_fallback tests/test_intent_router.py::IntentRouterTests::test_add_meeting_inline_time_routes_to_calendar_add tests/test_intent_router.py::IntentRouterTests::test_create_named_meeting_routes_to_calendar_add_without_calendar_clarification tests/test_skills_and_imessage.py::SkillsLoaderTests::test_calendar_create_commands_are_left_for_router_executor_path tests/test_butler_pipeline.py::ButlerPipelineTests::test_check_searxng_uses_json_search_health_probe tests/test_tts.py::TTSVoiceTests::test_nvidia_tts_fallback_uses_edge_before_kokoro tests/test_config_runtime.py tests/test_project_store.py::ProjectStoreTests::test_mac_butler_registry_entry_uses_live_phase_files tests/test_native_shell.py::NativeShellTests::test_default_url_points_to_localhost_dashboard -q`
+- `venv/bin/pytest tests/test_executor.py::ExecutorTests::test_obsidian_note_opens_vault_relative_url_instead_of_raw_icloud_path tests/test_executor.py::ExecutorTests::test_obsidian_daily_note_does_not_duplicate_date_title -q`
+- `venv/bin/pytest tests/test_intent_router.py::IntentRouterTests::test_inline_calendar_create_skips_classifier tests/test_intent_router.py::IntentRouterTests::test_current_role_question_skips_classifier tests/test_agents.py::AgentTests::test_quick_fact_lookup_resolves_pm_abbreviation_from_wikipedia_incumbent -q`
+- `venv/bin/pytest tests/test_agents.py tests/test_executor.py tests/test_intent_router.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_skills_and_imessage.py tests/test_butler_pipeline.py tests/test_tts.py tests/test_config_runtime.py tests/test_project_store.py tests/test_native_shell.py -q`
+- result: `16 focused tests passed`
+- touched-owner suite result: `317 passed`
+
+Manual checks
+- `curl -sS 'http://127.0.0.1:18080/search?q=test&format=json'` returned SearXNG JSON from the running local container
+- local route probe confirmed PM questions map to `lookup_web`, inline calendar create maps to `calendar_add`, and TTS order is `nvidia_riva_tts -> edge -> kokoro -> say`
+- live `venv/bin/python butler.py --test --command "who is PM of India"` returned `Narendra Modi is the Prime Minister of India.` without classifier timeout
+- live `venv/bin/python butler.py --test --command "add meeting tomorrow 3pm"` routed directly to `calendar_add` in test mode
+- actual configured Obsidian URL builder now emits `obsidian://open?vault=Burry&file=Daily/2026-04-19.md`
+
+Runtime truth
+- current-role fact routes must not ask the lightweight model first
+- deterministic high-confidence routes must not wait on classifier model availability
+- calendar writes belong to router/executor, not the old calendar skill
+- SearXNG health means JSON search is reachable on the configured URL, not just that the root page responds
+- Obsidian should be used as the human-readable memory surface, but open links must use vault-relative URLs for iCloud vaults
+
 Localhost-Only HUD and News Timeout Guard — 2026-04-19
 
 Completed
@@ -100,6 +134,7 @@ Validation
 
 Runtime truth
 - future local dashboard runs should serve/open `http://127.0.0.1:7532`, not native HUD, unless native HUD is explicitly requested with `BURRY_USE_NATIVE_HUD=1`
+- SearXNG now defaults to `http://127.0.0.1:18080` and `SEARXNG_URL` can override it when the operator chooses another port
 - the observed slow news reply came from NVIDIA failing/timing out, then the Ollama fallback timing out after 8s, after which fallback filler was spoken; that filler is now rejected in the news path
 
 Runtime Entry Hardening — 2026-04-18

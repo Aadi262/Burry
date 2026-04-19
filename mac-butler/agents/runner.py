@@ -438,6 +438,113 @@ def _is_quick_fact_query(query: str) -> bool:
     )
 
 
+def _current_office_target(query: str) -> dict | None:
+    cleaned = _strip_trailing_punctuation(" ".join(str(query or "").split()))
+    lowered = cleaned.lower()
+    match = re.search(
+        r"\b(?P<role>pm|prime minister|president|chief minister|governor|mayor)\s+(?:of|for)\s+(?P<place>.+)$",
+        lowered,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    role_key = match.group("role").lower()
+    role_title = {
+        "pm": "Prime Minister",
+        "prime minister": "Prime Minister",
+        "president": "President",
+        "chief minister": "Chief Minister",
+        "governor": "Governor",
+        "mayor": "Mayor",
+    }.get(role_key, "")
+    place = _strip_trailing_punctuation(match.group("place"))
+    place = re.sub(r"^(?:the\s+)", "", place, flags=re.IGNORECASE).strip()
+    if not role_title or not place:
+        return None
+    place_title = " ".join(part.upper() if part in {"us", "uk", "uae"} else part.capitalize() for part in place.split())
+    return {
+        "role": role_title,
+        "place": place_title,
+        "page": f"{role_title} of {place_title}",
+    }
+
+
+def _wikitext_from_page_payload(payload: dict) -> str:
+    pages = ((payload.get("query") or {}).get("pages") or {}) if isinstance(payload, dict) else {}
+    if not isinstance(pages, dict):
+        return ""
+    for page in pages.values():
+        if not isinstance(page, dict):
+            continue
+        revisions = page.get("revisions") if isinstance(page.get("revisions"), list) else []
+        if not revisions:
+            continue
+        revision = revisions[0] if isinstance(revisions[0], dict) else {}
+        slots = revision.get("slots") if isinstance(revision.get("slots"), dict) else {}
+        main = slots.get("main") if isinstance(slots.get("main"), dict) else {}
+        text = str(main.get("*", "") or revision.get("*", "") or "")
+        if text:
+            return text
+    return ""
+
+
+def _clean_wikipedia_infobox_value(value: str) -> str:
+    cleaned = str(value or "")
+    cleaned = re.split(r"<br\s*/?>|\n", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+    cleaned = re.sub(r"<!--.*?-->", "", cleaned)
+    for _ in range(4):
+        cleaned = re.sub(r"\{\{[^{}]*\}\}", "", cleaned)
+    cleaned = re.sub(r"<ref\b.*?</ref>", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    cleaned = re.sub(r"\[\[(?:[^|\]]+\|)?([^\]]+)\]\]", r"\1", cleaned)
+    cleaned = re.sub(r"'{2,}", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return _strip_trailing_punctuation(cleaned)
+
+
+def _wikipedia_current_office_holder(query: str) -> dict | None:
+    target = _current_office_target(query)
+    if not target:
+        return None
+    page = str(target["page"])
+    try:
+        payload = _fetch_json(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "prop": "revisions",
+                "rvprop": "content",
+                "rvslots": "main",
+                "titles": page,
+                "format": "json",
+            },
+            headers=LOOKUP_HEADERS,
+            timeout=5,
+        )
+    except Exception:
+        return None
+
+    wikitext = _wikitext_from_page_payload(payload)
+    if not wikitext:
+        return None
+    for field in ("incumbent", "officeholder", "leader_name"):
+        match = re.search(rf"(?im)^\s*\|\s*{field}\s*=\s*(.+)$", wikitext)
+        if not match:
+            continue
+        holder = _clean_wikipedia_infobox_value(match.group(1))
+        if not holder:
+            continue
+        return {
+            "answer": f"{holder} is the {target['role']} of {target['place']}.",
+            "source": "wikipedia",
+            "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(page.replace(' ', '_'))}",
+            "title": page,
+            "tool": "current_office_holder",
+        }
+    return None
+
+
 def _duckduckgo_instant_fact(query: str) -> dict | None:
     try:
         payload = _fetch_json(
@@ -544,7 +651,7 @@ def _wikipedia_fact_summary(query: str) -> dict | None:
 def _quick_fact_lookup(query: str) -> dict | None:
     if not _is_quick_fact_query(query):
         return None
-    for resolver in (_duckduckgo_instant_fact, _wikipedia_fact_summary):
+    for resolver in (_wikipedia_current_office_holder, _duckduckgo_instant_fact, _wikipedia_fact_summary):
         payload = resolver(query)
         if payload and str(payload.get("answer", "")).strip():
             return payload

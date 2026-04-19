@@ -3,6 +3,8 @@
 butler_config.py — edit this to configure your setup.
 """
 
+import os
+
 # --- Paths ---
 OBSIDIAN_VAULT_NAME = "Burry"
 OBSIDIAN_VAULT_PATH = ""
@@ -252,7 +254,7 @@ MCP_SERVERS = {
 }
 SEARCH_BACKEND = "auto"
 MCP_CONTEXT_ENABLED = True
-SEARXNG_URL = "http://localhost:8080"
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:18080").rstrip("/")
 EMBED_MODEL = "nomic-embed-text"
 TAVILY_API_KEY = ""
 
@@ -279,8 +281,8 @@ TTS_TARGETS = _target_list(
         language_code=NVIDIA_RIVA_TTS_LANGUAGE_CODE,
         sample_rate_hz=NVIDIA_RIVA_TTS_SAMPLE_RATE_HZ,
     ),
-    _speech_target("kokoro", voice=TTS_VOICE, speed=TTS_SPEED),
     _speech_target("edge", voice=EDGE_TTS_VOICE, rate=EDGE_TTS_RATE),
+    _speech_target("kokoro", voice=TTS_VOICE, speed=TTS_SPEED),
     _speech_target("say"),
 )
 

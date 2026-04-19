@@ -29,6 +29,13 @@ _LIVE_FACT_PATTERNS = (
     "news",
 )
 
+_CURRENT_ROLE_RE = re.compile(
+    r"\b(?:who|what)\s+(?:is|are)\s+(?:the\s+)?(?:current\s+)?"
+    r"(?:pm|prime minister|president|ceo|chief minister|governor|mayor)\b"
+    r"|\b(?:current\s+)?(?:pm|prime minister|president|ceo|chief minister|governor|mayor)\s+(?:of|for)\b",
+    re.IGNORECASE,
+)
+
 
 class _SemanticTaskPayload(BaseModel):
     kind: str = "answer"
@@ -42,6 +49,10 @@ class _SemanticTaskPayload(BaseModel):
 
 def _normalized(text: str) -> str:
     return " ".join(str(text or "").split()).strip()
+
+
+def looks_like_current_role_lookup(text: str) -> bool:
+    return _CURRENT_ROLE_RE.search(_normalized(text)) is not None
 
 
 def load_runtime_snapshot() -> dict[str, Any]:
@@ -281,9 +292,9 @@ def _plan_from_heuristics(text: str, *, current_intent: str = "") -> CapabilityT
             force_override=current_intent == "news",
         )
 
-    if any(pattern in lowered for pattern in _LIVE_FACT_PATTERNS):
+    if looks_like_current_role_lookup(cleaned) or any(pattern in lowered for pattern in _LIVE_FACT_PATTERNS):
         decision = analyze_query(cleaned)
-        if decision["action"] in {"search", "fetch", "news"} or any(token in lowered for token in ("president", "ceo", "weather")):
+        if decision["action"] in {"search", "fetch", "news"} or looks_like_current_role_lookup(cleaned) or any(token in lowered for token in ("president", "ceo", "weather")):
             return CapabilityTask(
                 kind="lookup",
                 goal=f"Look up {cleaned}",

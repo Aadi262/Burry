@@ -24,6 +24,7 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertIn(".CODEX/Codex.md", status_files)
         self.assertIn("docs/phases/PHASE.md", status_files)
         self.assertIn("docs/phases/PHASE_PROGRESS.md", status_files)
+        self.assertEqual(project.get("live_url"), "http://127.0.0.1:7532")
         self.assertNotIn("docs/phases/2026-04-08-architecture-remediation-roadmap.md", status_files)
         self.assertNotIn("docs/phases/2026-04-08-architecture-remediation-status.md", status_files)
         self.assertNotIn("BUTLER_STATUS.md", status_files)

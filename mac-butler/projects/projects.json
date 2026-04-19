@@ -12,7 +12,7 @@
     "completion": 78,
     "deploy_target": "Local Mac + Ollama",
     "live": true,
-    "live_url": "http://localhost:3333",
+    "live_url": "http://127.0.0.1:7532",
     "blockers": [
       "Retrieval latency still varies across search, news, and page-summary paths when provider fallbacks stack up.",
       "Vision, NVIDIA speech, and some summarization paths still depend on optional local dependencies or credentials.",

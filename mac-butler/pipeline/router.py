@@ -9,7 +9,7 @@ import threading
 
 import brain.agentscope_backbone as backbone
 import brain.toolkit as toolkit_module
-from capabilities import build_action, get_tool_spec, plan_semantic_task
+from capabilities import build_action, get_tool_spec, looks_like_current_role_lookup, plan_semantic_task
 from runtime.tracing import trace_command
 
 
@@ -480,6 +480,8 @@ def _question_prefers_tools(text: str) -> bool:
     if _RESEARCH_RE.search(lowered):
         return True
     if re.search(r"https?://|www\.", lowered):
+        return True
+    if looks_like_current_role_lookup(lowered):
         return True
     return _EXPLICIT_TOOL_QUESTION_RE.search(lowered) is not None
 
@@ -1131,8 +1133,9 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
     if intent.name == "question":
         if _dispatch_research(effective_text, text, test_mode=test_mode, learning_meta=brain_learning_meta, intent_name="question"):
             return
-        smart = _lightweight_reply(effective_text, model=model)
-        if smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
+        prefers_tools = _question_prefers_tools(effective_text)
+        smart = None if prefers_tools else _lightweight_reply(effective_text, model=model)
+        if not prefers_tools and smart and smart not in ("NEEDS_TOOLS", "NEEDS_CONTEXT"):
             _respond_lightweight(
                 text,
                 smart,
@@ -1142,7 +1145,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
             )
             return
 
-        if smart not in {"NEEDS_TOOLS", "NEEDS_CONTEXT"} and not _question_prefers_tools(effective_text):
+        if not prefers_tools and smart not in {"NEEDS_TOOLS", "NEEDS_CONTEXT"}:
             fast_reply = b._fast_path_llm_response(intent.name, effective_text, ctx, model=model)
             normalized_fast_reply = " ".join(str(fast_reply or "").split()).strip().lower()
             if fast_reply and normalized_fast_reply not in _LOW_SIGNAL_REPLIES:
@@ -1156,7 +1159,7 @@ def handle_input(text: str, test_mode: bool = False, model: str | None = None) -
                 return
 
         question_task = None
-        if smart == "NEEDS_TOOLS" or _question_prefers_tools(effective_text):
+        if smart == "NEEDS_TOOLS" or prefers_tools:
             question_task = plan_semantic_task(effective_text, current_intent=intent.name)
             if question_task is not None and _execute_semantic_task(question_task, text, test_mode=test_mode, learning_meta=brain_learning_meta):
                 return

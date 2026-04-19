@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,7 +11,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, and the live backend now hardened around passive standby plus duplicate-runtime refusal
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, and the live backend now hardened around passive standby plus duplicate-runtime refusal
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
 - Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction and live provider benchmarking on top of the new indexed weather/fact/GitHub retrieval base
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 79% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, calendar reads cover next-event and week-style phrases, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 80% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -35,7 +35,7 @@ Fix critical or high issues, stabilize runtime boundaries, and make current feat
 
 | Workstream | Status | Progress | Notes |
 | --- | --- | --- | --- |
-| Understanding and lane selection | Complete | 100% | Routing order is pinned in code and tests as `pending -> instant -> skills -> classifier` with added natural calendar and task phrase regressions |
+| Understanding and lane selection | Complete | 100% | Routing order is pinned in code and tests as `pending -> instant -> skills -> deterministic router -> classifier` with added natural calendar and task phrase regressions |
 | Session context and pending state | Complete | 100% | Pending follow-ups and multi-turn email drafting are covered by existing session-context and pipeline regressions |
 | Typed tools and execution boundaries | Complete | 100% | The current advertised surface runs through the single tool registry and executor dispatch path with validation and confirmation rules |
 | Verification layer | Complete | 100% | Filesystem, browser, terminal, project-open, calendar add, Gmail compose, WhatsApp, reminders, and truthful degraded-state narration are wired |
@@ -64,7 +64,7 @@ Fix critical or high issues, stabilize runtime boundaries, and make current feat
 ### Phase 1 Priority Queue
 
 1. Completed on 2026-04-11: settled one routing order and codified it in docs plus tests:
-   pending -> instant -> skills -> classifier -> lane -> executor -> memory bus -> speech
+   pending -> instant -> skills -> deterministic router -> classifier -> lane -> executor -> memory bus -> speech
 2. Completed on 2026-04-11: added explicit verification hooks for the highest-value side effects:
    filesystem, browser, terminal, project-open, calendar add, Gmail compose, WhatsApp, reminders
 3. Completed on 2026-04-12: pinned the remaining high-risk phrase regressions for casual replies plus natural calendar and task phrasing
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -609,3 +609,31 @@ Append a new status block after each working session:
   `ps -ef | rg "butler\.py|projects/dashboard\.py|trigger\.py|native_shell\.py|daemon/heartbeat\.py|daemon/bug_hunter\.py|channels/a2a_server\.py|agents/runner\.py"` returned no live runtime processes
   live NVIDIA probe with network access returned `ok` from configured voice model `nvidia::google/gemma-3n-e4b-it`; `nvidia::google/gemma-4-31b-it` timed out at 12s and 30s on this host
 - Next action: continue Phase `3B` provider latency benchmarking and retrieval quality work without reopening the localhost/native-HUD runtime policy
+
+## Progress Update - 2026-04-19
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: live route-quality hotfixes landed with branch-specific regressions
+- What moved:
+  current-role fact questions such as `who is PM of India` now prefer tools before lightweight model narration and deterministically map to `lookup_web` / search-agent execution
+  inline calendar-create phrases such as `add meeting tomorrow 3pm` and `create a meeting called standup at tomorrow 3pm` now route through `intents/router.py` and `executor/engine.py` instead of the old read-only calendar skill or classifier fallback
+  `skills/calendar_skill.py` is now read-only so calendar writes stay on the verified router/executor owner path
+  SearXNG readiness checks now use `/search?q=butler-health&format=json` on the configured `SEARXNG_URL`, matching the working JSON endpoint on port `18080`
+  TTS fallback order now tries Edge before Kokoro when NVIDIA Riva TTS is unavailable, reducing exposure to the crackly local neural playback path
+  Obsidian note opening now uses vault-relative `vault` + `file` URLs and daily notes avoid duplicate-date filenames
+  high-confidence deterministic router matches now run before classifier fallback so PM questions and inline calendar creates do not wait on timed-out classifier models
+- What is still blocked:
+  live Calendar writes still require Calendar automation access on the host
+  Python network checks run inside the sandbox cannot reach local Docker due sandbox restrictions, so live SearXNG validation must use the approved host command path
+- Tests run:
+  `venv/bin/python -m py_compile capabilities/planner.py capabilities/__init__.py pipeline/router.py intents/router.py skills/calendar_skill.py butler.py executor/engine.py agents/runner.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_intent_router.py tests/test_skills_and_imessage.py tests/test_butler_pipeline.py tests/test_tts.py tests/test_executor.py tests/test_agents.py`
+  `venv/bin/pytest tests/test_capabilities_planner.py::SemanticPlannerTests::test_pm_abbreviation_maps_to_web_lookup_without_model_planning tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_routes_pm_question_to_search_not_news_or_model_fallback tests/test_intent_router.py::IntentRouterTests::test_add_meeting_inline_time_routes_to_calendar_add tests/test_intent_router.py::IntentRouterTests::test_create_named_meeting_routes_to_calendar_add_without_calendar_clarification tests/test_skills_and_imessage.py::SkillsLoaderTests::test_calendar_create_commands_are_left_for_router_executor_path tests/test_butler_pipeline.py::ButlerPipelineTests::test_check_searxng_uses_json_search_health_probe tests/test_tts.py::TTSVoiceTests::test_nvidia_tts_fallback_uses_edge_before_kokoro tests/test_config_runtime.py tests/test_project_store.py::ProjectStoreTests::test_mac_butler_registry_entry_uses_live_phase_files tests/test_native_shell.py::NativeShellTests::test_default_url_points_to_localhost_dashboard -q`
+  `venv/bin/pytest tests/test_executor.py::ExecutorTests::test_obsidian_note_opens_vault_relative_url_instead_of_raw_icloud_path tests/test_executor.py::ExecutorTests::test_obsidian_daily_note_does_not_duplicate_date_title -q`
+  `venv/bin/pytest tests/test_intent_router.py::IntentRouterTests::test_inline_calendar_create_skips_classifier tests/test_intent_router.py::IntentRouterTests::test_current_role_question_skips_classifier tests/test_agents.py::AgentTests::test_quick_fact_lookup_resolves_pm_abbreviation_from_wikipedia_incumbent -q`
+  `venv/bin/pytest tests/test_agents.py tests/test_executor.py tests/test_intent_router.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_skills_and_imessage.py tests/test_butler_pipeline.py tests/test_tts.py tests/test_config_runtime.py tests/test_project_store.py tests/test_native_shell.py -q` -> `317 passed`
+- Manual checks:
+  `curl -sS 'http://127.0.0.1:18080/search?q=test&format=json'` returned SearXNG JSON from the running local container
+  local route probe confirmed `who is PM of India` maps to `lookup_web`, `add meeting tomorrow 3pm` maps to `calendar_add`, and TTS order is `nvidia_riva_tts -> edge -> kokoro -> say`
+  live PM test returned `Narendra Modi is the Prime Minister of India.` and live calendar test routed `add meeting tomorrow 3pm` to `calendar_add` without writing Calendar in test mode
+  actual configured Obsidian URL builder emits `obsidian://open?vault=Burry&file=Daily/2026-04-19.md`
+- Next action: restart the live backend on localhost after commit, then continue Phase `3B` provider-latency benchmarking and retrieval-quality hardening

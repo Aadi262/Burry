@@ -13,6 +13,7 @@ from agents.runner import (
     _github_agent,
     _news_agent,
     _pick_model,
+    _quick_fact_lookup,
     _search_agent,
     _weather_agent,
     _wikipedia_fact_summary,
@@ -79,6 +80,32 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["data"]["tool"], "quick_fact")
         self.assertIn("wikipedia", result["data"]["sources"])
         mock_collect.assert_not_called()
+
+    @patch("agents.runner._fetch_json")
+    def test_quick_fact_lookup_resolves_pm_abbreviation_from_wikipedia_incumbent(self, mock_fetch_json):
+        mock_fetch_json.return_value = {
+            "query": {
+                "pages": {
+                    "123": {
+                        "revisions": [
+                            {
+                                "slots": {
+                                    "main": {
+                                        "*": "{{Infobox official post\n| incumbent = [[Narendra Modi]]\n}}"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        result = _quick_fact_lookup("who is PM of India")
+
+        self.assertEqual(result["answer"], "Narendra Modi is the Prime Minister of India.")
+        self.assertEqual(result["tool"], "current_office_holder")
+        self.assertEqual(mock_fetch_json.call_args.kwargs["params"]["titles"], "Prime Minister of India")
 
     @patch("agents.runner._quick_fact_lookup", return_value=None)
     @patch("agents.runner._call_model", return_value="")

@@ -198,6 +198,15 @@ class ButlerPipelineTests(unittest.TestCase):
             "Still grinding on mac-butler. Want to wire the validator next?",
         )
 
+    @patch("butler.requests.get")
+    def test_check_searxng_uses_json_search_health_probe(self, mock_get):
+        mock_get.return_value.status_code = 200
+
+        self.assertTrue(butler_module._check_searxng())
+
+        self.assertTrue(mock_get.call_args.args[0].endswith("/search"))
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"q": "butler-health", "format": "json"})
+
     def test_unknown_music_request_sets_song_clarification(self):
         response = _unknown_response_for_text("spotify song please")
         self.assertEqual(response, "Which song should I play?")

@@ -2,7 +2,7 @@
 
 import unittest
 
-from projects.native_shell import BurryWindowApi
+from projects.native_shell import BurryWindowApi, DEFAULT_HUD_URL
 
 
 class _FakeWindow:
@@ -19,6 +19,9 @@ class _FakeWindow:
 
 
 class NativeShellTests(unittest.TestCase):
+    def test_default_url_points_to_localhost_dashboard(self):
+        self.assertEqual(DEFAULT_HUD_URL, "http://127.0.0.1:7532")
+
     def test_window_api_toggles_pin(self):
         api = BurryWindowApi()
         window = _FakeWindow()

@@ -61,6 +61,12 @@ class TTSVoiceTests(unittest.TestCase):
         desc = tts.describe_tts()
         self.assertEqual(desc["backend"], "edge")
 
+    @patch("voice.tts.TTS_ENGINE", "nvidia_riva_tts")
+    def test_nvidia_tts_fallback_uses_edge_before_kokoro(self):
+        order = tts._tts_backend_order()
+
+        self.assertEqual(order[:4], ("nvidia_riva_tts", "edge", "kokoro", "say"))
+
     @patch("voice.tts._get_kokoro")
     def test_warm_tts_preloads_kokoro_when_assets_exist(self, mock_get_kokoro):
         with patch("voice.tts.TTS_ENGINE", "kokoro"), patch("pathlib.Path.exists", return_value=True):

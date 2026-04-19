@@ -200,6 +200,32 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(result.params["title"], "standup")
         self.assertEqual(result.params["time"], "tomorrow at 10am")
 
+    def test_add_meeting_inline_time_routes_to_calendar_add(self):
+        result = route("add meeting tomorrow 3pm")
+
+        self.assertEqual(result.name, "calendar_add")
+        self.assertEqual(result.params["title"], "meeting")
+        self.assertEqual(result.params["time"], "tomorrow 3pm")
+
+    def test_create_named_meeting_routes_to_calendar_add_without_calendar_clarification(self):
+        result = route("create a meeting called standup at tomorrow 3pm")
+
+        self.assertEqual(result.name, "calendar_add")
+        self.assertEqual(result.params["title"], "standup")
+        self.assertEqual(result.params["time"], "tomorrow 3pm")
+
+    @patch("intents.router._call_classifier", side_effect=AssertionError("deterministic calendar routes must not wait on classifier"))
+    def test_inline_calendar_create_skips_classifier(self, _mock_classifier):
+        result = route("add meeting tomorrow 3pm")
+
+        self.assertEqual(result.name, "calendar_add")
+
+    @patch("intents.router._call_classifier", side_effect=AssertionError("current-role questions must not wait on classifier"))
+    def test_current_role_question_skips_classifier(self, _mock_classifier):
+        result = route("who is PM of India")
+
+        self.assertEqual(result.name, "question")
+
     def test_add_task_phrase_routes_to_task_add(self):
         result = route("add a task to fix login bug for adpilot")
         self.assertEqual(result.name, "task_add")

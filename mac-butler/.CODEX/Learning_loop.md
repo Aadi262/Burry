@@ -729,3 +729,47 @@ The fix:
  Docs now separate output/conversation models from TTS and STT, with NVIDIA Gemma E4B leading hot text output after live validation and Parakeet kept only as the listening model.
 Rule added:
  Model docs must separate text generation, text-to-speech, and speech-to-text roles because their model sizes and quality tradeoffs are not interchangeable.
+
+HARD LESSON — tool-required questions must not ask the lightweight model first
+Date: 2026-04-19
+What happened:
+ A live current-role question like `who is PM of India` could be answered by lightweight/model fallback or drift into news-style material instead of using the retrieval path.
+Root cause:
+ The question branch computed tool preference too late; it asked the lightweight model before enforcing retrieval for current-role facts. The semantic planner also missed the `PM` abbreviation.
+The fix:
+ Current-role questions now match deterministic role patterns, skip lightweight narration, and execute `lookup_web` through the search agent. New tests pin the planner branch and the full `handle_input` route so it cannot regress into news or model-only output.
+Rule added:
+ Any question class that requires current data must establish tool preference before any model-only answer path runs, including abbreviation variants.
+
+HARD LESSON — old skills can steal verified owner paths
+Date: 2026-04-19
+What happened:
+ Calendar-create phrasing could be caught by the legacy calendar skill before the deterministic router/executor path, causing bad clarification or read-style behavior.
+Root cause:
+ The skill still advertised calendar creation even though verified calendar writes now belong to `intents/router.py` and `executor/engine.py`.
+The fix:
+ `skills/calendar_skill.py` is now read-only, inline calendar-create parsing is deterministic, and new regressions pin both `add meeting tomorrow 3pm` routing and the skill no-steal branch.
+Rule added:
+ When a verified owner path exists, older skills must either delegate to that owner or stop matching the write/action phrase.
+
+HARD LESSON — Obsidian iCloud paths need vault-relative open URLs
+Date: 2026-04-19
+What happened:
+ Obsidian showed `Unable to find a vault` for a note URL like `obsidian://open?path=/Users/.../iCloud~md~obsidian/Documents/Burry/Daily/2026-04-19 2026-04-19.md`.
+Root cause:
+ Butler opened notes with a raw absolute iCloud path and also prepended the daily date even when the title was already the date.
+The fix:
+ `executor/engine.py` now opens notes with `obsidian://open?vault=Burry&file=Daily/...` whenever the note is inside the configured vault and uses `Daily/YYYY-MM-DD.md` instead of duplicating date titles.
+Rule added:
+ Obsidian memory links should be vault-relative when the vault name is known; absolute iCloud paths are only a fallback.
+
+HARD LESSON — deterministic routes must not wait behind classifier timeouts
+Date: 2026-04-19
+What happened:
+ A live PM question returned the right answer only after waiting on timed-out classifier models, and inline calendar create phrases had the same risk.
+Root cause:
+ `route()` called the configured classifier before accepting high-confidence deterministic matches from the legacy router.
+The fix:
+ `intents/router.py` now accepts high-confidence deterministic matches before classifier fallback, and new regressions assert PM questions plus inline calendar creates do not call the classifier.
+Rule added:
+ The classifier is a fallback for deterministic misses, not a prerequisite for known high-confidence local routes.

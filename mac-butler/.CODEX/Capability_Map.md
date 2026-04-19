@@ -200,13 +200,13 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | --- | --- | --- | --- | --- |
 | C01 | Read today calendar | what's on my calendar | 🔧 | `calendar_read` supports today, tomorrow, and this-week reads with spoken summaries; live reads still require Calendar automation access |
 | C02 | Read next event | what's my next meeting | 🔧 | `calendar_read` supports next and upcoming meeting reads with spoken summaries; live reads still require Calendar automation access |
-| C03 | Add calendar event | add meeting tomorrow 3pm | 🟡 | routing, natural-time parsing, and executor verification exist for calendar adds; hosts without Calendar automation access now fail truthfully and are skipped in Phase 3A host smoke |
+| C03 | Add calendar event | add meeting tomorrow 3pm | 🟡 | inline natural-time phrases now route deterministically through router/executor without calendar-name clarification; hosts without Calendar automation access still fail truthfully and are skipped in Phase 3A host smoke |
 | C04 | Set reminder | remind me at 5pm to call vedang | 🟡 | reminders now verify against the Reminders list when automation access is available and fail truthfully when Reminders automation is unavailable |
 | C05 | Read tasks | what are my tasks | ✅ | deterministic task-read route is in place |
 | C06 | Add task | add task fix login bug | ✅ | natural-language task add route is in place |
 | C07 | Mark task done | mark login bug as done | ❌ | task-done flow still needs a verified completion path |
 | C08 | Read Obsidian notes | open my notes | ❌ + 🔧 | vault path is not configured and the read flow is still thin |
-| C09 | Add Obsidian note | add note fix login bug | 🟡 | current note-add path is still unreliable |
+| C09 | Add Obsidian note | add note fix login bug | 🟡 | note writes now use vault-relative Obsidian open URLs and avoid duplicate daily-date filenames; broader note-add phrasing is still thin |
 | C10 | Search Obsidian | find notes about adpilot | ❌ | not built |
 
 ### Search and Knowledge
@@ -217,7 +217,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | K02 | Latest news | latest news | 🟡 | current-news quality is much better than the old map claimed, but latency and quality still vary with backend reachability |
 | K03 | News on topic | latest news on claude mythos | 🟡 | `agents/runner.py` now hardens current-news lookups with Google News RSS fallback plus repeated-query caching and snippet-first enrichment when search snippets are already rich |
 | K04 | Weather | what's the weather in mumbai | 🟡 | dedicated `wttr.in` lookup with Open-Meteo fallback is now live and regression-covered on current plus tomorrow phrasing; quality still depends on public-provider reachability |
-| K05 | Quick fact | who is president of america | 🟡 | direct DuckDuckGo instant-answer and Wikipedia summary lookup now run before generic search fallback, with dedicated direct-provider branch tests |
+| K05 | Quick fact | who is president of america | 🟡 | direct DuckDuckGo instant-answer and Wikipedia summary lookup now run before generic search fallback; current-role variants like `who is PM of India` skip lightweight model narration and go to retrieval-backed lookup |
 | K06 | Summarize page | summarize this article | 🟡 | current page summarization and fetch reuse indexed page snapshots first, then fall back to Jina and direct HTML extraction when needed |
 | K07 | Summarize YouTube | summarize this video | 🟡 | current video summarization now falls back through captions, transcript APIs, `yt-dlp`, Whisper, and page extraction |
 | K08 | Research topic | research X deeply | 🟡 | works, but 2-5 minute latency is still too slow |

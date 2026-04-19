@@ -59,7 +59,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - brain/structured_output.py  — Pydantic structured extraction
 
 ### Routing
-- intents/router.py           — PRIMARY router: instant patterns + config-driven classifier
+- intents/router.py           — PRIMARY router: instant patterns + deterministic routes + config-driven classifier fallback
 - pipeline/router.py          — orchestrator: pending check → skills → intent → lane
 - pipeline/orchestrator.py    — AgentScope path and tool chat response
 - pipeline/recorder.py        — memory writes (bus only, async)
@@ -87,7 +87,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 
 ### Skills
 - skills/email_skill.py       — email skill (checked BEFORE intent router)
-- skills/calendar_skill.py    — calendar skill (checked BEFORE intent router)
+- skills/calendar_skill.py    — read-only calendar skill (checked BEFORE intent router; calendar writes stay on router/executor)
 - skills/imessage_skill.py    — iMessage skill
 
 ### Context
@@ -168,13 +168,13 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 ### Working
 - config-driven provider routing for LLM, TTS, and STT
 - NVIDIA-backed primary model roles with local Ollama fallbacks preserved
-- multilingual speech stack via NVIDIA Riva targets with local fallback chains
+- multilingual speech stack via NVIDIA Riva targets with Edge before Kokoro in the local fallback chain to avoid crackly local neural playback when Riva is unavailable
 - browser control now covers new tab, new window, close tab/window, back, refresh, and URL navigation on the resolved browser family
 - current-news lookup with search backends plus Google News RSS fallback, repeated-query caching, and snippet-first enrichment so rich provider results avoid unnecessary live page fetches
 - weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback
-- quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback
+- quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback, and current-role questions like "who is PM of India" skip lightweight model narration for retrieval-backed lookup
 - GitHub status lookup now resolves tracked project repos and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
-- calendar read now supports today, tomorrow, next event, and this-week phrasing with truthful permission fallback
+- calendar read now supports today, tomorrow, next event, and this-week phrasing with truthful permission fallback; calendar create phrases like "add meeting tomorrow 3pm" now route deterministically through router/executor
 - filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases with fuzzy path resolution and verification-aware results
 - system-control routing now covers common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrasing on the existing executor actions
 - page summarization now reuses indexed web-page snapshots before falling back to Jina and direct HTML extraction
@@ -185,6 +185,8 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Session memory across turns, with recent turns and pending follow-ups now restored from disk across short restarts (`session_context.py`)
 - Default `butler.py` startup now holds the backend in passive standby, refuses duplicate live owners, and waits for clap, wake phrase, or explicit HUD/API activation before speaking; `--clap-only` disables wake-word arming, and passive clap wake now arms after startup, ignores active-session noise, and requires a sharp transient instead of any sustained loud block
 - `projects/dashboard.py` now serves localhost on `7532/7533` by default, accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT`, and keeps native pywebview HUD/browser auto-open behind explicit opt-ins
+- `SEARXNG_URL` is env-configurable and defaults to `http://127.0.0.1:18080` so local news search does not collide with other projects on `8080`
+- SearXNG readiness checks now use the JSON `/search` endpoint instead of the root page
 - `agents/runner.py` now rejects low-signal current-news model timeout text such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - `brain/ollama_client.py` now continues through the model chain on timeout instead of stopping at the first timed-out NVIDIA/local candidate
 - `butler_config.py` now uses NVIDIA Gemma E4B as the primary hot output/conversation/news/search model, with larger NVIDIA models and local `gemma4:e4b` preserved in the fallback chains
@@ -192,8 +194,9 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
-- Routing order pinned: pending → instant → skills → classifier
+- Routing order pinned: pending → instant → skills → deterministic router → classifier
 - Verification-aware outcomes for filesystem, browser, terminal, project-open, calendar add, reminders, Gmail compose, and WhatsApp flows
+- Obsidian note writes now open notes through vault-relative `vault` + `file` URLs and daily notes no longer duplicate the date in filenames
 - `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts so NVIDIA-vs-local routing can be inspected and timed explicitly
 - `scripts/system_check.py --phase1-host --phase1-host-only` now covers filesystem, browser, terminal, Gmail compose, WhatsApp open, reminders, and the operator-gated delivery checks
 - `scripts/system_check.py --phase3a-host --phase3a-host-only` now covers broader filesystem CRUD, self-contained browser navigation on local temp pages, reminder verification, calendar-write permission fallback, and safe system-control checks
@@ -259,7 +262,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
   fallback `nvidia::google/gemma-4-31b-it` -> `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b`
 - TTS:
   `nvidia_riva_tts::magpie-tts-multilingual`
-  local fallback `kokoro -> edge -> say`
+  local fallback `edge -> kokoro -> say`
 - STT:
   `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr`
   local fallback `mlx-community/whisper-medium-mlx -> faster-whisper medium.en`

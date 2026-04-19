@@ -15,7 +15,10 @@ fi
 docker stop searxng >/dev/null 2>&1 || true
 docker rm searxng >/dev/null 2>&1 || true
 
-if ! docker run -d --name searxng -p 8080:8080 \
+SEARXNG_PORT="${SEARXNG_PORT:-18080}"
+SEARXNG_URL="http://127.0.0.1:${SEARXNG_PORT}"
+
+if ! docker run -d --name searxng -p "${SEARXNG_PORT}:8080" \
   -e SEARXNG_SECRET=butler-secret \
   -v "$(pwd)/docker/searxng/settings.yml:/etc/searxng/settings.yml" \
   -v "$(pwd)/docker/searxng/limiter.toml:/etc/searxng/limiter.toml" \
@@ -26,10 +29,10 @@ fi
 
 sleep 2
 
-if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then
-  echo "SearXNG started at http://localhost:8080"
+if curl -fsS "${SEARXNG_URL}/search?q=butler-health&format=json" >/dev/null 2>&1; then
+  echo "SearXNG started at ${SEARXNG_URL}"
   exit 0
 fi
 
-echo "SearXNG container started but the service is not responding on http://localhost:8080"
+echo "SearXNG container started but the service is not responding on ${SEARXNG_URL}"
 exit 1

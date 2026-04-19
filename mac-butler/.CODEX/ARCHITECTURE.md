@@ -14,13 +14,14 @@ Implementation root: `mac-butler/`
 
 ## Hot path
 
-`trigger -> briefing -> STT -> pending -> instant -> skills -> classifier -> lane -> tool/agent -> verify -> memory bus -> speech`
+`trigger -> briefing -> STT -> pending -> instant -> skills -> deterministic router -> classifier -> lane -> tool/agent -> verify -> memory bus -> speech`
 
 The hot path must stay deterministic and truthful:
 
 - pending follow-up resolves before new intent work
 - instant patterns stay ahead of skills and classifier work
-- the classifier returns typed intent, params, and confidence
+- high-confidence deterministic router matches stay ahead of classifier fallback
+- the classifier returns typed intent, params, and confidence after deterministic misses
 - direct actions use typed executor calls
 - side effects are verified before narration
 - `memory/bus.py` is the only hot-path writer
@@ -38,7 +39,7 @@ It does not replace `intents/router.py`.
 
 - `butler_config.py` is the source of truth for provider-tagged model roles and speech backends
 - `brain/ollama_client.py` is the single LLM caller for both local Ollama and the OpenAI-compatible NVIDIA surface
-- `voice/tts.py` follows `nvidia_riva_tts -> kokoro -> edge -> say`
+- `voice/tts.py` follows `nvidia_riva_tts -> edge -> kokoro -> say`
 - `voice/stt.py` follows `nvidia_riva_asr -> mlx -> faster-whisper`
 - provider fallbacks must remain truthful when NVIDIA credentials or host clients are absent
 

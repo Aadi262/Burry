@@ -1404,6 +1404,8 @@ def _extract_calendar_read_params(text: str) -> dict | None:
 def _extract_calendar_add_params(text: str) -> dict | None:
     normalized = _normalize_spaces(text)
     lowered = normalized.lower()
+    if re.search(r"\b(?:task|todo|to-do)\b", lowered):
+        return None
     if not any(token in lowered for token in ("calendar", "schedule", "meeting", "event", "call")):
         return None
 
@@ -1420,6 +1422,41 @@ def _extract_calendar_add_params(text: str) -> dict | None:
         title = re.sub(r"^(?:a|an|the)\s+", "", title, flags=re.IGNORECASE).strip()
         if title and when:
             return {"title": title, "time": when, "duration": 60}
+
+    generic = re.search(
+        r"\b(?:add|create|make|schedule|book)\s+(?:a\s+|an\s+)?(.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if not generic:
+        return None
+    remainder = _normalize_spaces(generic.group(1))
+    time_anchor = re.search(
+        r"\b(?:"
+        r"today|tomorrow|tonight|"
+        r"this\s+(?:morning|afternoon|evening|week)|"
+        r"next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week)|"
+        r"(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)|"
+        r"noon|midnight"
+        r")\b",
+        remainder,
+        flags=re.IGNORECASE,
+    )
+    if not time_anchor:
+        return None
+    title = _normalize_spaces(remainder[: time_anchor.start()])
+    when = _normalize_spaces(remainder[time_anchor.start() :])
+    title = re.sub(r"\s+(?:for|at|on)$", "", title, flags=re.IGNORECASE).strip()
+    title = re.sub(r"^(?:a|an|the)\s+", "", title, flags=re.IGNORECASE).strip()
+    named_title = re.search(
+        r"^(?:meeting|event|appointment|call)\s+(?:called|named|titled)\s+(.+)$",
+        title,
+        flags=re.IGNORECASE,
+    )
+    if named_title:
+        title = _normalize_spaces(named_title.group(1))
+    if title and when:
+        return {"title": title, "time": when, "duration": 60}
     return None
 
 
@@ -2433,11 +2470,15 @@ def route(text: str, *, allow_instant: bool = True) -> IntentResult:
         if instant is not None:
             return instant
 
+    deterministic = _legacy_route(text)
+    if deterministic.name != "unknown" and float(deterministic.confidence or 0.0) >= 0.85:
+        return deterministic
+
     classified = _classifier_intent(text)
     if classified is not None:
         return classified
 
-    return _legacy_route(text)
+    return deterministic
 
 
 # Alias for tests and external callers

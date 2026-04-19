@@ -69,6 +69,15 @@ class SemanticPlannerTests(unittest.TestCase):
         self.assertTrue(task.force_override)
         self.assertEqual(task.args["topic"], "AI")
 
+    @patch("capabilities.planner._plan_with_model", side_effect=AssertionError("current role lookup must be deterministic"))
+    def test_pm_abbreviation_maps_to_web_lookup_without_model_planning(self, _mock_model_plan):
+        task = plan_semantic_task("who is PM of India", current_intent="question")
+
+        self.assertIsNotNone(task)
+        self.assertEqual(task.tool, "lookup_web")
+        self.assertEqual(task.args["query"], "who is PM of India")
+        self.assertEqual(task.intent_name, "lookup_web")
+
 
 class ToolRegistryTests(unittest.TestCase):
     def test_check_vps_spec_is_sync(self):

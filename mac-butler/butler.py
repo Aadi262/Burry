@@ -314,7 +314,8 @@ STARTUP_BRIEFING_MODEL = CONFIG_STARTUP_BRIEFING_MODEL
 def _check_searxng() -> bool:
     try:
         response = requests.get(
-            f"{SEARXNG_URL}/",
+            f"{SEARXNG_URL}/search",
+            params={"q": "butler-health", "format": "json"},
             timeout=2,
         )
         return response.status_code == 200

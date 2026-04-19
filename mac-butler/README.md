@@ -50,9 +50,11 @@ That means the product is built around:
 - filesystem routing for create/open/read/write/find/list, move/copy/rename/delete, and zip flows on common local paths
 - system-control routing for common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, DND, and battery or wifi phrases
 - calendar read for today, tomorrow, next event, and this-week phrasing with truthful host-permission fallback
+- calendar create phrases like "add meeting tomorrow 3pm" route deterministically through the router/executor path instead of skill/classifier clarification
 - current-news lookup with search-first plus Google News RSS fallback when search backends are thin, plus repeated-query caching and snippet-first enrichment to cut avoidable live fetches
 - weather lookup now uses dedicated public weather providers with `wttr.in` first and Open-Meteo fallback
 - quick facts now prefer DuckDuckGo instant answers and Wikipedia summaries before falling back to generic search
+- current-role fact questions such as "who is PM of India" skip lightweight model narration and use the retrieval-backed search path
 - GitHub status now resolves tracked-project repos and direct `owner/repo` phrases through public API reads before MCP fallback
 - page summarization and page fetch now reuse indexed page snapshots, with Jina first and direct extraction fallback when live fetch is needed
 - video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
@@ -117,7 +119,7 @@ These are the main active roles in the current Butler system:
 | Output / conversation / current news / search | `nvidia::google/gemma-3n-e4b-it` | `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-4-31b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
 | Planning / startup briefing | `nvidia::qwen/qwq-32b` | `nvidia::google/gemma-4-31b-it` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-3n-e4b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
 | Coding | `nvidia::qwen/qwen2.5-coder-32b-instruct` | `nvidia::google/gemma-4-31b-it` -> `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
-| TTS | `nvidia_riva_tts::magpie-tts-multilingual` | `kokoro` -> `edge` -> `say` |
+| TTS | `nvidia_riva_tts::magpie-tts-multilingual` | `edge` -> `kokoro` -> `say` |
 | STT | `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr` | `mlx-community/whisper-medium-mlx` -> `faster-whisper medium.en` |
 | Embeddings | `nomic-embed-text` |
 | VPS-only large local fallback | `gemma4:26b` |
@@ -237,6 +239,8 @@ If you want the full local search path:
 bash scripts/start_searxng.sh
 ```
 
+SearXNG defaults to `http://127.0.0.1:18080`; set `SEARXNG_PORT` and `SEARXNG_URL` together only if you need another port. The runtime health check uses the JSON `/search` endpoint, not the root page.
+
 Run Butler:
 
 ```bash
@@ -303,7 +307,7 @@ DAILY_INTEL_ENABLED = False
 
 ### Obsidian
 
-If you want Butler to read and write to Obsidian, set `OBSIDIAN_VAULT_NAME` correctly.
+If you want Butler to read and write to Obsidian, set `OBSIDIAN_VAULT_NAME` correctly. For iCloud-hosted vaults, Butler writes to the configured vault path but opens notes with `obsidian://open?vault=...&file=...` so Obsidian resolves the vault by name instead of a raw absolute iCloud path.
 
 ### VPS
 

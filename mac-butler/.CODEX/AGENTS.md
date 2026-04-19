@@ -27,12 +27,13 @@ Burry is a local natural-language agent with a strict hot path:
 3. `brain/session_context.py` resolves pending follow-up first
 4. instant patterns run before any skill or classifier work
 5. skills run after an instant miss and before the classifier
-6. the configured classifier returns typed `intent + params + confidence`
-7. high-confidence direct actions go to `executor/engine.py`
-8. medium confidence asks one clarification
-9. low confidence falls into conversation mode
-10. `memory/bus.py` records asynchronously
-11. speech narrates the verified outcome
+6. high-confidence deterministic router matches run before the configured classifier
+7. the configured classifier returns typed `intent + params + confidence` only after deterministic misses
+8. high-confidence direct actions go to `executor/engine.py`
+9. medium confidence asks one clarification
+10. low confidence falls into conversation mode
+11. `memory/bus.py` records asynchronously
+12. speech narrates the verified outcome
 
 Do not reorder this without code, tests, and docs moving together.
 
@@ -59,7 +60,7 @@ Do not reorder this without code, tests, and docs moving together.
 - The 1.1B NVIDIA Parakeet model is ASR/listening only; do not confuse it with output generation
 - Model timeouts must continue to the next candidate in the chain instead of returning progress filler as a user answer
 - Planning and coding roles are provider-aware and must stay behind `brain/ollama_client.py`
-- TTS follows `nvidia_riva_tts -> kokoro -> edge -> say`
+- TTS follows `nvidia_riva_tts -> edge -> kokoro -> say` so the stable system voice is tried before the crackle-prone local neural path when Riva is unavailable
 - STT follows `nvidia_riva_asr -> mlx -> faster-whisper`
 - `gemma4:26b` remains a VPS-only fallback, not the local voice hot path
 

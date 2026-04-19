@@ -2,6 +2,8 @@ import json
 import subprocess
 import tempfile
 import unittest
+import urllib.parse
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -467,6 +469,39 @@ class ExecutorTests(unittest.TestCase):
 
         self.assertIn("video summary", result)
         self.assertIn("saved to Obsidian", result)
+
+    @patch("executor.engine.subprocess.Popen")
+    def test_obsidian_note_opens_vault_relative_url_instead_of_raw_icloud_path(self, mock_popen):
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            with patch("executor.engine.OBSIDIAN_VAULT", tmpdir), patch("executor.engine.OBSIDIAN_VAULT_NAME", "Burry"):
+                result = Executor().obsidian_note("Memory Test", "remember this", folder="Daily")
+
+        url = mock_popen.call_args.args[0][1]
+        parsed = urllib.parse.urlparse(url)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        self.assertIn("saved to Obsidian", result)
+        self.assertEqual(parsed.scheme, "obsidian")
+        self.assertEqual(params["vault"], ["Burry"])
+        self.assertTrue(params["file"][0].startswith("Daily/"))
+        self.assertNotIn("path", params)
+        self.assertNotIn("Mobile%20Documents", url)
+
+    @patch("executor.engine.subprocess.Popen")
+    def test_obsidian_daily_note_does_not_duplicate_date_title(self, mock_popen):
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        with tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmpdir:
+            with patch("executor.engine.OBSIDIAN_VAULT", tmpdir), patch("executor.engine.OBSIDIAN_VAULT_NAME", "Burry"):
+                result = Executor().obsidian_note(today, "daily memory", folder="Daily")
+                saved = Path(tmpdir) / "Daily" / f"{today}.md"
+                saved_exists = saved.exists()
+
+        self.assertEqual(result, f"saved to Obsidian: {today}.md")
+        self.assertTrue(saved_exists)
+        opened_url = mock_popen.call_args.args[0][1]
+        self.assertIn(f"file=Daily/{today}.md", opened_url)
+        self.assertNotIn(f"{today}%20{today}", opened_url)
 
     @patch.object(Executor, "_speak")
     @patch.object(Executor, "_listen_followup", return_value="yes")

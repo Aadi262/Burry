@@ -3,6 +3,10 @@ Start everything
 Step 1 — SearXNG (required for news)
 cd ~/Burry/mac-butler
 bash scripts/start_searxng.sh
+Default SearXNG endpoint is `http://127.0.0.1:18080` because other local services may own `8080`.
+The health probe uses `/search?q=butler-health&format=json`, not the root page.
+Override only when needed:
+SEARXNG_PORT=19090 bash scripts/start_searxng.sh
 Step 2 — HUD server (Terminal 1)
 PYTHONPATH=/Users/adityatiwari/Burry/mac-butler 
 venv/bin/python projects/dashboard.py
@@ -44,7 +48,7 @@ Ports
 HUD HTTP:  localhost:7532
 HUD WS:    localhost:7533/ws
 Backend:   localhost:3335/api/v1/health
-SearXNG:   localhost:8080
+SearXNG:   localhost:18080
 Ollama:    localhost:11434 or 127.0.0.1:11434
 Common issues
 "Something went wrong" on butler --test
