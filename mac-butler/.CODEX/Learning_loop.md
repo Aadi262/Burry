@@ -707,3 +707,25 @@ The fix:
  `projects/dashboard.py` now defaults to localhost `7532/7533`, keeps native pywebview HUD and browser auto-open opt-in only, and the new dashboard regression proves no window opens without opt-in.
 Rule added:
  A live runtime should have one operator surface by default; any parallel surface must be explicitly enabled and documented.
+
+HARD LESSON — a fallback chain is fake if timeout exits early
+Date: 2026-04-19
+What happened:
+ The model config advertised fallback candidates, but a timed-out NVIDIA model returned `I'm still thinking, give me a moment.` immediately instead of trying the next configured model.
+Root cause:
+ Timeout handling was different from other provider failures and short-circuited the retry loop.
+The fix:
+ `brain/ollama_client.py` now treats timeout as a retryable candidate failure, uses the live-passing NVIDIA Gemma E4B path for hot output, keeps NVIDIA Gemma 4 31B in deeper fallback chains, strips Gemma thought/channel wrappers, and only returns empty after the whole chain is exhausted.
+Rule added:
+ Provider fallback chains must have tests for timeout continuation and provider-specific output cleanup, not just non-timeout exceptions.
+
+HARD LESSON — speech I/O models are not the text-output brain
+Date: 2026-04-19
+What happened:
+ The NVIDIA Parakeet `1.1B` ASR model was mistaken for the model producing Butler's spoken answers.
+Root cause:
+ The docs grouped LLM, TTS, and STT providers too tightly and did not state that ASR is only for listening/transcription.
+The fix:
+ Docs now separate output/conversation models from TTS and STT, with NVIDIA Gemma E4B leading hot text output after live validation and Parakeet kept only as the listening model.
+Rule added:
+ Model docs must separate text generation, text-to-speech, and speech-to-text roles because their model sizes and quality tradeoffs are not interchangeable.

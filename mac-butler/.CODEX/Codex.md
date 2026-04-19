@@ -186,6 +186,9 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Default `butler.py` startup now holds the backend in passive standby, refuses duplicate live owners, and waits for clap, wake phrase, or explicit HUD/API activation before speaking; `--clap-only` disables wake-word arming, and passive clap wake now arms after startup, ignores active-session noise, and requires a sharp transient instead of any sustained loud block
 - `projects/dashboard.py` now serves localhost on `7532/7533` by default, accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT`, and keeps native pywebview HUD/browser auto-open behind explicit opt-ins
 - `agents/runner.py` now rejects low-signal current-news model timeout text such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
+- `brain/ollama_client.py` now continues through the model chain on timeout instead of stopping at the first timed-out NVIDIA/local candidate
+- `butler_config.py` now uses NVIDIA Gemma E4B as the primary hot output/conversation/news/search model, with larger NVIDIA models and local `gemma4:e4b` preserved in the fallback chains
+- Gemma provider thought/channel wrappers are stripped from OpenAI-compatible responses before they reach speech, chat, or history
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
@@ -239,21 +242,25 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 11. speak response
 
 ## MODELS (current runtime shape)
-- classifier / fast voice / conversation:
+- classifier:
   `nvidia::nvidia/nvidia-nemotron-nano-9b-v2`
-  local fallback `ollama_local::gemma4:e4b`
+  fallback `nvidia::google/gemma-3n-e4b-it` -> `ollama_local::gemma4:e4b`
+- output / conversation / current-news / search:
+  `nvidia::google/gemma-3n-e4b-it`
+  fallback `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-4-31b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b`
 - planning / startup briefing:
   `nvidia::qwen/qwq-32b`
-  local fallback `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b`
-- review / search / bug hunter:
+  fallback `nvidia::google/gemma-4-31b-it` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-3n-e4b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b`
+- review / bug hunter:
   `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b`
-  local fallback `ollama_local::deepseek-r1:14b`
+  fallback `nvidia::google/gemma-3n-e4b-it` -> `nvidia::qwen/qwq-32b` -> `nvidia::google/gemma-4-31b-it` -> `ollama_local::gemma4:e4b`
 - coding:
   `nvidia::qwen/qwen2.5-coder-32b-instruct`
-  local fallback `ollama_vps::gemma4:26b` -> `ollama_local::deepseek-r1:14b`
+  fallback `nvidia::google/gemma-4-31b-it` -> `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b`
 - TTS:
   `nvidia_riva_tts::magpie-tts-multilingual`
   local fallback `kokoro -> edge -> say`
 - STT:
   `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr`
   local fallback `mlx-community/whisper-medium-mlx -> faster-whisper medium.en`
+  note: this 1.1B model is only ASR/listening, not output generation

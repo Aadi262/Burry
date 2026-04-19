@@ -99,6 +99,9 @@ That means the product is built around:
 - NVIDIA Riva multilingual TTS primary when configured
 - Hindi auto voice selection for Devanagari text on the NVIDIA TTS path
 - NVIDIA Riva multilingual ASR primary when configured
+- NVIDIA text generation now uses the docs-backed Gemma E4B model for hot output/news/search first, then tries larger NVIDIA models before local Gemma/Ollama fallback
+- model timeouts now continue to the next candidate instead of immediately returning "I'm still thinking"
+- Gemma provider thought/channel wrappers are stripped before user-facing speech or chat output
 - Kokoro local neural TTS on Apple Silicon
 - Edge and safe macOS `say` fallbacks
 - local Whisper fallbacks for STT
@@ -110,16 +113,16 @@ These are the main active roles in the current Butler system:
 
 | Role | Primary | Fallback |
 | --- | --- |
-| Intent classifier / fast voice / conversation | `nvidia::nvidia/nvidia-nemotron-nano-9b-v2` | `ollama_local::gemma4:e4b` |
-| Planning / startup briefing | `nvidia::qwen/qwq-32b` | `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
-| Review / search / bug hunter | `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` | `ollama_local::deepseek-r1:14b` |
-| Coding | `nvidia::qwen/qwen2.5-coder-32b-instruct` | `ollama_vps::gemma4:26b` -> `ollama_local::deepseek-r1:14b` |
+| Intent classifier | `nvidia::nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia::google/gemma-3n-e4b-it` -> `ollama_local::gemma4:e4b` |
+| Output / conversation / current news / search | `nvidia::google/gemma-3n-e4b-it` | `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-4-31b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
+| Planning / startup briefing | `nvidia::qwen/qwq-32b` | `nvidia::google/gemma-4-31b-it` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `nvidia::google/gemma-3n-e4b-it` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
+| Coding | `nvidia::qwen/qwen2.5-coder-32b-instruct` | `nvidia::google/gemma-4-31b-it` -> `nvidia::qwen/qwq-32b` -> `nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b` -> `ollama_vps::gemma4:26b` -> `ollama_local::gemma4:e4b` |
 | TTS | `nvidia_riva_tts::magpie-tts-multilingual` | `kokoro` -> `edge` -> `say` |
 | STT | `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr` | `mlx-community/whisper-medium-mlx` -> `faster-whisper medium.en` |
 | Embeddings | `nomic-embed-text` |
 | VPS-only large local fallback | `gemma4:26b` |
 
-Without `NVIDIA_API_KEY` or NVIDIA Riva Python clients, Butler drops back to the local chains above.
+`parakeet-1.1b-rnnt-multilingual-asr` is only the listening/transcription model, not the text output brain. Without `NVIDIA_API_KEY` or NVIDIA Riva Python clients, Butler drops back to the local chains above.
 
 ## Example Commands
 

@@ -77,7 +77,10 @@ NVIDIA_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_API_KEY_ENV = "NVIDIA_API_KEY"
 
 NVIDIA_CLASSIFIER_MODEL = _model_ref("nvidia", "nvidia/nvidia-nemotron-nano-9b-v2")
-NVIDIA_VOICE_MODEL = NVIDIA_CLASSIFIER_MODEL
+NVIDIA_GEMMA_GOD_MODEL = _model_ref("nvidia", "google/gemma-4-31b-it")
+NVIDIA_GEMMA_E4B_MODEL = _model_ref("nvidia", "google/gemma-3n-e4b-it")
+NVIDIA_GEMMA_MODEL = NVIDIA_GEMMA_E4B_MODEL
+NVIDIA_VOICE_MODEL = NVIDIA_GEMMA_E4B_MODEL
 NVIDIA_REASONING_MODEL = _model_ref("nvidia", "qwen/qwq-32b")
 NVIDIA_REVIEW_MODEL = _model_ref("nvidia", "deepseek-ai/deepseek-r1-distill-qwen-32b")
 NVIDIA_CODING_MODEL = _model_ref("nvidia", "qwen/qwen2.5-coder-32b-instruct")
@@ -157,12 +160,17 @@ TOOL_SUMMARIZER_MODEL = BUTLER_MODELS["voice"]
 BUTLER_MODEL_CHAINS = {
     "voice": _chain(
         BUTLER_MODELS["voice"],
+        NVIDIA_GEMMA_E4B_MODEL,
+        NVIDIA_CLASSIFIER_MODEL,
         _model_ref("ollama_local", "gemma4:e4b"),
         _model_ref("ollama_local", "deepseek-r1:14b"),
     ),
     "planning": _chain(
         BUTLER_MODELS["planning"],
+        NVIDIA_GEMMA_GOD_MODEL,
         NVIDIA_REVIEW_MODEL,
+        NVIDIA_GEMMA_E4B_MODEL,
+        NVIDIA_CLASSIFIER_MODEL,
         _model_ref("ollama_vps", "gemma4:26b"),
         _model_ref("ollama_local", "gemma4:e4b"),
         _model_ref("ollama_local", "deepseek-r1:14b"),
@@ -174,47 +182,53 @@ BUTLER_MODEL_CHAINS = {
     ),
     "review": _chain(
         BUTLER_MODELS["review"],
+        NVIDIA_GEMMA_E4B_MODEL,
         NVIDIA_REASONING_MODEL,
+        NVIDIA_GEMMA_GOD_MODEL,
+        NVIDIA_CLASSIFIER_MODEL,
         _model_ref("ollama_vps", "gemma4:26b"),
-        _model_ref("ollama_local", "deepseek-r1:14b"),
         _model_ref("ollama_local", "gemma4:e4b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
     ),
     "coding": _chain(
         BUTLER_MODELS["coding"],
+        NVIDIA_REASONING_MODEL,
+        NVIDIA_GEMMA_GOD_MODEL,
         NVIDIA_REVIEW_MODEL,
+        NVIDIA_GEMMA_E4B_MODEL,
         _model_ref("ollama_vps", "gemma4:26b"),
-        _model_ref("ollama_local", "deepseek-r1:14b"),
         _model_ref("ollama_local", "gemma4:e4b"),
+        _model_ref("ollama_local", "deepseek-r1:14b"),
     ),
 }
 
 # --- Multi-Agent Models ---
 AGENT_MODELS = {
-    "news": NVIDIA_REVIEW_MODEL,
-    "market": NVIDIA_REVIEW_MODEL,
+    "news": NVIDIA_GEMMA_E4B_MODEL,
+    "market": NVIDIA_GEMMA_E4B_MODEL,
     "hackernews": NVIDIA_VOICE_MODEL,
     "reddit": NVIDIA_VOICE_MODEL,
     "github_trending": NVIDIA_VOICE_MODEL,
     "vps": NVIDIA_CODING_MODEL,
     "memory": NVIDIA_VOICE_MODEL,
     "code": NVIDIA_CODING_MODEL,
-    "search": NVIDIA_REVIEW_MODEL,
+    "search": NVIDIA_GEMMA_E4B_MODEL,
     "github": NVIDIA_CODING_MODEL,
     "bugfinder": NVIDIA_REVIEW_MODEL,
 }
 
 AGENT_MODEL_CHAINS = {
-    "news": _chain(AGENT_MODELS["news"], _model_ref("ollama_local", "deepseek-r1:14b"), _model_ref("ollama_local", "gemma4:e4b")),
-    "market": _chain(AGENT_MODELS["market"], BUTLER_MODELS["review"], _model_ref("ollama_local", "deepseek-r1:14b")),
-    "hackernews": _chain(AGENT_MODELS["hackernews"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "reddit": _chain(AGENT_MODELS["reddit"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "github_trending": _chain(AGENT_MODELS["github_trending"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "vps": _chain(AGENT_MODELS["vps"], BUTLER_MODELS["coding"], _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "memory": _chain(AGENT_MODELS["memory"], _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "code": _chain(AGENT_MODELS["code"], _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "deepseek-r1:14b")),
-    "search": _chain(AGENT_MODELS["search"], BUTLER_MODELS["review"], _model_ref("ollama_local", "deepseek-r1:14b")),
-    "github": _chain(AGENT_MODELS["github"], BUTLER_MODELS["coding"], _model_ref("ollama_local", "deepseek-r1:14b")),
-    "bugfinder": _chain(AGENT_MODELS["bugfinder"], _model_ref("ollama_local", "deepseek-r1:14b"), _model_ref("ollama_local", "gemma4:e4b")),
+    "news": _chain(AGENT_MODELS["news"], NVIDIA_REASONING_MODEL, NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_GOD_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "market": _chain(AGENT_MODELS["market"], NVIDIA_REASONING_MODEL, BUTLER_MODELS["review"], NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "hackernews": _chain(AGENT_MODELS["hackernews"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "reddit": _chain(AGENT_MODELS["reddit"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "github_trending": _chain(AGENT_MODELS["github_trending"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "vps": _chain(AGENT_MODELS["vps"], BUTLER_MODELS["coding"], NVIDIA_GEMMA_GOD_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_E4B_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "memory": _chain(AGENT_MODELS["memory"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "code": _chain(AGENT_MODELS["code"], NVIDIA_GEMMA_GOD_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_E4B_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "search": _chain(AGENT_MODELS["search"], NVIDIA_REASONING_MODEL, BUTLER_MODELS["review"], NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "github": _chain(AGENT_MODELS["github"], BUTLER_MODELS["coding"], NVIDIA_GEMMA_GOD_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_GEMMA_E4B_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "bugfinder": _chain(AGENT_MODELS["bugfinder"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
 }
 
 # --- MCP Servers ---

@@ -68,6 +68,42 @@ class OllamaClientTests(unittest.TestCase):
 
         self.assertEqual(model, "ollama_local::gemma4:e4b")
 
+    def test_voice_and_news_chains_use_gemma_before_local_fallbacks(self):
+        voice_chain = ollama_client.BUTLER_MODEL_CHAINS["voice"]
+        news_chain = ollama_client.AGENT_MODEL_CHAINS["news"]
+
+        self.assertEqual(voice_chain[0], "nvidia::google/gemma-3n-e4b-it")
+        self.assertEqual(news_chain[0], "nvidia::google/gemma-3n-e4b-it")
+        self.assertIn("nvidia::google/gemma-4-31b-it", news_chain)
+        self.assertIn("nvidia::google/gemma-3n-e4b-it", news_chain)
+
+        first_voice_local = next(index for index, item in enumerate(voice_chain) if item.startswith("ollama_"))
+        first_news_local = next(index for index, item in enumerate(news_chain) if item.startswith("ollama_"))
+        self.assertLess(voice_chain.index("nvidia::google/gemma-3n-e4b-it"), first_voice_local)
+        self.assertLess(news_chain.index("nvidia::google/gemma-4-31b-it"), first_news_local)
+        self.assertLess(news_chain.index("nvidia::google/gemma-3n-e4b-it"), first_news_local)
+
+    def test_retry_model_chain_prefers_primary_chain_match(self):
+        retries = ollama_client._retry_model_chain("nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b")
+
+        self.assertEqual(retries[0], "nvidia::google/gemma-3n-e4b-it")
+        self.assertIn("nvidia::google/gemma-4-31b-it", retries)
+
+    def test_openai_response_strips_gemma_reasoning_channel_markers(self):
+        result = ollama_client._openai_text_from_response(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "<|channel>thought\nscratchpad should not leak<channel|>Final answer only."
+                        }
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(result, "Final answer only.")
+
     @patch("brain.ollama_client._call", return_value="fallback voice")
     @patch("brain.ollama_client._get_mlx_voice_backend", return_value=None)
     def test_call_voice_falls_back_to_ollama_when_mlx_is_unavailable(self, _mock_mlx, mock_call):
@@ -88,6 +124,42 @@ class OllamaClientTests(unittest.TestCase):
             system="system prompt",
             timeout_hint="voice",
         )
+
+    @patch("brain.ollama_client._request_text_once")
+    def test_call_ollama_inner_tries_next_model_after_timeout(self, mock_request):
+        mock_request.side_effect = [
+            ollama_client.requests.exceptions.Timeout(),
+            "gemma recovered",
+        ]
+
+        result = ollama_client._call_ollama_inner(
+            "prompt",
+            "nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b",
+            temperature=0.2,
+            max_tokens=80,
+            timeout_hint="agent",
+        )
+
+        self.assertEqual(result, "gemma recovered")
+        self.assertEqual(mock_request.call_args_list[0].args[1], "nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b")
+        self.assertEqual(mock_request.call_args_list[1].args[1], "nvidia::google/gemma-3n-e4b-it")
+
+    @patch("brain.ollama_client._chat_once")
+    def test_chat_with_ollama_tries_next_model_after_timeout(self, mock_chat):
+        mock_chat.side_effect = [
+            ollama_client.requests.exceptions.Timeout(),
+            {"message": {"content": "gemma chat recovered"}},
+        ]
+
+        result = ollama_client.chat_with_ollama(
+            [{"role": "user", "content": "hello"}],
+            "nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b",
+            timeout_hint="agent",
+        )
+
+        self.assertEqual(result["message"]["content"], "gemma chat recovered")
+        self.assertEqual(mock_chat.call_args_list[0].args[1], "nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b")
+        self.assertEqual(mock_chat.call_args_list[1].args[1], "nvidia::google/gemma-3n-e4b-it")
 
     @patch("brain.ollama_client._call")
     @patch("brain.ollama_client._get_mlx_voice_backend")

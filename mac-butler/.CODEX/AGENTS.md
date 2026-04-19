@@ -55,7 +55,9 @@ Do not reorder this without code, tests, and docs moving together.
 - Plain `butler.py` startup is passive standby only; `--clap-only` keeps wake-word disabled, and wake, briefing, plus live STT begin only after a trigger or explicit HUD/API command
 - Dashboard runtime is localhost-first on `127.0.0.1:7532`; native pywebview HUD and browser auto-open must stay opt-in, not automatic
 - Current-news paths must reject provider timeout filler such as "I'm still thinking" and return collected source material or a truthful unavailable message
-- Fast voice, classifier, and conversation roles are NVIDIA-first with local Ollama fallback
+- Text output, conversation, current-news, and search roles are NVIDIA Gemma E4B first because it passes the live voice-timeout probe; larger NVIDIA models remain in deeper fallback chains
+- The 1.1B NVIDIA Parakeet model is ASR/listening only; do not confuse it with output generation
+- Model timeouts must continue to the next candidate in the chain instead of returning progress filler as a user answer
 - Planning and coding roles are provider-aware and must stay behind `brain/ollama_client.py`
 - TTS follows `nvidia_riva_tts -> kokoro -> edge -> say`
 - STT follows `nvidia_riva_asr -> mlx -> faster-whisper`

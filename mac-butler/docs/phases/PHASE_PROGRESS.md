@@ -44,7 +44,7 @@ Fix critical or high issues, stabilize runtime boundaries, and make current feat
 
 ### What Is Already In Place
 
-- `gemma4:e4b` is the local classifier and hot-path conversation model
+- NVIDIA Gemma E4B is the primary hot output/conversation/current-info model when `NVIDIA_API_KEY` is configured; larger NVIDIA models remain in deeper fallback chains and local `gemma4:e4b` remains the fast local fallback
 - `brain/session_context.py` is wired for pending state and turn memory
 - `pipeline/router.py` already has a lightweight reply lane for `question` and `unknown`
 - `brain/tools_registry.py` exists as the single tool registry
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, GitHub status now resolves tracked project repos before MCP fallback, and repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency; broader retrieval latency and live provider benchmarking still remain |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -597,10 +597,15 @@ Append a new status block after each working session:
   stopped the live Butler/dashboard runtime processes and verified no Butler, dashboard, trigger, native shell, A2A server, or runner process remained
   changed `projects/dashboard.py` so localhost `7532/7533` is the default dashboard surface and native pywebview HUD/browser auto-open require explicit opt-in
   changed `agents/runner.py` so current-news model timeout filler like `I'm still thinking, give me a moment.` is rejected and replaced with collected headlines/snippets or a truthful unavailable message
+  changed `butler_config.py` so output/conversation/news/search use live-validated NVIDIA Gemma E4B first, then larger NVIDIA fallback models, then local/VPS Gemma or Ollama fallback
+  changed `brain/ollama_client.py` so text/chat model timeouts continue through the retry chain instead of exiting on the first timeout, and Gemma thought/channel wrappers are stripped before user-facing output
   updated `.CODEX/HUD_RUNBOOK.md`, `.CODEX/Codex.md`, `.CODEX/AGENTS.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, `.CODEX/SPRINT_LOG.md`, and `README.md` to match the runtime truth
 - Tests run:
   `mac-butler/venv/bin/python -m py_compile mac-butler/agents/runner.py mac-butler/projects/dashboard.py mac-butler/trigger.py mac-butler/tests/test_agents.py mac-butler/tests/test_dashboard.py mac-butler/tests/test_trigger.py`
   `mac-butler/venv/bin/pytest mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_items_exist mac-butler/tests/test_agents.py::AgentTests::test_news_agent_rejects_timeout_filler_when_live_fetch_is_empty mac-butler/tests/test_dashboard.py::DashboardTests::test_dashboard_defaults_to_localhost_7532_without_native_hud mac-butler/tests/test_dashboard.py::DashboardTests::test_show_dashboard_window_is_localhost_only_without_hud_opt_in mac-butler/tests/test_trigger.py::TriggerTests::test_start_dashboard_server_announces_live_hud -q`
+  `mac-butler/venv/bin/python -m py_compile mac-butler/butler_config.py mac-butler/brain/ollama_client.py mac-butler/tests/test_ollama_client.py`
+  `mac-butler/venv/bin/pytest mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_voice_and_news_chains_use_gemma_before_local_fallbacks mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_retry_model_chain_prefers_primary_chain_match mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_openai_response_strips_gemma_reasoning_channel_markers mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_call_ollama_inner_tries_next_model_after_timeout mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_chat_with_ollama_tries_next_model_after_timeout -q`
 - Manual checks:
   `ps -ef | rg "butler\.py|projects/dashboard\.py|trigger\.py|native_shell\.py|daemon/heartbeat\.py|daemon/bug_hunter\.py|channels/a2a_server\.py|agents/runner\.py"` returned no live runtime processes
+  live NVIDIA probe with network access returned `ok` from configured voice model `nvidia::google/gemma-3n-e4b-it`; `nvidia::google/gemma-4-31b-it` timed out at 12s and 30s on this host
 - Next action: continue Phase `3B` provider latency benchmarking and retrieval quality work without reopening the localhost/native-HUD runtime policy

@@ -446,17 +446,23 @@ def _retry_model_chain(model: str) -> list[str]:
     chains = list(BUTLER_MODEL_CHAINS.values()) + list(AGENT_MODEL_CHAINS.values()) + [[f"ollama_local::{OLLAMA_MODEL}", f"ollama_local::{OLLAMA_FALLBACK}"]]
     model_provider, model_name = _model_provider_and_name(model)
     normalized = model_name.split(":")[0]
+    matches: list[tuple[int, int, list[str]]] = []
     for chain in chains:
         ordered = _dedupe_models(list(chain) + [f"ollama_local::{OLLAMA_FALLBACK}"])
         for index, candidate in enumerate(ordered):
             candidate_provider, candidate_name = _model_provider_and_name(candidate)
             if candidate == model:
-                return [item for item in ordered[index + 1:] if item and item != model]
+                matches.append((0 if index == 0 else 1, index, ordered))
+                break
             if (
                 candidate_provider == model_provider
                 and (candidate_name == model_name or candidate_name.split(":")[0] == normalized)
             ):
-                return [item for item in ordered[index + 1:] if item and item != model]
+                matches.append((0 if index == 0 else 1, index, ordered))
+                break
+    if matches:
+        _, index, ordered = sorted(matches, key=lambda item: (item[0], item[1]))[0]
+        return [item for item in ordered[index + 1:] if item and item != model]
     local_fallback = f"ollama_local::{OLLAMA_FALLBACK}"
     return [item for item in [local_fallback] if item and item != model]
 
@@ -480,7 +486,7 @@ def _post_with_thinking_notice(
 
 def _message_text(content: Any) -> str:
     if isinstance(content, str):
-        return content.strip()
+        return _strip_provider_reasoning_markers(content)
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
@@ -488,8 +494,21 @@ def _message_text(content: Any) -> str:
                 text = str(item.get("text", "") or "").strip()
                 if text:
                     parts.append(text)
-        return "\n".join(parts).strip()
-    return str(content or "").strip()
+        return _strip_provider_reasoning_markers("\n".join(parts))
+    return _strip_provider_reasoning_markers(str(content or ""))
+
+
+def _strip_provider_reasoning_markers(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    # Gemma 4 can emit empty or populated thought-channel wrappers even when
+    # thinking is disabled. Keep only the final user-facing text.
+    cleaned = re.sub(r"(?is)<\|channel\>thought.*?<channel\|>", "", cleaned)
+    cleaned = re.sub(r"(?is)<\|channel\>analysis.*?<channel\|>", "", cleaned)
+    cleaned = re.sub(r"(?is)<\|channel\>final", "", cleaned)
+    cleaned = re.sub(r"(?is)<channel\|>", "", cleaned)
+    return cleaned.strip()
 
 
 def _openai_text_from_response(data: dict[str, Any]) -> str:
@@ -1225,11 +1244,15 @@ def _call_ollama_inner(
                 system=system,
                 timeout_hint=timeout_hint,
             )
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as exc:
+            last_error = exc
             backend = _backend_for_model(candidate)
             request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=(backend == "vps"))
+            if index < len(chain) - 1:
+                print(f"[Brain] {candidate} timed out after {request_timeout}s, trying {chain[index + 1]}")
+                continue
             print(f"[Brain] {candidate} timed out after {request_timeout}s")
-            return "I'm still thinking, give me a moment."
+            break
         except Exception as exc:
             last_error = exc
             if index < len(chain) - 1:
@@ -1238,6 +1261,8 @@ def _call_ollama_inner(
 
     if isinstance(last_error, requests.exceptions.ConnectionError):
         raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+    if isinstance(last_error, requests.exceptions.Timeout):
+        return ""
     raise RuntimeError(f"Ollama error: {last_error}")
 
 
@@ -1427,11 +1452,15 @@ def chat_with_ollama(
                 temperature=temperature,
                 timeout_hint=timeout_hint,
             )
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as exc:
+            last_error = exc
             backend = _backend_for_model(candidate)
             request_timeout = _resolve_request_timeout(timeout_hint, use_vps_backend=(backend == "vps"))
+            if index < len(chain) - 1:
+                print(f"[Brain] chat {candidate} timed out after {request_timeout}s, trying {chain[index + 1]}")
+                continue
             print(f"[Brain] chat {candidate} timed out after {request_timeout}s")
-            return {"message": {"content": "I'm still thinking, give me a moment."}}
+            break
         except Exception as exc:
             last_error = exc
             if index < len(chain) - 1:
@@ -1440,6 +1469,8 @@ def chat_with_ollama(
 
     if isinstance(last_error, requests.exceptions.ConnectionError):
         raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+    if isinstance(last_error, requests.exceptions.Timeout):
+        return {"message": {"content": ""}}
     raise RuntimeError(f"Ollama chat error: {last_error}")
 
 

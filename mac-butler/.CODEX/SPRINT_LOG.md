@@ -3,6 +3,22 @@ Sprint: AgentScope Integration (Apr 2026)
 Commits: 5c97615 → f0c97d5
 Done
 
+NVIDIA Gemma Routing Hardening — 2026-04-19
+
+Completed
+- read NVIDIA docs for the current Gemma API model IDs, then live-tested them against the configured provider
+- moved hot output/conversation/news/search to `nvidia::google/gemma-3n-e4b-it` because it returned successfully under the 12s voice probe; `nvidia::google/gemma-4-31b-it` timed out at both 12s and 30s on this host and remains a deeper fallback
+- kept `nvidia_riva_asr::parakeet-1.1b-rnnt-multilingual-asr` only for listening/transcription and documented that it is not the output brain
+- changed `brain/ollama_client.py` so text and chat calls continue through the retry chain on timeout instead of returning `I'm still thinking, give me a moment.`
+- stripped Gemma thought/channel wrappers from OpenAI-compatible responses before speech/chat output
+- added focused regressions for Gemma-first chain ordering, primary-chain retry selection, Gemma wrapper cleanup, text timeout retry, and chat timeout retry
+
+Validation
+- `mac-butler/venv/bin/python -m py_compile mac-butler/butler_config.py mac-butler/brain/ollama_client.py mac-butler/tests/test_ollama_client.py`
+- `mac-butler/venv/bin/pytest mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_voice_and_news_chains_use_gemma_before_local_fallbacks mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_retry_model_chain_prefers_primary_chain_match mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_openai_response_strips_gemma_reasoning_channel_markers mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_call_ollama_inner_tries_next_model_after_timeout mac-butler/tests/test_ollama_client.py::OllamaClientTests::test_chat_with_ollama_tries_next_model_after_timeout -q`
+- result: `5 passed`
+- live NVIDIA probe with network access: configured voice model `nvidia::google/gemma-3n-e4b-it` returned `ok`; `nvidia::google/gemma-4-31b-it` timed out at 12s and 30s on this host
+
 AgentScope Toolkit replacing 200-line if/elif
 MsgHub fanout in agents/runner.py
 Streaming TTS via stream_printing_messages
