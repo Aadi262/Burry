@@ -100,8 +100,12 @@ Validation
 - result: `10 passed`
 - `venv/bin/python scripts/benchmark_models.py --json --dry-run` planned all configured model roles with NVIDIA ready and no live execution
 
+Live restart
+- restarted Butler outside the sandbox with `venv/bin/python -u butler.py --clap-only`; the host detected `MacBook Pro Microphone` and armed double-clap listening
+- verified one Butler owner on `3335` and one dashboard process on `7532/7533`
+- verified `http://127.0.0.1:3335/api/v1/health` and `http://127.0.0.1:7532/api/v1/health`; the dashboard health check must run outside sandbox network restrictions
+
 Still pending
-- restart the live backend so the running `butler.py --clap-only` process picks up the new code
 - run a live command pass for `open terminal`, `open Google Chrome`, and one current-info/news query while watching for TTS echo drops and RAM-skip logs
 
 Live Localhost Run — 2026-04-20
