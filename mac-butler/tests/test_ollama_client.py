@@ -1,8 +1,14 @@
+import asyncio
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from brain import ollama_client
+
+
+async def _collect_async(iterator):
+    return [item async for item in iterator]
 
 
 class OllamaClientTests(unittest.TestCase):
@@ -160,6 +166,106 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(result["message"]["content"], "gemma chat recovered")
         self.assertEqual(mock_chat.call_args_list[0].args[1], "nvidia::deepseek-ai/deepseek-r1-distill-qwen-32b")
         self.assertEqual(mock_chat.call_args_list[1].args[1], "nvidia::google/gemma-3n-e4b-it")
+
+    @patch("brain.ollama_client._unload_model")
+    @patch("brain.ollama_client._post_with_thinking_notice")
+    @patch("brain.ollama_client._get_request_target_for_model", return_value=("http://127.0.0.1:11434/api/generate", {}, "local"))
+    @patch("brain.ollama_client._retry_model_chain", return_value=[])
+    def test_call_ollama_inner_skips_local_generation_when_ram_is_starved(
+        self,
+        _mock_retry,
+        _mock_target,
+        mock_post,
+        _mock_unload,
+    ):
+        fake_psutil = SimpleNamespace(
+            virtual_memory=lambda: SimpleNamespace(available=int(0.4 * 1024**3))
+        )
+
+        with patch.object(ollama_client, "psutil", fake_psutil):
+            result = ollama_client._call_ollama_inner(
+                "prompt",
+                "ollama_local::gemma4:e4b",
+                temperature=0.2,
+                max_tokens=80,
+                timeout_hint="voice",
+            )
+
+        self.assertEqual(result, "")
+        mock_post.assert_not_called()
+
+    @patch("brain.ollama_client._unload_model")
+    @patch("brain.ollama_client._post_with_thinking_notice")
+    @patch("brain.ollama_client._get_request_target_for_model", return_value=("http://127.0.0.1:11434/api/generate", {}, "local"))
+    @patch("brain.ollama_client._retry_model_chain", return_value=[])
+    def test_chat_with_ollama_skips_local_chat_when_ram_is_starved(
+        self,
+        _mock_retry,
+        _mock_target,
+        mock_post,
+        _mock_unload,
+    ):
+        fake_psutil = SimpleNamespace(
+            virtual_memory=lambda: SimpleNamespace(available=int(0.4 * 1024**3))
+        )
+
+        with patch.object(ollama_client, "psutil", fake_psutil):
+            result = ollama_client.chat_with_ollama(
+                [{"role": "user", "content": "hello"}],
+                "ollama_local::gemma4:e4b",
+                timeout_hint="voice",
+            )
+
+        self.assertEqual(result["message"]["content"], "")
+        mock_post.assert_not_called()
+
+    @patch("brain.ollama_client._unload_model")
+    @patch("brain.ollama_client._backend_for_model", return_value="local")
+    @patch("brain.ollama_client._get_request_target_for_model", return_value=("http://127.0.0.1:11434/api/generate", {}, "local"))
+    def test_stream_llm_tokens_skips_local_stream_when_ram_is_starved(
+        self,
+        _mock_target,
+        _mock_backend,
+        _mock_unload,
+    ):
+        fake_psutil = SimpleNamespace(
+            virtual_memory=lambda: SimpleNamespace(available=int(0.4 * 1024**3))
+        )
+
+        with patch.object(ollama_client, "psutil", fake_psutil):
+            chunks = asyncio.run(
+                _collect_async(
+                    ollama_client.stream_llm_tokens(
+                        "prompt",
+                        "ollama_local::gemma4:e4b",
+                    )
+                )
+            )
+
+        self.assertEqual(chunks, [])
+
+    @patch("brain.ollama_client._unload_model")
+    @patch("brain.ollama_client._get_request_target_for_model", return_value=("http://127.0.0.1:11434/api/generate", {}, "local"))
+    def test_stream_chat_with_ollama_skips_local_stream_when_ram_is_starved(
+        self,
+        _mock_target,
+        _mock_unload,
+    ):
+        fake_psutil = SimpleNamespace(
+            virtual_memory=lambda: SimpleNamespace(available=int(0.4 * 1024**3))
+        )
+
+        with patch.object(ollama_client, "psutil", fake_psutil):
+            chunks = asyncio.run(
+                _collect_async(
+                    ollama_client.stream_chat_with_ollama(
+                        [{"role": "user", "content": "hello"}],
+                        "ollama_local::gemma4:e4b",
+                    )
+                )
+            )
+
+        self.assertEqual(chunks, [])
 
     @patch("brain.ollama_client._call")
     @patch("brain.ollama_client._get_mlx_voice_backend")

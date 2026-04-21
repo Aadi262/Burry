@@ -11,6 +11,12 @@ from voice import tts
 
 
 class TTSVoiceTests(unittest.TestCase):
+    def tearDown(self):
+        tts._SPEECH_ACTIVE.clear()
+        tts._SPEECH_GRACE_UNTIL = 0.0
+        tts._LAST_SPOKEN_TEXT = ""
+        tts._LAST_SPOKEN_AT = 0.0
+
     def test_shape_for_speech_strips_noise_and_expands_terms(self):
         shaped = tts._shape_for_speech(
             "Hello [[slnc 300]] **LLM** API VPS MCP AI GitHub Gmail YouTube https://example.com/test"
@@ -119,6 +125,26 @@ class TTSVoiceTests(unittest.TestCase):
         mock_try_edge_tts.assert_called_once()
         mock_try_kokoro.assert_not_called()
         mock_say_fallback.assert_not_called()
+
+    @patch("voice.tts._try_kokoro", return_value=False)
+    @patch("voice.tts._say_fallback")
+    def test_speak_marks_tts_active_while_backend_runs(self, _mock_say_fallback, _mock_try_kokoro):
+        active_snapshots = []
+
+        def _edge_backend(_text):
+            active_snapshots.append(tts.is_speaking())
+            return True
+
+        with patch("voice.tts.TTS_ENGINE", "edge"), patch("voice.tts._try_edge_tts", side_effect=_edge_backend):
+            tts.speak("This should keep the microphone closed while spoken.")
+
+        self.assertEqual(active_snapshots, [True])
+
+    def test_recent_speech_echo_detects_butler_tts_feedback(self):
+        tts._remember_recent_speech("Here's a summary of the latest developments about India.")
+
+        self.assertTrue(tts.is_recent_speech_echo("here s a summary of the latest developments about india"))
+        self.assertFalse(tts.is_recent_speech_echo("open terminal now"))
 
 
 if __name__ == "__main__":

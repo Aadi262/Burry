@@ -1,5 +1,5 @@
 # BURRY OS — Capability Map
-Last updated: 2026-04-16
+Last updated: 2026-04-22
 Legend: `✅ working` | `🟡 partial` | `❌ not built` | `🔧 needs your setup`
 
 This file now has 2 layers:
@@ -41,7 +41,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | IDs | Status | Current truth |
 | --- | --- | --- |
 | B09, E03, E04, W02, M06 | mixed | YouTube play/search, Gmail compose, and WhatsApp compose flows are wired enough to be truthful, but they still stop short of guaranteed autoplay or delivery |
-| T01 | ✅ | Terminal open no longer double-launches in the covered path |
+| T01 | ✅ | Plain `open terminal` now opens a fresh Terminal window in the covered path; focus-only behavior is reserved for explicit focus semantics |
 | C01-C06 | mixed | calendar read, calendar add, reminders, task read, and task add all moved forward on the existing owners; live calendar reads and writes still require Calendar automation access, while reminders verify when Reminders automation is available |
 | I01-I02, I05 | mixed | pending dialogue memory is real for the compose flow; general conversation exists, but dedicated brainstorm behavior is still shallow |
 | H10, H12, H13 | mixed | memory and pending events now publish; mood events exist but the HUD presentation is still thin |
@@ -50,14 +50,15 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 
 | IDs / slice | Status | Current truth |
 | --- | --- | --- |
-| Provider-aware LLM/TTS/STT routing | 🟡 | config-driven provider selection is live across classifier, conversation, briefing, planner, search, browser, research, heartbeat, bug-hunter, TTS, and STT roles |
-| B02, B13, B14 | 🟡 | browser new-window, back, and refresh phrases now route deterministically, execute on the resolved browser family, and are host-smoke validated against local temp pages |
+| Provider-aware LLM/TTS/STT routing | 🟡 | config-driven provider selection is live across classifier, conversation, briefing, planner, search, browser, research, heartbeat, bug-hunter, TTS, and STT roles; local Ollama fallback now skips under low-RAM pressure instead of stalling live voice turns |
+| B02, B13, B14 | 🟡 | browser new-window, back, and refresh phrases now route deterministically, execute on the resolved browser family, and are host-smoke validated against local temp pages; plain running-browser app opens now force a fresh visible browser window |
 | F01-F15 | 🟡 | filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases on Desktop/Documents/Downloads/Home-style aliases; delete remains confirmation-gated and broader naming variants are still thinner than the core paths |
 | SY01-SY09, SY11, SY17-SY20 | 🟡 | system-control routing now covers common volume or mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrases; safe host smoke now covers screenshot/battery/wifi while disruptive controls remain operator-gated |
 | C01-C04 | mixed | calendar reads and writes now use truthful Calendar host-permission fallback when automation is unavailable, and reminders verify against the Reminders list when automation access is granted |
 | K03 | 🟡 | news uses SearXNG, DuckDuckGo, Exa, then Google News RSS before giving up; NVIDIA Gemma E4B is the hot text model, larger NVIDIA models remain in fallback, and timeout filler is rejected before speech |
 | B16, K06 | 🟡 | page summarization and page fetch now reuse indexed web-page snapshots from `memory/knowledge_base.py`, with Jina and direct HTML extraction as live fallbacks |
 | M09, K07, M10 | 🟡 | video summarization now has caption and transcript fallbacks and can save notes into Obsidian when configured |
+| Live voice session loop | 🟡 | continuous clap sessions now gate STT on actual TTS playback and drop recent spoken-text echoes before dispatch; broader barge-in and audio-ducking behavior still needs live tuning |
 
 ## Full Inventory
 
@@ -67,7 +68,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | --- | --- | --- | --- | --- |
 | B01 | Open new tab | open new tab | 🟡 | AppleScript path still needs broader host validation |
 | B02 | Open new window | open new window | 🟡 | deterministic new-window route is live; executor opens a new window on the resolved browser family and the Phase 3A host smoke validates it against local temp pages |
-| B03 | New tab even if Chrome open | new tab | 🟡 | still thin on cross-browser running-state checks |
+| B03 | New tab even if Chrome open | new tab | 🟡 | running-browser app opens now force a fresh visible browser window for covered Chrome-family apps; cross-browser tab-state checks remain thinner |
 | B04 | Close current tab | close this tab | 🟡 | route and executor exist, but verification is still AppleScript-only |
 | B05 | Close current window | close this window | 🟡 | close-window route and executor path exist, but host-smoke validation is still thin |
 | B06 | Go to URL | go to github.com | ✅ | working |
@@ -179,7 +180,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 
 | ID | Capability | Voice example | Effective status | Current gap or note |
 | --- | --- | --- | --- | --- |
-| T01 | Open Terminal | open terminal | ✅ | host smoke verified and duplicate-open regression addressed |
+| T01 | Open Terminal | open terminal | ✅ | host smoke verified; plain `open terminal` now opens a fresh Terminal window instead of only focusing an existing one |
 | T02 | Run command | run git status | ✅ | allowlist works |
 | T03 | Open project in Terminal | open mac-butler in terminal | ✅ | working |
 | T04 | Open in Claude Code | open adpilot in claude code | ❌ | not wired |
@@ -306,7 +307,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Calendar, reminders, tasks, and notes | `intents/router.py`, `executor/engine.py`, `skills/calendar_skill.py`, `context/obsidian_context.py` | C01-C10 | calendar and reminder verification are now truthful on supported hosts; next gaps are task-done wiring plus Obsidian search/read flows, while Calendar read/write remain setup-dependent on host automation access |
 | Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, GitHub-status lookup, NVIDIA Gemma E4B hot text routing, timeout-filler rejection for news, repeated-query caching, snippet-first fetches, and `scripts/benchmark_models.py --real-tasks` now reduce and measure avoidable search or news latency; next gaps are broader latency reduction across the remaining retrieval routes |
 | System control | `intents/router.py`, `executor/engine.py` | SY01-SY20 | deterministic volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, battery, wifi, dark-mode, and DND routing are now wired; safe host smoke is in place and the next gaps are disruptive-control smoke plus empty-trash, mission-control, and force-quit |
-| Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | finish open-in-Codex/Claude/Cursor, run-tests, git commit/push confirmation flows, and make VPS checks degrade truthfully when credentials are absent |
+| Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | plain Terminal opens now create a fresh window; next gaps are open-in-Codex/Claude/Cursor, run-tests, git commit/push confirmation flows, and truthful VPS credential degradation |
 | Vision and full computer control | `agents/vision.py`, `executor/engine.py`, `agents/browser_agent.py` | V01-V08, B11-B12, V06-V07 | treat screenshot capture, OCR, screen understanding, click targeting, and form fill as one stack: capture -> detect -> act -> verify; do not wire click/fill until the vision read path is stable |
 | Conversation, memory, and proactive behavior | `brain/session_context.py`, `brain/conversation.py`, `brain/mood_engine.py`, `daemon/heartbeat.py`, `memory/*` | I01-I10 | recent-turn and pending-memory persistence now live in `session_context.py`; next gaps are brainstorm, mood, yesterday memory, and proactive suggestions as explicit tested flows |
 | HUD and telemetry | `runtime/telemetry.py`, `projects/dashboard.py`, `projects/frontend/modules/*` | H01-H20 | localhost dashboard defaults to `7532` with native/browser auto-open opt-in only; finish pending-state rendering, richer mood display, log download/filtering, and per-command timing on the existing WS envelope instead of adding parallel UI channels |

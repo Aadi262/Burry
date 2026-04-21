@@ -184,13 +184,16 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Conversation mode with personality
 - Session memory across turns, with recent turns and pending follow-ups now restored from disk across short restarts (`session_context.py`)
 - Default `butler.py` startup now holds the backend in passive standby, refuses duplicate live owners, and waits for clap, wake phrase, or explicit HUD/API activation before speaking; `--clap-only` disables wake-word arming, and passive clap wake now arms after startup, ignores active-session noise, and requires a sharp transient instead of any sustained loud block
+- Continuous clap sessions now keep the mic closed on the actual TTS speech-active signal and drop recent TTS echo before dispatch, so Butler should not turn its own spoken answer into the next command
 - `projects/dashboard.py` now serves localhost on `7532/7533` by default, accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT`, and keeps native pywebview HUD/browser auto-open behind explicit opt-ins
 - `SEARXNG_URL` is env-configurable and defaults to `http://127.0.0.1:18080` so local news search does not collide with other projects on `8080`
 - SearXNG readiness checks now use the JSON `/search` endpoint instead of the root page
 - `agents/runner.py` now rejects low-signal current-news model timeout text such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - `brain/ollama_client.py` now continues through the model chain on timeout instead of stopping at the first timed-out NVIDIA/local candidate
+- `brain/ollama_client.py` now skips local Ollama generation, chat, and streaming under low-RAM pressure instead of trying to load another local model and waiting for a timeout
 - `butler_config.py` now uses NVIDIA Gemma E4B as the primary hot output/conversation/news/search model, with larger NVIDIA models and local `gemma4:e4b` preserved in the fallback chains
 - Gemma provider thought/channel wrappers are stripped from OpenAI-compatible responses before they reach speech, chat, or history
+- Plain `open terminal` now opens a fresh Terminal window, and plain browser app opens such as `open Google Chrome` force a fresh visible browser window when the browser is already running
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
@@ -217,7 +220,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - WhatsApp file sending
 - Claude Code as coding brain (not wired)
 - NVIDIA speech paths still require host setup (`NVIDIA_API_KEY` plus NVIDIA Riva Python clients)
-- Live answer quality still degrades badly when local RAM is exhausted, Ollama times out, or NVIDIA credentials are absent
+- Live answer quality still depends on NVIDIA credentials, SearXNG availability, and enough system RAM for optional local fallback; low RAM now skips local Ollama instead of stalling, but there is not yet a full runtime memory budgeter
 - some video hosts still need captions, `yt-dlp` + Whisper, or Jina fallback before a usable transcript exists
 - Live calendar reads and writes require Calendar automation access on the host
 - Real Mail delivery and WhatsApp send smoke runs require explicit operator-provided targets

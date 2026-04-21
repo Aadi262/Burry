@@ -84,6 +84,26 @@ GitHub MCP token (NOT SET)
 
 [Add new sprint entries here after each session]
 
+Live Voice Runtime Stabilization — 2026-04-22
+
+Completed
+- fixed the clap continuous-session echo loop by gating STT on the actual `voice.tts.is_speaking()` signal instead of only `State.SPEAKING`
+- added recent spoken-text echo detection so transcripts that match Butler's own TTS are dropped before they can route as new commands
+- changed plain `open terminal` to open a fresh Terminal window in the smart app-open path
+- changed running Chrome-family app opens to create a fresh visible browser window through the browser-window executor path
+- made low-RAM local Ollama fallback a real guard: local generation, chat, and streaming now skip when RAM is below the live threshold instead of waiting for model-load timeouts
+- updated README, `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, and `docs/phases/PHASE_PROGRESS.md` to match the new runtime truth
+
+Validation
+- `venv/bin/python -m py_compile voice/tts.py trigger.py executor/engine.py brain/ollama_client.py tests/test_tts.py tests/test_trigger.py tests/test_executor.py tests/test_ollama_client.py`
+- `venv/bin/pytest tests/test_tts.py::TTSVoiceTests::test_speak_marks_tts_active_while_backend_runs tests/test_tts.py::TTSVoiceTests::test_recent_speech_echo_detects_butler_tts_feedback tests/test_trigger.py::TriggerTests::test_continuous_session_keeps_mic_closed_while_tts_is_active tests/test_trigger.py::TriggerTests::test_continuous_session_drops_recent_tts_echo_before_dispatch tests/test_executor.py::ExecutorTests::test_open_app_terminal_smart_opens_new_window_not_existing_focus tests/test_executor.py::ExecutorTests::test_open_app_chrome_smart_opens_new_browser_window_when_running tests/test_ollama_client.py::OllamaClientTests::test_call_ollama_inner_skips_local_generation_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_chat_with_ollama_skips_local_chat_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_stream_llm_tokens_skips_local_stream_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_stream_chat_with_ollama_skips_local_stream_when_ram_is_starved -q`
+- result: `10 passed`
+- `venv/bin/python scripts/benchmark_models.py --json --dry-run` planned all configured model roles with NVIDIA ready and no live execution
+
+Still pending
+- restart the live backend so the running `butler.py --clap-only` process picks up the new code
+- run a live command pass for `open terminal`, `open Google Chrome`, and one current-info/news query while watching for TTS echo drops and RAM-skip logs
+
 Live Localhost Run — 2026-04-20
 
 Completed

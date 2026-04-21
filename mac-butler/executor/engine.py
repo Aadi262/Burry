@@ -1846,6 +1846,8 @@ end tell
     def _browser_app_available(app_name: str) -> bool:
         if not app_name:
             return False
+        if app_name not in BROWSER_APP_CANDIDATES:
+            return False
         candidates = list(BROWSER_APP_CANDIDATES.get(app_name, []))
         candidates.append(Path("/Applications") / f"{app_name}.app")
         candidates.append(Path.home() / "Applications" / f"{app_name}.app")
@@ -2007,8 +2009,10 @@ end tell
 
         lowered = app_name.lower()
         if lowered in {"terminal", "iterm", "iterm2"}:
-            if mode == "new":
+            if mode in {"smart", "new"}:
                 return self.open_terminal("window")
+            if mode == "tab":
+                return self.open_terminal("tab")
             if self._is_app_running("Terminal"):
                 self._run_osascript('tell application "Terminal" to activate', timeout=4)
                 return "focused Terminal"
@@ -2020,6 +2024,11 @@ end tell
             return self.open_editor(editor=editor, mode=editor_mode)
 
         running = self._is_app_running(app_name)
+        if self._browser_app_available(app_name) and mode == "smart":
+            if running:
+                return self._browser_window_for_app(app_name)
+            subprocess.Popen(["open", "-a", app_name])
+            return f"launched {app_name}"
 
         if mode == "new":
             subprocess.Popen(["open", "-n", "-a", app_name])
@@ -2897,8 +2906,7 @@ end tell
         self._run_osascript(script, timeout=10)
         return "closed current browser window"
 
-    def browser_window(self, url: str = "") -> str:
-        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
+    def _browser_window_for_app(self, app_name: str, url: str = "") -> str:
         family = self._browser_family(app_name)
         target = self._normalize_browser_url(url) if self._collapse_text(url) else ""
         if family == "safari":
@@ -2926,6 +2934,10 @@ end tell
             )
         self._run_osascript(script, timeout=10)
         return f"opened browser window{f': {target}' if target else ''}"
+
+    def browser_window(self, url: str = "") -> str:
+        app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)
+        return self._browser_window_for_app(app_name, url)
 
     def browser_go_back(self) -> str:
         app_name = self._resolve_browser_app(DEFAULT_BROWSER_APP)

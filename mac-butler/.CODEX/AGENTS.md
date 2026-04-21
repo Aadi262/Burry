@@ -62,9 +62,11 @@ Do not reorder this without code, tests, and docs moving together.
 - Text output, conversation, current-news, and search roles are NVIDIA Gemma E4B first because it passes the live voice-timeout probe; larger NVIDIA models remain in deeper fallback chains
 - The 1.1B NVIDIA Parakeet model is ASR/listening only; do not confuse it with output generation
 - Model timeouts must continue to the next candidate in the chain instead of returning progress filler as a user answer
+- Low-RAM local Ollama fallback must skip quickly instead of loading another local model and stalling the live voice path
 - Planning and coding roles are provider-aware and must stay behind `brain/ollama_client.py`
 - TTS follows `nvidia_riva_tts -> edge -> kokoro -> say` so the stable system voice is tried before the crackle-prone local neural path when Riva is unavailable
 - STT follows `nvidia_riva_asr -> mlx -> faster-whisper`
+- Continuous mic sessions must use the actual TTS speech-active signal plus recent-speech echo filtering; state transitions alone are not enough to prevent Burry hearing herself
 - `gemma4:26b` remains a VPS-only fallback, not the local voice hot path
 
 ## Validation floor

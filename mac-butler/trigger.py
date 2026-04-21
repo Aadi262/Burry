@@ -342,6 +342,22 @@ def _run_continuous_session() -> None:
     def _run_handle(cmd: str) -> None:
         handle_input(cmd)
 
+    def _speech_is_active() -> bool:
+        try:
+            from voice.tts import is_speaking
+
+            return bool(is_speaking())
+        except Exception:
+            return state.current == State.SPEAKING
+
+    def _is_tts_echo(text: str) -> bool:
+        try:
+            from voice.tts import is_recent_speech_echo
+
+            return bool(is_recent_speech_echo(text))
+        except Exception:
+            return False
+
     try:
         while not _shutdown_event.is_set():
             if _handle_thread is not None and not _handle_thread.is_alive():
@@ -357,11 +373,11 @@ def _run_continuous_session() -> None:
                 print("[Trigger] Session ended (sleep command). Clap to start a new session.")
                 break
 
-            # Always keep listening — even while thinking.
-            # Speaking: skip (don't talk over Burry's response)
+            # Keep the mic closed while TTS is active. The state can move back
+            # to WAITING before background speech actually finishes.
             from state import State as _State
-            if state.current == _State.SPEAKING:
-                time.sleep(0.05)
+            if _speech_is_active():
+                time.sleep(0.08)
                 continue
 
             try:
@@ -378,6 +394,9 @@ def _run_continuous_session() -> None:
             if _shutdown_event.is_set():
                 break
             if text and len(text) > 2:
+                if _is_tts_echo(text):
+                    print(f"[Trigger] Dropped TTS echo: {text[:80]}")
+                    continue
                 # ── HARD STOP: intercept before dispatching ──────────────
                 lowered_text = " ".join(text.lower().split()).strip()
                 if lowered_text in {"stop", "sleep", "quiet", "be quiet",

@@ -63,8 +63,10 @@ That means the product is built around:
 - plain `venv/bin/python butler.py` now starts a passive backend on `3335`; it stays quiet until clap, wake phrase, or explicit HUD/API activation
 - passive clap wake now arms after startup and ignores active sessions so standby does not immediately retrigger itself
 - clap wake now also requires a sharp transient instead of any sustained loud audio block
+- continuous clap sessions keep the microphone closed while TTS is actually playing and drop recent spoken-text echoes before command dispatch
 - the dashboard now serves localhost on `7532/7533` by default; native pywebview HUD and browser auto-open are opt-in with `BURRY_USE_NATIVE_HUD=1` or `BURRY_ALLOW_BROWSER_HUD=1`
 - the news agent rejects model timeout filler such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
+- plain `open terminal` now opens a fresh Terminal window, and plain browser app opens such as `open Google Chrome` create a fresh visible browser window when that browser is already running
 - structured execution results written back into memory
 - recent turn memory and pending follow-ups now survive short restarts through a persisted `session_context.py` snapshot
 
@@ -103,6 +105,7 @@ That means the product is built around:
 - NVIDIA Riva multilingual ASR primary when configured
 - NVIDIA text generation now uses the docs-backed Gemma E4B model for hot output/news/search first, then tries larger NVIDIA models before local Gemma/Ollama fallback
 - model timeouts now continue to the next candidate instead of immediately returning "I'm still thinking"
+- local Ollama fallback is skipped under low-RAM pressure instead of loading another model and stalling a live voice turn
 - Gemma provider thought/channel wrappers are stripped before user-facing speech or chat output
 - Kokoro local neural TTS on Apple Silicon
 - Edge and safe macOS `say` fallbacks

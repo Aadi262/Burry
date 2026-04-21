@@ -66,6 +66,13 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(args[:2], ["osascript", "-e"])
         self.assertIn('keystroke "t" using command down', args[2])
 
+    @patch.object(Executor, "open_terminal", return_value="opened new Terminal window")
+    def test_open_app_terminal_smart_opens_new_window_not_existing_focus(self, mock_open_terminal):
+        result = Executor().open_app("Terminal")
+
+        self.assertEqual(result, "opened new Terminal window")
+        mock_open_terminal.assert_called_once_with("window")
+
     @patch("executor.engine.subprocess.run")
     def test_search_and_play_action_uses_applescript(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -94,6 +101,20 @@ class ExecutorTests(unittest.TestCase):
             mock_run.call_args.args[0],
             ["open", "-a", "Google Chrome", "https://sheets.new"],
         )
+
+    @patch.object(Executor, "_browser_window_for_app", return_value="opened browser window")
+    @patch.object(Executor, "_browser_app_available", return_value=True)
+    @patch.object(Executor, "_is_app_running", return_value=True)
+    def test_open_app_chrome_smart_opens_new_browser_window_when_running(
+        self,
+        _mock_running,
+        _mock_available,
+        mock_browser_window,
+    ):
+        result = Executor().open_app("Google Chrome")
+
+        self.assertEqual(result, "opened browser window")
+        mock_browser_window.assert_called_once_with("Google Chrome")
 
     @patch.object(Executor, "_resolve_browser_app", return_value="Google Chrome")
     @patch("executor.engine.subprocess.run")

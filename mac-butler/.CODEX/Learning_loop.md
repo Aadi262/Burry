@@ -810,10 +810,43 @@ Rule added:
 HARD LESSON — local health checks need realistic endpoint timeouts
 Date: 2026-04-20
 What happened:
- The live HUD reported SearXNG as offline while PM lookup still worked and `curl` could reach the JSON search endpoint.
+The live HUD reported SearXNG as offline while PM lookup still worked and `curl` could reach the JSON search endpoint.
 Root cause:
  `projects/dashboard.py` used the generic 1s `_url_ok` timeout for SearXNG status, but the local Docker SearXNG JSON search probe sometimes takes just over 1s.
 The fix:
  `_url_ok` now accepts an endpoint-specific timeout, and `_prime_operator_status_cache()` uses a 3s timeout for `/search?q=butler-health&format=json`.
 Rule added:
- Do not treat a fast generic health timeout as universal; provider probes need realistic timeout budgets that match the endpoint they call.
+Do not treat a fast generic health timeout as universal; provider probes need realistic timeout budgets that match the endpoint they call.
+
+HARD LESSON — voice sessions need audio-state gates, not just app-state gates
+Date: 2026-04-22
+What happened:
+ During a clap session Butler spoke a news/search answer, STT reopened too early, heard Butler's own TTS, and dispatched that text as fresh user input.
+Root cause:
+ `trigger.py` only looked at the coarse `State.SPEAKING` value, but `voice/tts.py` can run audio in a background path after the state has already moved back to waiting.
+The fix:
+ `voice/tts.py` now exposes an actual speech-active signal plus recent-spoken-text echo detection, and `trigger.py` keeps the mic closed while that signal is active and drops recent TTS echoes before dispatch.
+Rule added:
+ Continuous STT must be gated by real audio activity and echo checks; state-machine status alone is not enough for live voice safety.
+
+HARD LESSON — warnings are not guards
+Date: 2026-04-22
+What happened:
+ The live log warned that only about `0.4GB` RAM was free, but the model caller still tried local Ollama fallbacks and waited for timeouts.
+Root cause:
+ `_check_memory()` printed a warning but `_prepare_model_request()` ignored the boolean result.
+The fix:
+ `brain/ollama_client.py` now raises a local-memory-pressure skip before local generation, chat, or streaming requests when RAM is below the live guard, and new tests assert no generation request is made.
+Rule added:
+ Any runtime warning that protects latency or hardware resources must alter control flow, not just print to the console.
+
+HARD LESSON — smart app open semantics must match voice intent
+Date: 2026-04-22
+What happened:
+ The user said `open terminal` and expected a fresh usable window, but smart app open could focus an existing Terminal; running Chrome could say it was opening without creating a visible new window.
+Root cause:
+ Generic app-open `smart` mode optimized for reuse, while voice operator commands need a visible work surface unless the user explicitly asks to focus.
+The fix:
+ `executor/engine.py` now maps plain Terminal opens to a fresh Terminal window and maps running Chrome-family app opens to the browser new-window path.
+Rule added:
+ For operator voice commands, `open app` should produce visible actionable UI; focus-only behavior must be explicit.

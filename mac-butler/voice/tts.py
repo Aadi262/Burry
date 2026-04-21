@@ -18,6 +18,7 @@ import threading
 import time
 import wave
 from contextlib import contextmanager
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
@@ -50,6 +51,8 @@ TTS_LOCK_PATH = Path(tempfile.gettempdir()) / "mac-butler-tts.lock"
 TTS_LOCK_TIMEOUT_SECONDS = 4.0  # B6: reduced from 12s — fall back to say() faster on stall
 _PROCESS_TTS_LOCK = threading.Lock()
 _RECENT_SPEECH_LOCK = threading.Lock()
+_SPEECH_ACTIVE = threading.Event()
+_SPEECH_GRACE_UNTIL = 0.0
 _LAST_SPOKEN_TEXT = ""
 _LAST_SPOKEN_AT = 0.0
 
@@ -303,6 +306,38 @@ def recent_speech_snapshot() -> tuple[str, float]:
         return _LAST_SPOKEN_TEXT, _LAST_SPOKEN_AT
 
 
+def _mark_speech_active(active: bool) -> None:
+    global _SPEECH_GRACE_UNTIL
+    if active:
+        _SPEECH_ACTIVE.set()
+        return
+    _SPEECH_GRACE_UNTIL = time.monotonic() + 0.8
+    _SPEECH_ACTIVE.clear()
+
+
+def is_speaking() -> bool:
+    return _SPEECH_ACTIVE.is_set() or time.monotonic() < _SPEECH_GRACE_UNTIL
+
+
+def _normalize_echo_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def is_recent_speech_echo(text: str, *, window_seconds: float = 12.0, threshold: float = 0.82) -> bool:
+    heard = _normalize_echo_text(text)
+    if len(heard) < 8:
+        return False
+    spoken, spoken_at = recent_speech_snapshot()
+    if not spoken or time.monotonic() - spoken_at > window_seconds:
+        return False
+    spoken_norm = _normalize_echo_text(spoken)
+    if not spoken_norm:
+        return False
+    if heard in spoken_norm or spoken_norm in heard:
+        return True
+    return SequenceMatcher(None, heard, spoken_norm).ratio() >= threshold
+
+
 def _remember_recent_speech(text: str) -> None:
     global _LAST_SPOKEN_TEXT, _LAST_SPOKEN_AT
     with _RECENT_SPEECH_LOCK:
@@ -490,27 +525,31 @@ def speak(text: str) -> None:
         if not acquired:
             print("[Voice] Skipping overlapping speech.")
             return
-        for target in _tts_targets():
-            backend = _target_provider(target)
-            if backend == "nvidia_riva_tts" and _try_nvidia_riva_tts(clean, target):
-                _remember_recent_speech(clean)
-                note_spoken_text(clean)
-                return
-            if backend == "edge" and _try_edge_tts(clean):
-                _remember_recent_speech(clean)
-                note_spoken_text(clean)
-                return
-            if backend == "kokoro" and _try_kokoro(clean):
-                _remember_recent_speech(clean)
-                note_spoken_text(clean)
-                return
-            if backend == "say":
-                _say_fallback(clean)
-                _remember_recent_speech(clean)
-                note_spoken_text(clean)
-                return
-        _remember_recent_speech(clean)
-        note_spoken_text(clean)
+        _mark_speech_active(True)
+        try:
+            for target in _tts_targets():
+                backend = _target_provider(target)
+                if backend == "nvidia_riva_tts" and _try_nvidia_riva_tts(clean, target):
+                    _remember_recent_speech(clean)
+                    note_spoken_text(clean)
+                    return
+                if backend == "edge" and _try_edge_tts(clean):
+                    _remember_recent_speech(clean)
+                    note_spoken_text(clean)
+                    return
+                if backend == "kokoro" and _try_kokoro(clean):
+                    _remember_recent_speech(clean)
+                    note_spoken_text(clean)
+                    return
+                if backend == "say":
+                    _say_fallback(clean)
+                    _remember_recent_speech(clean)
+                    note_spoken_text(clean)
+                    return
+            _remember_recent_speech(clean)
+            note_spoken_text(clean)
+        finally:
+            _mark_speech_active(False)
 
 
 if __name__ == "__main__":

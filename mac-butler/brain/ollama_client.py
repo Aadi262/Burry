@@ -55,6 +55,12 @@ MEMORY_WARN_GB = 1.5
 VPS_REQUEST_TIMEOUT = 8
 MLX_VOICE_MODEL_ID = "mlx-community/gemma-4-e4b-it-4bit"
 _MLX_VOICE_BACKEND: tuple[Any, Any, Any] | bool | None = None
+
+
+class LocalOllamaMemoryPressure(RuntimeError):
+    """Raised when local Ollama would worsen an already memory-starved voice turn."""
+
+
 KNOWN_OLLAMA_MODELS = {
     model_name
     for provider, model_name in (
@@ -382,13 +388,18 @@ def _unload_model(model: str) -> None:
         pass
 
 
-def _prepare_model_request(model: str) -> None:
-    if _backend_for_model(model) not in {"auto", "local", "vps"}:
+def _prepare_model_request(model: str, *, backend: str | None = None) -> None:
+    resolved_backend = backend or _backend_for_model(model)
+    if resolved_backend not in {"auto", "local", "vps"}:
         return
-    _check_memory()
+    memory_ok = _check_memory()
     for candidate in KNOWN_OLLAMA_MODELS:
         if candidate != model:
             _unload_model(candidate)
+    if resolved_backend in {"auto", "local"} and not memory_ok:
+        raise LocalOllamaMemoryPressure(
+            "local Ollama skipped because available RAM is below the live voice guard"
+        )
 
 
 def _get_backend_model_map(backend: str, force_refresh: bool = False) -> dict[str, str]:
@@ -566,7 +577,7 @@ def _request_text_once(
     system_text = _system_with_patterns(system)
 
     if backend in {"local", "vps", "auto"}:
-        _prepare_model_request(resolved_model)
+        _prepare_model_request(resolved_model, backend=backend)
         payload: dict[str, Any] = {
             "model": resolved_model,
             "prompt": prompt,
@@ -621,7 +632,7 @@ def _chat_once(
 
     if backend in {"local", "vps", "auto"}:
         request_url = url.replace("/api/generate", "/api/chat")
-        _prepare_model_request(resolved_model)
+        _prepare_model_request(resolved_model, backend=backend)
         payload: dict[str, Any] = {
             "model": resolved_model,
             "messages": messages,
@@ -1253,6 +1264,13 @@ def _call_ollama_inner(
                 continue
             print(f"[Brain] {candidate} timed out after {request_timeout}s")
             break
+        except LocalOllamaMemoryPressure as exc:
+            last_error = exc
+            if index < len(chain) - 1:
+                print(f"[Brain] {candidate} skipped under RAM pressure, trying {chain[index + 1]}")
+                continue
+            print(f"[Brain] {candidate} skipped under RAM pressure")
+            break
         except Exception as exc:
             last_error = exc
             if index < len(chain) - 1:
@@ -1262,6 +1280,8 @@ def _call_ollama_inner(
     if isinstance(last_error, requests.exceptions.ConnectionError):
         raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
     if isinstance(last_error, requests.exceptions.Timeout):
+        return ""
+    if isinstance(last_error, LocalOllamaMemoryPressure):
         return ""
     raise RuntimeError(f"Ollama error: {last_error}")
 
@@ -1316,6 +1336,11 @@ async def stream_llm_tokens(prompt: str, model: str, system: str = ""):
     url, headers, resolved_backend = _get_request_target_for_model(model)
     use_vps_backend = resolved_backend == "vps"
     resolved_model = _resolve_backend_model(model, use_vps_backend)
+    try:
+        _prepare_model_request(resolved_model, backend=resolved_backend)
+    except LocalOllamaMemoryPressure:
+        print(f"[Brain] stream {model} skipped under RAM pressure")
+        return
     payload = {
         "model": resolved_model,
         "prompt": prompt,
@@ -1373,7 +1398,11 @@ async def stream_chat_with_ollama(
     request_url = url.replace("/api/generate", "/api/chat")
     use_vps_backend = backend == "vps"
     resolved_model = _resolve_backend_model(model, use_vps_backend)
-    _prepare_model_request(resolved_model)
+    try:
+        _prepare_model_request(resolved_model, backend=backend)
+    except LocalOllamaMemoryPressure:
+        print(f"[Brain] stream chat {model} skipped under RAM pressure")
+        return
     payload: dict[str, Any] = {
         "model": resolved_model,
         "messages": messages,
@@ -1461,6 +1490,13 @@ def chat_with_ollama(
                 continue
             print(f"[Brain] chat {candidate} timed out after {request_timeout}s")
             break
+        except LocalOllamaMemoryPressure as exc:
+            last_error = exc
+            if index < len(chain) - 1:
+                print(f"[Brain] chat {candidate} skipped under RAM pressure, trying {chain[index + 1]}")
+                continue
+            print(f"[Brain] chat {candidate} skipped under RAM pressure")
+            break
         except Exception as exc:
             last_error = exc
             if index < len(chain) - 1:
@@ -1470,6 +1506,8 @@ def chat_with_ollama(
     if isinstance(last_error, requests.exceptions.ConnectionError):
         raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
     if isinstance(last_error, requests.exceptions.Timeout):
+        return {"message": {"content": ""}}
+    if isinstance(last_error, LocalOllamaMemoryPressure):
         return {"message": {"content": ""}}
     raise RuntimeError(f"Ollama chat error: {last_error}")
 

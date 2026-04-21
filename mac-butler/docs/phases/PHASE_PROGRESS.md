@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-19
+Last updated: 2026-04-22
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,7 +11,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, real-task provider benchmarks now available through `scripts/benchmark_models.py --real-tasks`, and the live backend now hardened around passive standby plus duplicate-runtime refusal
+- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, real-task provider benchmarks now available through `scripts/benchmark_models.py --real-tasks`, and the live backend now hardened around passive standby, duplicate-runtime refusal, TTS echo suppression, fresh app-window opens, and low-RAM local-fallback skips
 - Last completed phase: `Phase 2 - Contract Versioning`
 - Last completed slice: `Phase 3A - Deterministic Action Gaps`
 - Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction on the remaining retrieval routes using the new live real-task benchmark path
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 80% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 81% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, live voice sessions now gate STT on actual TTS playback and drop TTS echoes, low-RAM local Ollama fallback now skips instead of stalling, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency, and `scripts/benchmark_models.py --real-tasks` now measures real retrieval tasks; broader retrieval latency still remains |
+| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency, low-RAM local fallback now fails fast instead of blocking live answers, and `scripts/benchmark_models.py --real-tasks` now measures real retrieval tasks; broader retrieval latency still remains |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -700,3 +700,22 @@ Append a new status block after each working session:
   `curl -sS http://127.0.0.1:3335/api/v1/health` returned backend healthy
   host Python check confirmed `_url_ok(_searxng_health_url(), timeout=3.0)` and cached dashboard search status both return `True`
 - Next action: continue Phase `3B` latency cuts using the real-task benchmark harness
+
+## Progress Update - 2026-04-22
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: live voice-loop and app-open runtime bugs patched with new branch-specific regressions
+- What moved:
+  continuous clap sessions now gate STT on `voice.tts.is_speaking()` instead of only the coarse runtime state, so the mic stays closed while background TTS is still playing
+  recent spoken TTS text is now remembered and STT transcripts that match it are dropped before dispatch, preventing Butler from hearing her own news/search answers as new commands
+  plain `open terminal` now opens a fresh Terminal window in the covered executor path instead of only focusing an existing Terminal
+  plain running-browser app opens such as `open Google Chrome` now use the browser-window executor path to create a fresh visible window
+  local Ollama generation, chat, and streaming are now skipped under low-RAM pressure instead of trying to load another local model and waiting for a timeout
+- What is still blocked:
+  NVIDIA Riva TTS/STT still require host client setup and credentials, so Edge/Whisper fallbacks remain active on hosts without those packages
+  there is not yet a full runtime memory budgeter for proactively unloading all nonessential services; the current fix prevents the worst local-model stall in the voice path
+- Tests run:
+  `venv/bin/python -m py_compile voice/tts.py trigger.py executor/engine.py brain/ollama_client.py tests/test_tts.py tests/test_trigger.py tests/test_executor.py tests/test_ollama_client.py`
+  `venv/bin/pytest tests/test_tts.py::TTSVoiceTests::test_speak_marks_tts_active_while_backend_runs tests/test_tts.py::TTSVoiceTests::test_recent_speech_echo_detects_butler_tts_feedback tests/test_trigger.py::TriggerTests::test_continuous_session_keeps_mic_closed_while_tts_is_active tests/test_trigger.py::TriggerTests::test_continuous_session_drops_recent_tts_echo_before_dispatch tests/test_executor.py::ExecutorTests::test_open_app_terminal_smart_opens_new_window_not_existing_focus tests/test_executor.py::ExecutorTests::test_open_app_chrome_smart_opens_new_browser_window_when_running tests/test_ollama_client.py::OllamaClientTests::test_call_ollama_inner_skips_local_generation_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_chat_with_ollama_skips_local_chat_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_stream_llm_tokens_skips_local_stream_when_ram_is_starved tests/test_ollama_client.py::OllamaClientTests::test_stream_chat_with_ollama_skips_local_stream_when_ram_is_starved -q` -> `10 passed`
+  `venv/bin/python scripts/benchmark_models.py --json --dry-run` planned all configured model roles with NVIDIA ready and no live execution
+- Next action: restart the live backend so the running localhost/clap process picks up these patches, then run a live command pass for `open terminal`, `open Google Chrome`, and a news/current-info query while watching for TTS echo or low-RAM fallback skips

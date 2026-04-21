@@ -108,6 +108,75 @@ class TriggerTests(unittest.TestCase):
         mock_observe.assert_called_once()
         trigger._shutdown_event = original_shutdown
 
+    @patch("trigger._write_session_end_summary")
+    @patch("trigger._observe_session_project_relationships")
+    @patch("butler.reset_conversation_context")
+    @patch("butler.handle_input")
+    @patch("voice.stt.listen_for_command", side_effect=["hello"])
+    @patch("voice.tts.is_speaking", side_effect=[True, False, False])
+    @patch("time.sleep")
+    @patch("trigger.note_session_active")
+    @patch("trigger._clear_session_flag")
+    def test_continuous_session_keeps_mic_closed_while_tts_is_active(
+        self,
+        _mock_clear_flag,
+        _mock_note_session,
+        mock_sleep,
+        _mock_is_speaking,
+        _mock_listen,
+        mock_handle,
+        _mock_reset_context,
+        _mock_observe,
+        _mock_summary,
+    ):
+        original_shutdown = trigger._shutdown_event
+        trigger._shutdown_event = threading.Event()
+
+        def _handle(_text):
+            trigger._shutdown_event.set()
+
+        mock_handle.side_effect = _handle
+        trigger.state.transition(trigger.State.WAITING)
+
+        trigger._run_continuous_session()
+
+        mock_sleep.assert_any_call(0.08)
+        mock_handle.assert_called_once_with("hello")
+        trigger._shutdown_event = original_shutdown
+
+    @patch("trigger._write_session_end_summary")
+    @patch("trigger._observe_session_project_relationships")
+    @patch("butler.reset_conversation_context")
+    @patch("butler.handle_input")
+    @patch("voice.stt.listen_for_command", side_effect=[
+        "here s a summary of the latest developments about india",
+        "sleep",
+    ])
+    @patch("voice.tts.is_speaking", return_value=False)
+    @patch("voice.tts.is_recent_speech_echo", side_effect=[True, False])
+    @patch("trigger.note_session_active")
+    @patch("trigger._clear_session_flag")
+    def test_continuous_session_drops_recent_tts_echo_before_dispatch(
+        self,
+        _mock_clear_flag,
+        _mock_note_session,
+        _mock_echo,
+        _mock_is_speaking,
+        _mock_listen,
+        mock_handle,
+        _mock_reset_context,
+        _mock_observe,
+        _mock_summary,
+    ):
+        original_shutdown = trigger._shutdown_event
+        trigger._shutdown_event = threading.Event()
+        trigger.state.transition(trigger.State.WAITING)
+
+        trigger._run_continuous_session()
+
+        mock_handle.assert_called_once_with("sleep")
+        trigger._shutdown_event = original_shutdown
+
     @patch(
         "projects.load_projects",
         return_value=[
