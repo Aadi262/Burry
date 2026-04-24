@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,10 +11,10 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: `Phase 3B - Retrieval and Knowledge Quality`, with indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status retrieval now landed on top of the closed `Phase 3A` action surface, current-role fact questions now forced through retrieval instead of lightweight model narration, retrieval latency starting to move through repeated-query caching and snippet-first enrichment, real-task provider benchmarks now available through `scripts/benchmark_models.py --real-tasks`, and the live backend now hardened around passive standby, duplicate-runtime refusal, TTS echo suppression, fresh app-window opens, and low-RAM local-fallback skips
+- Current focus: prepare `Phase 3C - Messaging and Project Tooling`, with `Phase 3B` now closed through typed project-status and current-page lookup, bounded deep-research fast paths for live retrieval questions, and broader real-task benchmark coverage across the retrieval surface
 - Last completed phase: `Phase 2 - Contract Versioning`
-- Last completed slice: `Phase 3A - Deterministic Action Gaps`
-- Next milestone: continue the bounded `Phase 3B` retrieval and knowledge-quality work with broader latency reduction on the remaining retrieval routes using the new live real-task benchmark path
+- Last completed slice: `Phase 3B - Retrieval and Knowledge Quality`
+- Next milestone: start the bounded `Phase 3C` messaging and project-tooling work on top of the frozen v1 contracts
 
 ## Phase Status
 
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 81% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, live voice sessions now gate STT on actual TTS playback and drop TTS echoes, low-RAM local Ollama fallback now skips instead of stalling, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 86% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, tracked project status now summarizes derived project health plus adjacent repo state, current-page reads now resolve the active browser URL through the fetch path, deeper research now fast-paths live lookup-shaped questions into typed retrieval agents, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, real-task retrieval benchmarks now cover quick-fact, weather, GitHub, project-status, page-read, and news probes, live voice sessions now gate STT on actual TTS playback and drop TTS echoes, low-RAM local Ollama fallback now skips instead of stalling, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -105,7 +105,7 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | Slice | Status | Notes |
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
-| 3B — Retrieval and knowledge quality | In Progress | summarization hardening and news fallback landed, NVIDIA Gemma E4B now leads hot output/current-info chains after live validation, current-news timeout filler is rejected before speech, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, weather plus quick-fact lookup now use dedicated public sources before generic search fallback, current-role fact questions skip lightweight model narration for retrieval-backed lookup, GitHub status now resolves tracked project repos before MCP fallback, repeated-query caching plus snippet-first enrichment now reduce avoidable search/news latency, low-RAM local fallback now fails fast instead of blocking live answers, and `scripts/benchmark_models.py --real-tasks` now measures real retrieval tasks; broader retrieval latency still remains |
+| 3B — Retrieval and knowledge quality | Complete | current-information flows now return one retrieval-backed final answer across weather, quick facts, news, GitHub status, project status, current-page reads, page/video summarization, and bounded deep-research fast paths; repeated-query caching, snippet-first fetches, indexed page reuse, timeout-filler rejection, and broader `--real-tasks` benchmark coverage are all in place |
 | 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
 | 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
 
@@ -145,10 +145,10 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 
 ## Next Actions
 
-1. Continue `Phase 3B` retrieval and knowledge-quality work on the frozen v1 contracts
-2. Keep broader retrieval-latency work and the live provider benchmark path at the front of the `3B` queue now that indexed weather, quick-fact, and GitHub retrieval have landed
+1. Start `Phase 3C` messaging and project-tooling work on the frozen v1 contracts
+2. Keep Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion at the front of the `3C` queue
 3. Keep the v1 contract notes updated only if a future versioned migration becomes necessary
-4. Do not reopen the closed `3A` or Phase 2 surfaces casually while adding breadth
+4. Do not reopen the closed `3A`, `3B`, or Phase 2 surfaces casually while adding breadth
 
 ## Update Template
 
@@ -724,3 +724,24 @@ Append a new status block after each working session:
   `curl -i http://127.0.0.1:3335/api/v1/health` returned backend healthy
   `curl -i http://127.0.0.1:7532/api/v1/health` returned dashboard healthy when run outside sandbox network restrictions
 - Next action: run a live command pass for `open terminal`, `open Google Chrome`, and a news/current-info query while watching for TTS echo or low-RAM fallback skips
+
+## Progress Update - 2026-04-24
+
+- Phase: `Phase 3B - Retrieval and Knowledge Quality`
+- Status: completed for the current advertised surface
+- What moved:
+  added typed `lookup_project_status` and `lookup_page` capabilities on the existing retrieval owners instead of leaving tracked project health and current-page reads to generic search or chat fallback
+  extended `agents/runner.py` so tracked project status now summarizes derived project health, blockers, next tasks, and adjacent GitHub repo state, while `read this page` now resolves the active browser URL and reads it through the indexed fetch path
+  tightened `agents/research_agent.py` so live news, page-read, search, and project-status shaped research prompts fast-path into the typed retrieval agents before slower deep-research fallback
+  expanded `brain/tools_registry.py` and `scripts/benchmark_models.py --real-tasks` so project-status and page-read probes are part of the live retrieval contract surface
+- What is still blocked:
+  live provider-timing claims for the new retrieval cases still need host execution if we want publishable latency numbers instead of dry-run wiring evidence
+  `Phase 3C` messaging and project-tooling work remains next: Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion
+- Tests run:
+  `venv/bin/python -m py_compile agents/runner.py agents/research_agent.py brain/tools_registry.py capabilities/registry.py capabilities/planner.py pipeline/router.py scripts/benchmark_models.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_model_benchmark.py tests/test_project_store.py tests/test_research_agent.py`
+  `venv/bin/pytest tests/test_agents.py::AgentTests::test_project_status_agent_combines_project_registry_and_repo_status tests/test_agents.py::AgentTests::test_project_status_agent_falls_back_to_truthful_summary_when_model_is_empty tests/test_agents.py::AgentTests::test_project_status_agent_asks_for_tracked_project_when_query_is_unknown tests/test_agents.py::AgentTests::test_fetch_agent_reads_current_browser_page_without_explicit_url tests/test_agents.py::AgentTests::test_fetch_agent_returns_truthful_message_when_current_browser_page_is_unavailable tests/test_capabilities_planner.py::SemanticPlannerTests::test_project_status_phrase_maps_to_project_status_lookup tests/test_capabilities_planner.py::SemanticPlannerTests::test_read_this_page_maps_to_page_lookup tests/test_capabilities_planner.py::ToolRegistryTests::test_lookup_project_status_builds_project_status_agent_action tests/test_capabilities_planner.py::ToolRegistryTests::test_lookup_page_builds_fetch_agent_action tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_executes_project_status_lookup_before_generic_fallback tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_executes_page_lookup_before_generic_fallback tests/test_model_benchmark.py::ModelBenchmarkTests::test_run_retrieval_benchmarks_dry_run_reports_real_task_contracts tests/test_model_benchmark.py::ModelBenchmarkTests::test_run_retrieval_benchmarks_executes_project_status_case tests/test_research_agent.py -q` -> `15 passed`
+  `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks --task-case project_status_adpilot --task-case page_read_example`
+- Manual checks:
+  dry-run benchmark planned the new `project_status_adpilot` and `page_read_example` retrieval probes with zero wiring errors
+  doc and capability readback confirmed `Phase 3B` is now represented as closed and `Phase 3C` is next
+- Next action: start `Phase 3C - Messaging and Project Tooling` on the frozen v1 contracts

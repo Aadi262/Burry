@@ -105,6 +105,60 @@ class SemanticRoutingIntegrationTests(unittest.TestCase):
         recorded_intent = mock_record.call_args.kwargs["intent_name"]
         self.assertEqual(recorded_intent, "lookup_github_status")
 
+    @patch("capabilities.planner._project_names", return_value=["Adpilot"])
+    @patch("butler.note_intent")
+    @patch("butler.executor.run", return_value=[{"action": "run_agent", "status": "ok", "result": "Adpilot is active and 76% complete."}])
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    def test_handle_input_executes_project_status_lookup_before_generic_fallback(
+        self,
+        mock_speak,
+        mock_record,
+        mock_run,
+        mock_note_intent,
+        _mock_projects,
+    ):
+        butler.handle_input("how is adpilot doing", test_mode=True)
+
+        mock_run.assert_called_once()
+        action = mock_run.call_args.args[0][0]
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "project_status")
+        self.assertEqual(action["query"], "how is adpilot doing")
+        mock_note_intent.assert_any_call("lookup_project_status", {"query": "how is adpilot doing"}, 0.86, raw="how is adpilot doing")
+        recorded_intent = mock_record.call_args.kwargs["intent_name"]
+        self.assertEqual(recorded_intent, "lookup_project_status")
+
+    @patch("capabilities.planner.load_runtime_snapshot", return_value={"browser_url": "https://example.com/current"})
+    @patch("butler.note_intent")
+    @patch("butler.executor.run", return_value=[{"action": "run_agent", "status": "ok", "result": "This page is about Gemma 4."}])
+    @patch("butler._record")
+    @patch("butler._speak_or_print")
+    def test_handle_input_executes_page_lookup_before_generic_fallback(
+        self,
+        mock_speak,
+        mock_record,
+        mock_run,
+        mock_note_intent,
+        _mock_runtime,
+    ):
+        butler.handle_input("read this page", test_mode=True)
+
+        mock_run.assert_called_once()
+        action = mock_run.call_args.args[0][0]
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "fetch")
+        self.assertEqual(action["query"], "read this page")
+        self.assertEqual(action["url"], "https://example.com/current")
+        mock_note_intent.assert_any_call(
+            "lookup_page",
+            {"query": "read this page", "url": "https://example.com/current"},
+            0.88,
+            raw="read this page",
+        )
+        recorded_intent = mock_record.call_args.kwargs["intent_name"]
+        self.assertEqual(recorded_intent, "lookup_page")
+
     @patch("agents.runner.run_agent", return_value={"result": "Top AI story: new model release."})
     @patch("butler.note_intent")
     @patch("butler._record")

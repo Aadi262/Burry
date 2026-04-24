@@ -163,6 +163,21 @@ def _project_names_with_repos() -> list[str]:
     return [name for name in names if name]
 
 
+def _project_names() -> list[str]:
+    try:
+        from projects.project_store import load_projects
+
+        projects = load_projects()
+    except Exception:
+        return []
+
+    names: list[str] = []
+    for project in projects:
+        names.append(str(project.get("name", "") or "").strip())
+        names.extend(str(alias).strip() for alias in list(project.get("aliases") or []) if str(alias).strip())
+    return [name for name in names if name]
+
+
 def _looks_like_github_status_request(text: str) -> bool:
     lowered = _normalized(text).lower()
     if not lowered:
@@ -179,6 +194,54 @@ def _looks_like_github_status_request(text: str) -> bool:
             if cleaned_candidate.strip() and cleaned_candidate in normalized:
                 return True
     return False
+
+
+def _looks_like_project_status_request(text: str) -> bool:
+    lowered = _normalized(text).lower()
+    if not lowered:
+        return False
+    if _looks_like_github_status_request(lowered):
+        return False
+    if not any(
+        marker in lowered
+        for marker in (
+            "how is ",
+            "how's ",
+            "status of ",
+            "project status ",
+            "progress on ",
+            "doing",
+        )
+    ):
+        return False
+    normalized = f" {lowered} "
+    for candidate in _project_names():
+        cleaned_candidate = f" {_normalized(candidate).lower()} "
+        if cleaned_candidate.strip() and cleaned_candidate in normalized:
+            return True
+    return False
+
+
+def _looks_like_page_read_request(text: str) -> bool:
+    lowered = _normalized(text).lower()
+    if not lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "read this page",
+            "read the page",
+            "read this article",
+            "read the article",
+            "current page",
+            "this page",
+            "this article",
+            "what does this page say",
+            "what is on this page",
+            "read this url",
+            "read this link",
+        )
+    )
 
 
 def _clarify(goal: str, question: str, *, intent_name: str, confidence: float = 0.45) -> CapabilityTask:
@@ -266,6 +329,36 @@ def _plan_from_heuristics(text: str, *, current_intent: str = "") -> CapabilityT
             force_override=current_intent in {"project_status", "github_status"},
         )
 
+    if _looks_like_project_status_request(cleaned):
+        return CapabilityTask(
+            kind="lookup",
+            goal=f"Check project status for {cleaned.rstrip('?')}",
+            tool="lookup_project_status",
+            args={"query": cleaned.rstrip("?")},
+            confidence=0.86,
+            intent_name="lookup_project_status",
+            force_override=current_intent == "project_status",
+        )
+
+    if _looks_like_page_read_request(cleaned):
+        browser_url = ""
+        workspace = runtime_state.get("workspace") if isinstance(runtime_state.get("workspace"), dict) else {}
+        if isinstance(workspace, dict):
+            browser_url = str(workspace.get("browser_url", "") or "").strip()
+        if not browser_url:
+            browser_url = str(runtime_state.get("browser_url", "") or "").strip()
+        args: dict[str, str] = {"query": cleaned.rstrip("?")}
+        if browser_url:
+            args["url"] = browser_url
+        return CapabilityTask(
+            kind="lookup",
+            goal="Read the current page",
+            tool="lookup_page",
+            args=args,
+            confidence=0.88,
+            intent_name="lookup_page",
+        )
+
     if "weather" in lowered:
         query = resolve_weather_query(cleaned)
         if not query or query.lower() == "weather":
@@ -315,7 +408,10 @@ def _canonical_tool_name(name: str) -> str:
         "live_lookup": "lookup_web",
         "github_status": "lookup_github_status",
         "repo_status": "lookup_github_status",
+        "project_status": "lookup_project_status",
         "news": "lookup_news",
+        "page_read": "lookup_page",
+        "read_page": "lookup_page",
         "youtube_play": "play_youtube",
     }
     cleaned = str(name or "").strip()
@@ -350,7 +446,9 @@ Rules:
 - Prefer compose_email for Gmail draft requests.
 - Prefer lookup_weather for weather requests.
 - Prefer check_vps for VPS or server status.
+- Prefer lookup_project_status for tracked-project health or progress questions.
 - Prefer lookup_news for latest news.
+- Prefer lookup_page for current-page or explicit page-read requests.
 - Prefer lookup_web for live current facts.
 - If a tool is missing required args, set needs_clarification to true and ask one short question.
 - If no tool is needed, leave tool empty and answer directly.

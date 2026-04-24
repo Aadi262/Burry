@@ -107,6 +107,20 @@ RETRIEVAL_BENCHMARK_CASES: tuple[dict[str, Any], ...] = (
         "latency_budget_s": 8.0,
     },
     {
+        "name": "project_status_adpilot",
+        "agent_type": "project_status",
+        "input": {"query": "how is adpilot doing"},
+        "expected_tool": "project_status",
+        "latency_budget_s": 8.0,
+    },
+    {
+        "name": "page_read_example",
+        "agent_type": "fetch",
+        "input": {"query": "read this https://example.com", "url": "https://example.com"},
+        "expected_tool": "jina_fetch",
+        "latency_budget_s": 8.0,
+    },
+    {
         "name": "news_ai_headlines",
         "agent_type": "news",
         "input": {"topic": "AI", "hours": 24},

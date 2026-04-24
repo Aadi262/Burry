@@ -197,6 +197,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         action_builder=_run_agent_action("github"),
         aliases=("github_status", "repo_status"),
     ),
+    "lookup_project_status": ToolSpec(
+        name="lookup_project_status",
+        action_type="run_agent",
+        kind="lookup",
+        description="Check the current status, blockers, next tasks, and health of a tracked local project.",
+        capability_id="K09",
+        required_args=("query",),
+        latency_budget_s=8.0,
+        sync_execution=True,
+        public=True,
+        action_builder=_run_agent_action("project_status"),
+        aliases=("project_status", "status_project"),
+    ),
     "lookup_news": ToolSpec(
         name="lookup_news",
         action_type="run_agent",
@@ -208,6 +221,18 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         public=True,
         action_builder=_run_agent_action("news"),
         aliases=("news", "latest_news"),
+    ),
+    "lookup_page": ToolSpec(
+        name="lookup_page",
+        action_type="run_agent",
+        kind="lookup",
+        description="Read the current browser page or a specific URL through the indexed page fetch path.",
+        capability_id="B10",
+        latency_budget_s=8.0,
+        sync_execution=True,
+        public=True,
+        action_builder=_run_agent_action("fetch"),
+        aliases=("read_page", "page_read", "current_page"),
     ),
     "check_vps": ToolSpec(
         name="check_vps",
@@ -296,7 +321,19 @@ def get_capability_descriptor(name_or_id: str) -> CapabilityDescriptor | None:
 
 def tool_catalog_for_prompt() -> str:
     lines = []
-    for name in ("minimize_app", "create_folder", "compose_email", "play_youtube", "lookup_weather", "lookup_web", "lookup_news", "check_vps"):
+    for name in (
+        "minimize_app",
+        "create_folder",
+        "compose_email",
+        "play_youtube",
+        "lookup_weather",
+        "lookup_web",
+        "lookup_github_status",
+        "lookup_project_status",
+        "lookup_news",
+        "lookup_page",
+        "check_vps",
+    ):
         spec = TOOL_SPECS[name]
         required = f" args={', '.join(spec.required_args)}" if spec.required_args else ""
         prefix = f"[{spec.capability_id}] " if spec.capability_id else ""

@@ -1,5 +1,5 @@
 # BURRY OS — Capability Map
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 Legend: `✅ working` | `🟡 partial` | `❌ not built` | `🔧 needs your setup`
 
 This file now has 2 layers:
@@ -15,8 +15,8 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Metric | Count |
 | --- | ---: |
 | Working capabilities | 40 |
-| Partial capabilities | 71 |
-| Not built capabilities | 43 |
+| Partial capabilities | 72 |
+| Not built capabilities | 42 |
 | Setup-dependent-only capabilities | 2 |
 | Capabilities that still touch setup prerequisites | 7 |
 | Total capability IDs tracked | 156 |
@@ -26,11 +26,14 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | ID | Public tool | Current contract meaning |
 | --- | --- | --- |
 | B09 | `play_youtube` | YouTube play/search handoff |
+| B10 | `lookup_page` | current page or URL read lookup |
 | E03 | `compose_email` | Gmail compose draft path |
 | F04 | `create_folder` | path-aware folder creation |
 | K01 | `lookup_web` | current web lookup |
 | K03 | `lookup_news` | current news lookup |
 | K04 | `lookup_weather` | weather lookup |
+| K09 | `lookup_project_status` | tracked project-status lookup |
+| K10 | `lookup_github_status` | GitHub repo-status lookup |
 | SY14 | `minimize_app` | frontmost-window minimize |
 | T14 | `check_vps` | VPS health lookup |
 
@@ -56,7 +59,8 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | SY01-SY09, SY11, SY17-SY20 | 🟡 | system-control routing now covers common volume or mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrases; safe host smoke now covers screenshot/battery/wifi while disruptive controls remain operator-gated |
 | C01-C04 | mixed | calendar reads and writes now use truthful Calendar host-permission fallback when automation is unavailable, and reminders verify against the Reminders list when automation access is granted |
 | K03 | 🟡 | news uses SearXNG, DuckDuckGo, Exa, then Google News RSS before giving up; NVIDIA Gemma E4B is the hot text model, larger NVIDIA models remain in fallback, and timeout filler is rejected before speech |
-| B16, K06 | 🟡 | page summarization and page fetch now reuse indexed web-page snapshots from `memory/knowledge_base.py`, with Jina and direct HTML extraction as live fallbacks |
+| B10, B16, K06 | 🟡 | current-page reads plus page summarization now reuse indexed web-page snapshots from `memory/knowledge_base.py`, resolve the active browser URL when needed, and fall back through Jina or direct HTML extraction |
+| K09, K10 | 🟡 | tracked project status now summarizes derived project health, blockers, next tasks, and adjacent GitHub repo state; direct GitHub status still works for tracked projects and raw `owner/repo` phrases |
 | M09, K07, M10 | 🟡 | video summarization now has caption and transcript fallbacks and can save notes into Obsidian when configured |
 | Live voice session loop | 🟡 | continuous clap sessions now gate STT on actual TTS playback and drop recent spoken-text echoes before dispatch; broader barge-in and audio-ducking behavior still needs live tuning |
 
@@ -75,7 +79,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | B07 | Google search | search for X | ✅ | working |
 | B08 | YouTube search | search X on youtube | ✅ | routes to the YouTube results page instead of falling into Spotify |
 | B09 | Play on YouTube | play X on youtube | 🟡 | opens verified YouTube search/results flow for `play X on youtube`; it does not guarantee autoplay |
-| B10 | Read current page | read this page | ❌ | dedicated page-read flow is still missing |
+| B10 | Read current page | read this page | 🟡 | `lookup_page` now resolves the active browser URL from runtime context and reads it through the indexed fetch path; it still depends on current browser state or an explicit URL being available |
 | B11 | Scroll down | scroll down | ❌ | needs vision or GUI control stack, not just browser URL wiring |
 | B12 | Click button | click submit button | ❌ | needs vision plus GUI control |
 | B13 | Go back | go back | 🟡 | deterministic back route is live, runs against the resolved browser family, and is host-smoke validated against local temp pages |
@@ -215,14 +219,14 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | ID | Capability | Voice example | Effective status | Current gap or note |
 | --- | --- | --- | --- | --- |
 | K01 | Web search | search X | 🟡 | search uses SearXNG first and falls back through DuckDuckGo and Exa when available, now with repeated-query caching and snippet-first live fetches; quality still depends on backend reachability |
-| K02 | Latest news | latest news | 🟡 | current-news quality is much better than the old map claimed, but latency and quality still vary with backend reachability |
+| K02 | Latest news | latest news | 🟡 | current-news latency now benefits from repeated-query caching, snippet-first fetches, and a typed real-task benchmark path, but backend reachability still affects quality |
 | K03 | News on topic | latest news on claude mythos | 🟡 | `agents/runner.py` now hardens current-news lookups with Google News RSS fallback plus repeated-query caching and snippet-first enrichment when search snippets are already rich |
 | K04 | Weather | what's the weather in mumbai | 🟡 | dedicated `wttr.in` lookup with Open-Meteo fallback is now live and regression-covered on current plus tomorrow phrasing; quality still depends on public-provider reachability |
 | K05 | Quick fact | who is president of america | 🟡 | direct DuckDuckGo instant-answer and Wikipedia summary lookup now run before generic search fallback; current-role variants like `who is PM of India` skip lightweight model narration and go to retrieval-backed lookup |
 | K06 | Summarize page | summarize this article | 🟡 | current page summarization and fetch reuse indexed page snapshots first, then fall back to Jina and direct HTML extraction when needed |
 | K07 | Summarize YouTube | summarize this video | 🟡 | current video summarization now falls back through captions, transcript APIs, `yt-dlp`, Whisper, and page extraction |
-| K08 | Research topic | research X deeply | 🟡 | works, but 2-5 minute latency is still too slow |
-| K09 | Project status | how is adpilot doing | 🟡 | partial |
+| K08 | Research topic | research X deeply | 🟡 | deep research now fast-paths live news, page-read, search, and project-status shaped questions into the typed retrieval agents first; broader multi-step research is still slower than hot lookup paths |
+| K09 | Project status | how is adpilot doing | 🟡 | `lookup_project_status` now summarizes tracked project state, blockers, next tasks, health, and GitHub repo status when available |
 | K10 | GitHub status | any issues on adpilot | 🟡 | tracked-project and direct `owner/repo` GitHub status now work through public API reads; token still improves private-repo access and rate limits |
 
 ### Vision and Screen
@@ -305,7 +309,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Filesystem and Finder | `intents/router.py`, `executor/engine.py`, `capabilities/registry.py` | F01-F18 | common local path routing plus create/open/read/write/find/list/move/copy/rename/delete/zip flows are now landed; next gaps are broader naming variants, terminal-created files, and the Google Doc/Sheet create-new shortcuts |
 | Email and WhatsApp | `brain/session_context.py`, `intents/router.py`, `executor/engine.py`, `channels/*` when needed | E01-E08, W01-W07 | keep Gmail and WhatsApp on draft-or-compose semantics unless the host can verify delivery; add attachment flow, phone/contact normalization, and explicit operator confirmation before true send steps |
 | Calendar, reminders, tasks, and notes | `intents/router.py`, `executor/engine.py`, `skills/calendar_skill.py`, `context/obsidian_context.py` | C01-C10 | calendar and reminder verification are now truthful on supported hosts; next gaps are task-done wiring plus Obsidian search/read flows, while Calendar read/write remain setup-dependent on host automation access |
-| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, GitHub-status lookup, NVIDIA Gemma E4B hot text routing, timeout-filler rejection for news, repeated-query caching, snippet-first fetches, and `scripts/benchmark_models.py --real-tasks` now reduce and measure avoidable search or news latency; next gaps are broader latency reduction across the remaining retrieval routes |
+| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, GitHub-status, project-status, and current-page lookup are now in place; news rejects timeout filler, deeper research fast-paths live retrieval first, and `scripts/benchmark_models.py --real-tasks` now covers quick-fact, weather, GitHub, project-status, page-read, and news probes |
 | System control | `intents/router.py`, `executor/engine.py` | SY01-SY20 | deterministic volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, battery, wifi, dark-mode, and DND routing are now wired; safe host smoke is in place and the next gaps are disruptive-control smoke plus empty-trash, mission-control, and force-quit |
 | Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | plain Terminal opens now create a fresh window; next gaps are open-in-Codex/Claude/Cursor, run-tests, git commit/push confirmation flows, and truthful VPS credential degradation |
 | Vision and full computer control | `agents/vision.py`, `executor/engine.py`, `agents/browser_agent.py` | V01-V08, B11-B12, V06-V07 | treat screenshot capture, OCR, screen understanding, click targeting, and form fill as one stack: capture -> detect -> act -> verify; do not wire click/fill until the vision read path is stable |
@@ -316,7 +320,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 
 | Slice | Main scope | Why this order |
 | --- | --- | --- |
-| Phase 3B — knowledge and retrieval breadth | weather/fact/news latency, GitHub status, page/article/video summarization reliability, indexed retrieval | indexed page retrieval plus dedicated weather, quick-fact, and GitHub-status lookup are now in place, and repeated-query caching plus snippet-first fetches plus real-task benchmarks now reduce and measure search/news latency; next gaps are broader latency work on the remaining retrieval routes |
-| Phase 3C — messaging and project tooling | Gmail attachments, WhatsApp compose/send refinement, run-tests, editor openers, git confirmations, VPS checks | these flows already have partial wiring and mostly need completion plus truthful verification |
+| Phase 3B — knowledge and retrieval breadth | weather/fact/news latency, GitHub status, page/article/video summarization reliability, indexed retrieval | complete for the current advertised surface: page-read and project-status now have typed retrieval paths, deeper research fast-paths live lookups first, and the real-task benchmark path covers the main retrieval routes |
+| Phase 3C — messaging and project tooling | Gmail attachments, WhatsApp compose/send refinement, run-tests, editor openers, git confirmations, VPS checks | next active slice; these flows already have partial wiring and mostly need completion plus truthful verification |
 | Phase 3D — HUD visibility and proactive loops | pending context UI, mood UI, logs/timing, smarter heartbeat suggestions | the runtime already publishes most of the signals; the HUD just does not expose them well enough yet |
 | Phase 4 — vision and full GUI control | screen reading, OCR, click/fill, PDF-on-screen, browser form control | this stack is heavier, setup-sensitive, and should land only after the deterministic action surface is reliable |

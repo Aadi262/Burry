@@ -56,6 +56,8 @@ That means the product is built around:
 - quick facts now prefer DuckDuckGo instant answers and Wikipedia summaries before falling back to generic search
 - current-role fact questions such as "who is PM of India" skip lightweight model narration and use the retrieval-backed search path
 - GitHub status now resolves tracked-project repos and direct `owner/repo` phrases through public API reads before MCP fallback
+- tracked project-status lookup now summarizes project health, blockers, next tasks, and adjacent GitHub state in one typed answer
+- `read this page` now resolves the active browser URL from runtime context and reads it through the indexed page-fetch path before falling back to explicit URL handling
 - page summarization and page fetch now reuse indexed page snapshots, with Jina first and direct extraction fallback when live fetch is needed
 - video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
 - project-aware `what should i do next`
@@ -276,7 +278,7 @@ Useful direct entrypoints:
 venv/bin/python projects/dashboard.py
 venv/bin/python projects/github_sync.py
 venv/bin/python scripts/benchmark_models.py --json --dry-run
-venv/bin/python scripts/benchmark_models.py --json --real-tasks --case voice_brief --task-case quick_fact_pm_india
+venv/bin/python scripts/benchmark_models.py --json --real-tasks --case voice_brief --task-case quick_fact_pm_india --task-case project_status_adpilot --task-case page_read_example
 venv/bin/python projects/open_project.py adpilot
 venv/bin/python trigger.py --clap
 ```

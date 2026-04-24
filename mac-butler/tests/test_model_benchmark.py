@@ -67,17 +67,18 @@ class ModelBenchmarkTests(unittest.TestCase):
         _mock_provider_ready,
     ):
         report = benchmark_models.run_retrieval_benchmarks(
-            case_names=["quick_fact_pm_india", "weather_new_delhi"],
+            case_names=["quick_fact_pm_india", "project_status_adpilot", "page_read_example"],
             execute=False,
         )
 
         self.assertTrue(report["nvidia_ready"])
-        self.assertEqual(report["case_count"], 2)
+        self.assertEqual(report["case_count"], 3)
         self.assertFalse(report["executed"])
         self.assertEqual(report["summary"]["error"], 0)
         self.assertEqual(report["results"][0]["status"], "planned")
         self.assertEqual(report["results"][0]["expected_tool"], "quick_fact")
-        self.assertEqual(report["results"][1]["expected_tool"], "weather_lookup")
+        self.assertEqual(report["results"][1]["expected_tool"], "project_status")
+        self.assertEqual(report["results"][2]["expected_tool"], "jina_fetch")
 
     @patch.object(benchmark_models, "_provider_ready", return_value=True)
     @patch.object(benchmark_models, "pick_agent_model", return_value="nvidia::google/gemma-3n-e4b-it")
@@ -113,6 +114,39 @@ class ModelBenchmarkTests(unittest.TestCase):
         self.assertTrue(result["within_budget"])
         self.assertIn("Narendra Modi", result["result_excerpt"])
         mock_run_agent.assert_called_once()
+
+    @patch.object(benchmark_models, "_provider_ready", return_value=True)
+    @patch.object(benchmark_models, "pick_agent_model", return_value="nvidia::google/gemma-3n-e4b-it")
+    @patch.object(
+        benchmark_models,
+        "run_agent",
+        return_value={
+            "status": "ok",
+            "result": "Adpilot is active and about 76% complete.",
+            "data": {"tool": "project_status"},
+        },
+    )
+    @patch.object(benchmark_models.time, "perf_counter", side_effect=[20.0, 21.4])
+    def test_run_retrieval_benchmarks_executes_project_status_case(
+        self,
+        _mock_perf_counter,
+        mock_run_agent,
+        _mock_pick_model,
+        _mock_provider_ready,
+    ):
+        report = benchmark_models.run_retrieval_benchmarks(
+            case_names=["project_status_adpilot"],
+            execute=True,
+        )
+
+        self.assertEqual(report["summary"]["ok"], 1)
+        self.assertEqual(report["results"][0]["actual_tool"], "project_status")
+        self.assertTrue(report["results"][0]["within_budget"])
+        mock_run_agent.assert_called_once_with(
+            "project_status",
+            {"query": "how is adpilot doing"},
+            model_override="nvidia::google/gemma-3n-e4b-it",
+        )
 
     @patch.object(benchmark_models, "_provider_ready", return_value=True)
     @patch.object(benchmark_models, "pick_agent_model", return_value="nvidia::google/gemma-3n-e4b-it")

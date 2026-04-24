@@ -3,6 +3,24 @@ Sprint: AgentScope Integration (Apr 2026)
 Commits: 5c97615 → f0c97d5
 Done
 
+Phase 3B Closure — 2026-04-24
+
+Completed
+- added typed `lookup_project_status` and `lookup_page` capabilities on the existing retrieval owners instead of leaving project health and current-page reads to generic fallback paths
+- extended `agents/runner.py` with tracked project-status summarization plus current-browser page reads through the indexed fetch path
+- tightened `agents/research_agent.py` so live news, page-read, search, and project-status shaped research prompts fast-path into the typed retrieval agents before slower deep-research fallback
+- expanded `brain/tools_registry.py` with `lookup_project_status` and `read_page`, and expanded `scripts/benchmark_models.py --real-tasks` with tracked project-status plus page-read probes
+- added focused regressions across agents, planner, semantic routing, research fast paths, benchmarks, and project-store state; aligned the live docs and trackers to move the roadmap from closed `Phase 3B` to queued `Phase 3C`
+
+Validation
+- `venv/bin/python -m py_compile agents/runner.py agents/research_agent.py brain/tools_registry.py capabilities/registry.py capabilities/planner.py pipeline/router.py scripts/benchmark_models.py tests/test_agents.py tests/test_capabilities_planner.py tests/test_pipeline_semantic_routing.py tests/test_model_benchmark.py tests/test_project_store.py tests/test_research_agent.py`
+- `venv/bin/pytest tests/test_agents.py::AgentTests::test_project_status_agent_combines_project_registry_and_repo_status tests/test_agents.py::AgentTests::test_project_status_agent_falls_back_to_truthful_summary_when_model_is_empty tests/test_agents.py::AgentTests::test_project_status_agent_asks_for_tracked_project_when_query_is_unknown tests/test_agents.py::AgentTests::test_fetch_agent_reads_current_browser_page_without_explicit_url tests/test_agents.py::AgentTests::test_fetch_agent_returns_truthful_message_when_current_browser_page_is_unavailable tests/test_capabilities_planner.py::SemanticPlannerTests::test_project_status_phrase_maps_to_project_status_lookup tests/test_capabilities_planner.py::SemanticPlannerTests::test_read_this_page_maps_to_page_lookup tests/test_capabilities_planner.py::ToolRegistryTests::test_lookup_project_status_builds_project_status_agent_action tests/test_capabilities_planner.py::ToolRegistryTests::test_lookup_page_builds_fetch_agent_action tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_executes_project_status_lookup_before_generic_fallback tests/test_pipeline_semantic_routing.py::SemanticRoutingIntegrationTests::test_handle_input_executes_page_lookup_before_generic_fallback tests/test_model_benchmark.py::ModelBenchmarkTests::test_run_retrieval_benchmarks_dry_run_reports_real_task_contracts tests/test_model_benchmark.py::ModelBenchmarkTests::test_run_retrieval_benchmarks_executes_project_status_case tests/test_research_agent.py -q` -> `15 passed`
+- `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks --task-case project_status_adpilot --task-case page_read_example`
+
+Still pending
+- `Phase 3C` messaging and project-tooling work is next: Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion
+- live provider-timing claims for the new retrieval cases still need host execution if we want to publish real latency numbers instead of dry-run wiring evidence
+
 NVIDIA Gemma Routing Hardening — 2026-04-19
 
 Completed

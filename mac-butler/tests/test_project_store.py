@@ -30,7 +30,7 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertNotIn("BUTLER_STATUS.md", status_files)
         self.assertNotIn("2026-04-08-architecture-remediation-roadmap.md", next_tasks)
 
-    def test_mac_butler_registry_entry_tracks_live_phase3b_state(self):
+    def test_mac_butler_registry_entry_tracks_live_phase3c_state(self):
         path = Path(__file__).resolve().parent.parent / "projects" / "projects.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
 
@@ -39,11 +39,11 @@ class ProjectStoreTests(unittest.TestCase):
         next_tasks = " ".join(project.get("next_tasks") or [])
         blurb = str(project.get("blurb", "") or "")
 
-        self.assertGreaterEqual(int(project.get("completion", 0) or 0), 76)
+        self.assertGreaterEqual(int(project.get("completion", 0) or 0), 80)
         self.assertNotIn("Phase 3 feature completion has not started", blockers)
-        self.assertIn("retrieval", blockers.lower())
-        self.assertIn("benchmark", next_tasks.lower())
-        self.assertIn("Phase 3B", blurb)
+        self.assertIn("messaging", blockers.lower())
+        self.assertTrue("run-tests" in next_tasks.lower() or "attachments" in next_tasks.lower())
+        self.assertIn("Phase 3C", blurb)
 
     def test_explicit_progress_candidate_reads_total_percentage(self):
         with tempfile.TemporaryDirectory() as tmpdir:

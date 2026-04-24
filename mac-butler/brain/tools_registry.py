@@ -197,6 +197,27 @@ def browse_web(query: str, url: str = "") -> str:
 
 
 @tool
+def read_page(url: str = "", question: str = "") -> str:
+    """Read the current browser page or a specific URL through the retrieval-backed page fetch path."""
+    from agents.runner import run_agent
+
+    payload = {"query": question or ("read this page" if not url else f"read {url}")}
+    if url:
+        payload["url"] = url
+    result = run_agent("fetch", payload)
+    return str(result.get("result", "") or "").strip()
+
+
+@tool
+def lookup_project_status(project: str) -> str:
+    """Check the current tracked-project status, blockers, and next steps."""
+    from agents.runner import run_agent
+
+    result = run_agent("project_status", {"query": project})
+    return str(result.get("result", "") or "").strip()
+
+
+@tool
 def volume_up() -> str:
     """Turn up the Mac system volume."""
     subprocess.run(["osascript", "-e", "set volume output volume ((output volume of (get volume settings)) + 10)"])

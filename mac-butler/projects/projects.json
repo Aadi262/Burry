@@ -7,21 +7,21 @@
     "path": "~/Burry/mac-butler",
     "repo": null,
     "description": "Local AI operator agent for macOS with voice, context, actions, and memory.",
-    "blurb": "mac-butler is a local operator runtime for macOS with closed Phase 3A action coverage and active Phase 3B retrieval work. Next up is cutting retrieval latency and benchmarking the NVIDIA-first routing on real lookup tasks.",
+    "blurb": "mac-butler is a local operator runtime for macOS with closed Phase 3B retrieval work on top of the Phase 3A action surface. Next up is Phase 3C messaging and project-tooling work like attachments, richer WhatsApp, run-tests, and editor openers.",
     "status": "active",
-    "completion": 78,
+    "completion": 84,
     "deploy_target": "Local Mac + Ollama",
     "live": true,
     "live_url": "http://127.0.0.1:7532",
     "blockers": [
-      "Retrieval latency still varies across search, news, and page-summary paths when provider fallbacks stack up.",
+      "Messaging and project-tooling flows still need richer compose or send verification, attachments, and explicit confirmation boundaries.",
       "Vision, NVIDIA speech, and some summarization paths still depend on optional local dependencies or credentials.",
       "Real Mail delivery, WhatsApp send, and live calendar reads or writes still depend on host permissions or explicit operator inputs."
     ],
     "next_tasks": [
-      "Reduce retrieval latency on GitHub, news, and page-summary paths without reopening the closed Phase 3A surface.",
-      "Benchmark the NVIDIA-first model routing against local fallbacks on real lookup and review prompts.",
-      "Keep `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` aligned with runtime truth while Phase 3B moves."
+      "Start Phase 3C with run-tests, editor openers, and project-tooling confirmation paths without reopening the closed Phase 3A or Phase 3B surfaces.",
+      "Finish Gmail attachments and richer WhatsApp compose or send verification.",
+      "Keep `.CODEX/Codex.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` aligned with runtime truth while Phase 3C moves."
     ],
     "status_files": [
       ".CODEX/Codex.md",

@@ -13,6 +13,7 @@ from agents.runner import (
     _github_agent,
     _news_agent,
     _pick_model,
+    _project_status_agent,
     _quick_fact_lookup,
     _search_agent,
     _weather_agent,
@@ -171,6 +172,103 @@ class AgentTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["result"], "Which GitHub repo or tracked project should I check?")
+
+    @patch(
+        "projects.github_sync.fetch_repo_status",
+        return_value={
+            "repo": "Aadi262/Adpilot",
+            "full_name": "Aadi262/Adpilot",
+            "open_issues": 2,
+            "open_pull_requests": 1,
+            "pushed_at": "2026-04-16T12:00:00Z",
+            "latest_commit": {"message": "Fix deploy health check"},
+        },
+    )
+    @patch(
+        "projects.project_store.get_project",
+        return_value={
+            "name": "Adpilot",
+            "repo": "Aadi262/Adpilot",
+            "status": "active",
+            "completion": 76,
+            "health_status": "degraded",
+            "blockers": ["Feature status needs to be reconciled with the actual running stack."],
+            "next_tasks": ["Verify the live route set against FEATURE_STATUS and PLAN.md."],
+            "blurb": "Adpilot is the AI-powered ad and SEO command center. Next up is verifying the live route set.",
+            "git_branch": "main",
+            "git_dirty": False,
+            "live": False,
+        },
+    )
+    @patch(
+        "agents.runner._call_model",
+        return_value=(
+            "Adpilot is active and about 76% complete. "
+            "Main blocker is reconciling the feature status with the real running stack. "
+            "GitHub shows 2 open issues and 1 open pull request."
+        ),
+    )
+    def test_project_status_agent_combines_project_registry_and_repo_status(
+        self,
+        _mock_call_model,
+        _mock_get_project,
+        _mock_fetch_status,
+    ):
+        result = run_agent("project_status", {"query": "how is adpilot doing"})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "project_status")
+        self.assertEqual(result["data"]["project"], "Adpilot")
+        self.assertEqual(result["data"]["repo"], "Aadi262/Adpilot")
+        self.assertIn("76% complete", result["result"])
+        self.assertIn("open issues", result["result"])
+
+    @patch(
+        "projects.github_sync.fetch_repo_status",
+        return_value={
+            "repo": "Aadi262/Adpilot",
+            "full_name": "Aadi262/Adpilot",
+            "open_issues": 2,
+            "open_pull_requests": 1,
+            "pushed_at": "2026-04-16T12:00:00Z",
+            "latest_commit": {"message": "Fix deploy health check"},
+        },
+    )
+    @patch(
+        "projects.project_store.get_project",
+        return_value={
+            "name": "Adpilot",
+            "repo": "Aadi262/Adpilot",
+            "status": "active",
+            "completion": 76,
+            "health_status": "degraded",
+            "blockers": ["Feature status needs to be reconciled with the actual running stack."],
+            "next_tasks": ["Verify the live route set against FEATURE_STATUS and PLAN.md."],
+            "blurb": "",
+            "git_branch": "main",
+            "git_dirty": False,
+            "live": False,
+        },
+    )
+    @patch("agents.runner._call_model", return_value="")
+    def test_project_status_agent_falls_back_to_truthful_summary_when_model_is_empty(
+        self,
+        _mock_call_model,
+        _mock_get_project,
+        _mock_fetch_status,
+    ):
+        result = _project_status_agent({"query": "how is adpilot doing"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("Main blocker", result["result"])
+        self.assertIn("GitHub shows 2 open issues", result["result"])
+
+    @patch("projects.project_store.get_project", return_value=None)
+    def test_project_status_agent_asks_for_tracked_project_when_query_is_unknown(self, _mock_get_project):
+        result = _project_status_agent({"query": "how is mystery thing doing"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "Which tracked project should I check?")
 
     @patch(
         "agents.runner._wttr_weather_lookup",
@@ -685,6 +783,36 @@ class AgentTests(unittest.TestCase):
             "Fresh Gemma 4 page text from live fetch.",
             title="",
         )
+
+    @patch("agents.runner._call_model", return_value="This page says Gemma 4 launched with broader deployment support.")
+    @patch("agents.runner._cached_or_live_page_text", return_value="Gemma 4 launch notes with broader deployment support and lower latency.")
+    @patch("context.mac_activity.get_active_browser_url")
+    @patch("context.mac_activity.load_state", return_value={"browser_url": "https://example.com/current"})
+    def test_fetch_agent_reads_current_browser_page_without_explicit_url(
+        self,
+        _mock_state,
+        mock_active_url,
+        _mock_fetch,
+        _mock_call,
+    ):
+        result = _fetch_agent({"query": "read this page"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["tool"], "current_page_fetch")
+        self.assertEqual(result["data"]["url"], "https://example.com/current")
+        mock_active_url.assert_not_called()
+
+    @patch("context.mac_activity.get_active_browser_url", return_value="")
+    @patch("context.mac_activity.load_state", return_value={})
+    def test_fetch_agent_returns_truthful_message_when_current_browser_page_is_unavailable(
+        self,
+        _mock_state,
+        _mock_active_url,
+    ):
+        result = _fetch_agent({"query": "read this page"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], "I couldn't find the current browser page to read.")
 
     def test_search_agent_asks_for_clarification_on_too_short_query(self):
         result = _search_agent({"query": "what is"}, "test-model")

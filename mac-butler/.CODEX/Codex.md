@@ -101,7 +101,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - context/mcp_context.py      — MCP server status
 
 ### Agents
-- agents/runner.py            — specialist agents (news, search, vps, code, github)
+- agents/runner.py            — specialist agents (news, search, fetch, vps, code, github, project_status)
 - agents/browser_agent.py     — browser agent with Playwright fallback
 - agents/planner_agent.py     — AgentScope meta-planner
 - agents/research_agent.py    — deep research agent
@@ -174,9 +174,11 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback
 - quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback, and current-role questions like "who is PM of India" skip lightweight model narration for retrieval-backed lookup
 - GitHub status lookup now resolves tracked project repos and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
+- tracked project-status lookup now summarizes the project registry state, derived health, blockers, next tasks, and adjacent GitHub repo status through one typed retrieval path
 - calendar read now supports today, tomorrow, next event, and this-week phrasing with truthful permission fallback; calendar create phrases like "add meeting tomorrow 3pm" now route deterministically through router/executor
 - filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases with fuzzy path resolution and verification-aware results
 - system-control routing now covers common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrasing on the existing executor actions
+- `read this page` now resolves the active browser URL from runtime context and reads it through the indexed fetch path before falling back to explicit URL requests
 - page summarization now reuses indexed web-page snapshots before falling back to Jina and direct HTML extraction
 - video summarization with YouTube caption-track extraction plus `yt-dlp` / Whisper / Jina fallback paths
 - save-video-summary flow into Obsidian when the vault is configured
@@ -200,7 +202,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Routing order pinned: pending → instant → skills → deterministic router → classifier
 - Verification-aware outcomes for filesystem, browser, terminal, project-open, calendar add, reminders, Gmail compose, and WhatsApp flows
 - Obsidian note writes now open notes through vault-relative `vault` + `file` URLs and daily notes no longer duplicate the date in filenames
-- `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts and can run explicit `--real-tasks` retrieval probes for PM quick-fact, weather, GitHub status, and news latency
+- `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts and can run explicit `--real-tasks` retrieval probes for PM quick-fact, weather, GitHub status, tracked project status, page read, and news latency
 - `scripts/system_check.py --phase1-host --phase1-host-only` now covers filesystem, browser, terminal, Gmail compose, WhatsApp open, reminders, and the operator-gated delivery checks
 - `scripts/system_check.py --phase3a-host --phase3a-host-only` now covers broader filesystem CRUD, self-contained browser navigation on local temp pages, reminder verification, calendar-write permission fallback, and safe system-control checks
 - Calendar read now fails truthfully with an explicit host-permission message instead of surfacing raw `osascript` errors

@@ -483,6 +483,22 @@ def _question_prefers_tools(text: str) -> bool:
         return True
     if looks_like_current_role_lookup(lowered):
         return True
+    if re.search(r"\b(?:how is|how's)\s+.+\s+doing\b", lowered):
+        return True
+    if any(
+        phrase in lowered
+        for phrase in (
+            "project status",
+            "status of ",
+            "progress on ",
+            "read this page",
+            "read the page",
+            "read this article",
+            "current page",
+            "this article",
+        )
+    ):
+        return True
     return _EXPLICIT_TOOL_QUESTION_RE.search(lowered) is not None
 
 

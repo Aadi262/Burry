@@ -53,6 +53,24 @@ class SemanticPlannerTests(unittest.TestCase):
         self.assertEqual(task.args["query"], "any issues on adpilot")
         self.assertEqual(task.intent_name, "lookup_github_status")
 
+    @patch("capabilities.planner._project_names", return_value=["Adpilot"])
+    def test_project_status_phrase_maps_to_project_status_lookup(self, _mock_projects):
+        task = plan_semantic_task("how is adpilot doing", current_intent="unknown")
+
+        self.assertIsNotNone(task)
+        self.assertEqual(task.tool, "lookup_project_status")
+        self.assertEqual(task.args["query"], "how is adpilot doing")
+        self.assertEqual(task.intent_name, "lookup_project_status")
+
+    @patch("capabilities.planner.load_runtime_snapshot", return_value={"browser_url": "https://example.com/current"})
+    def test_read_this_page_maps_to_page_lookup(self, _mock_runtime):
+        task = plan_semantic_task("read this page", current_intent="question")
+
+        self.assertIsNotNone(task)
+        self.assertEqual(task.tool, "lookup_page")
+        self.assertEqual(task.args["query"], "read this page")
+        self.assertEqual(task.args["url"], "https://example.com/current")
+
     def test_youtube_play_overrides_spotify_route(self):
         task = plan_semantic_task("play shape of you on youtube", current_intent="spotify_play")
         self.assertIsNotNone(task)
@@ -101,6 +119,23 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertEqual(action["agent"], "github")
         self.assertEqual(action["query"], "any issues on adpilot")
         self.assertEqual(action["capability_id"], "K10")
+
+    def test_lookup_project_status_builds_project_status_agent_action(self):
+        action = build_action("lookup_project_status", {"query": "how is adpilot doing"})
+
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "project_status")
+        self.assertEqual(action["query"], "how is adpilot doing")
+        self.assertEqual(action["capability_id"], "K09")
+
+    def test_lookup_page_builds_fetch_agent_action(self):
+        action = build_action("lookup_page", {"query": "read this page", "url": "https://example.com/current"})
+
+        self.assertEqual(action["type"], "run_agent")
+        self.assertEqual(action["agent"], "fetch")
+        self.assertEqual(action["query"], "read this page")
+        self.assertEqual(action["url"], "https://example.com/current")
+        self.assertEqual(action["capability_id"], "B10")
 
     def test_compose_email_builds_browser_action(self):
         action = build_action(

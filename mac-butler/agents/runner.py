@@ -1588,7 +1588,7 @@ def run_agent(agent_type: str, input_data: dict, model_override: str | None = No
     Run a specialist agent and return structured results.
 
     agent_type:
-      weather | news | vps | memory | code | search | github | bugfinder
+      weather | news | vps | memory | code | search | fetch | github | project_status | bugfinder
     """
     model = str(model_override or "").strip() or _pick_model(agent_type)
     print(f"[Agent/{agent_type}] Using model: {model}")
@@ -1618,6 +1618,8 @@ def run_agent(agent_type: str, input_data: dict, model_override: str | None = No
             return _github_trending_agent(input_data, model)
         if agent_type == "github":
             return _github_agent(input_data, model)
+        if agent_type == "project_status":
+            return _project_status_agent(input_data, model)
         if agent_type == "bugfinder":
             return _bugfinder_agent(input_data, model)
         return {"status": "error", "result": f"Unknown agent type: {agent_type}", "data": {}}
@@ -1949,6 +1951,7 @@ Answer in under 45 words. No raw URLs. Make it sound spoken, not scraped."""
 def _fetch_agent(data: dict, model: str) -> dict:
     query = " ".join(str(data.get("query", "")).split()).strip()
     url = str(data.get("url", "")).strip()
+    resolved_tool = "jina_fetch"
     if not url:
         match = re.search(
             r"(https?://[^\s]+|www\.[^\s]+|\b[a-z0-9.-]+\.(?:com|org|net|io|ai|dev|app|co|in)\b)",
@@ -1957,7 +1960,12 @@ def _fetch_agent(data: dict, model: str) -> dict:
         )
         if match:
             url = match.group(1)
+    if not url and _looks_like_current_page_request(query):
+        url = _current_browser_url()
+        resolved_tool = "current_page_fetch"
     if not url:
+        if resolved_tool == "current_page_fetch":
+            return {"status": "ok", "result": "I couldn't find the current browser page to read.", "data": {}}
         return {"status": "ok", "result": "Tell me which page to read.", "data": {}}
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
@@ -1983,8 +1991,48 @@ Reply in under 70 words. Sound spoken and useful. Mention the source domain once
     return {
         "status": "ok",
         "result": summary,
-        "data": {"url": url, "tool": "jina_fetch", "text": text[:2600]},
+        "data": {"url": url, "tool": resolved_tool, "text": text[:2600]},
     }
+
+
+def _looks_like_current_page_request(query: str) -> bool:
+    lowered = " ".join(str(query or "").lower().split())
+    if not lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "read this page",
+            "read the current page",
+            "read the page",
+            "read this article",
+            "read the article",
+            "this page",
+            "current page",
+            "this article",
+            "what does this page say",
+            "what is on this page",
+        )
+    )
+
+
+def _current_browser_url() -> str:
+    try:
+        from context.mac_activity import load_state
+
+        state = load_state()
+    except Exception:
+        state = {}
+    url = str(state.get("browser_url", "") or "").strip()
+    if url.startswith(("http://", "https://")):
+        return url
+    try:
+        from context.mac_activity import get_active_browser_url
+
+        url = str(get_active_browser_url() or "").strip()
+    except Exception:
+        url = ""
+    return url if url.startswith(("http://", "https://")) else ""
 
 
 def _market_agent(data: dict, model: str) -> dict:
@@ -2422,6 +2470,162 @@ def _github_status_fallback(status: dict[str, object], project_name: str = "") -
     if summary and not summary.endswith("."):
         summary += "."
     return summary or "GitHub status is available, but the summary came back empty."
+
+
+def _project_summary_blob(project: dict[str, object]) -> dict[str, object]:
+    blockers = [str(item).strip() for item in list(project.get("blockers") or []) if str(item).strip()]
+    next_tasks = [str(item).strip() for item in list(project.get("next_tasks") or []) if str(item).strip()]
+    return {
+        "name": str(project.get("name", "") or "").strip(),
+        "status": str(project.get("status", "") or "").strip(),
+        "completion": int(project.get("completion", 0) or 0),
+        "health_status": str(project.get("health_status", "") or "").strip(),
+        "blurb": str(project.get("blurb", "") or "").strip(),
+        "blockers": blockers,
+        "next_tasks": next_tasks,
+        "repo": str(project.get("repo", "") or "").strip(),
+        "git_branch": str(project.get("git_branch", "") or "").strip(),
+        "git_dirty": project.get("git_dirty"),
+        "live": project.get("live"),
+    }
+
+
+def _project_status_prompt(
+    question: str,
+    project: dict[str, object],
+    repo_status: dict[str, object] | None = None,
+) -> str:
+    summary = _project_summary_blob(project)
+    blockers = "\n".join(f"- {item}" for item in summary["blockers"][:3]) or "- none recorded"
+    next_tasks = "\n".join(f"- {item}" for item in summary["next_tasks"][:3]) or "- none recorded"
+    repo_lines = "- Repo status unavailable"
+    if isinstance(repo_status, dict):
+        repo_lines = (
+            f"- Repo: {repo_status.get('full_name') or repo_status.get('repo')}\n"
+            f"- Open issues: {repo_status.get('open_issues')}\n"
+            f"- Open pull requests: {repo_status.get('open_pull_requests')}\n"
+            f"- Latest push: {repo_status.get('pushed_at')}\n"
+            f"- Latest commit: {str((repo_status.get('latest_commit') or {}).get('message', '')).strip()}"
+        )
+    return f"""Answer this tracked-project status question directly.
+Question: {question}
+
+Project registry:
+- Name: {summary['name']}
+- Status: {summary['status']}
+- Completion: {summary['completion']}%
+- Health: {summary['health_status']}
+- Live reachable: {summary['live']}
+- Git branch: {summary['git_branch']}
+- Git dirty: {summary['git_dirty']}
+- Blurb: {summary['blurb']}
+Blockers:
+{blockers}
+Next tasks:
+{next_tasks}
+GitHub:
+{repo_lines}
+
+Answer in under 90 words. Say what needs attention first."""
+
+
+def _project_status_fallback(
+    project: dict[str, object],
+    repo_status: dict[str, object] | None = None,
+) -> str:
+    summary = _project_summary_blob(project)
+    name = str(summary.get("name") or "That project")
+    parts = [name]
+    status = str(summary.get("status") or "").strip()
+    completion = int(summary.get("completion", 0) or 0)
+    health_status = str(summary.get("health_status") or "").strip()
+    first = []
+    if status:
+        first.append(f"is {status}")
+    if completion:
+        first.append(f"about {completion}% complete")
+    if health_status and health_status not in {"healthy", ""}:
+        first.append(f"currently {health_status}")
+    if first:
+        parts[0] = f"{name} {' and '.join(first)}"
+
+    blockers = list(summary.get("blockers") or [])
+    next_tasks = list(summary.get("next_tasks") or [])
+    if blockers:
+        parts.append(f"Main blocker: {blockers[0]}")
+    elif next_tasks:
+        parts.append(f"Next: {next_tasks[0]}")
+    elif summary.get("blurb"):
+        parts.append(str(summary["blurb"]))
+
+    if isinstance(repo_status, dict):
+        issues = repo_status.get("open_issues")
+        prs = repo_status.get("open_pull_requests")
+        if issues is not None and prs is not None:
+            issue_label = "issue" if int(issues or 0) == 1 else "issues"
+            pr_label = "pull request" if int(prs or 0) == 1 else "pull requests"
+            parts.append(f"GitHub shows {issues} open {issue_label} and {prs} open {pr_label}")
+
+    summary_text = ". ".join(part.rstrip(".") for part in parts if part).strip()
+    if summary_text and not summary_text.endswith("."):
+        summary_text += "."
+    return _limit_words(summary_text or f"I couldn't summarize {name} cleanly.", limit=85)
+
+
+def _project_status_agent(data: dict, model: str) -> dict:
+    question = str(data.get("question", "") or data.get("query", "") or data.get("project", "") or "").strip()
+    if not question:
+        return {"status": "ok", "result": "Which project should I check?", "data": {}}
+
+    try:
+        from projects.project_store import get_project
+
+        project = get_project(question, hydrate_blurb=True)
+    except Exception:
+        project = None
+
+    if not isinstance(project, dict):
+        return {"status": "ok", "result": "Which tracked project should I check?", "data": {}}
+
+    repo_status = None
+    repo = str(project.get("repo", "") or "").strip()
+    if repo:
+        try:
+            from projects.github_sync import fetch_repo_status
+
+            repo_status = fetch_repo_status(repo, item_limit=2)
+        except Exception:
+            repo_status = None
+
+    prompt = _project_status_prompt(question, project, repo_status if isinstance(repo_status, dict) else None)
+    try:
+        answer = _clean_spoken_result(_limit_words(_call_model(prompt, model, max_tokens=160), limit=120))
+    except Exception:
+        answer = ""
+    if not answer or _summary_has_raw_artifacts(answer):
+        answer = _project_status_fallback(project, repo_status if isinstance(repo_status, dict) else None)
+
+    summary = _project_summary_blob(project)
+    return {
+        "status": "ok",
+        "result": answer,
+        "data": {
+            "tool": "project_status",
+            "project": summary["name"],
+            "repo": summary["repo"],
+            "status": {
+                "status": summary["status"],
+                "completion": summary["completion"],
+                "health_status": summary["health_status"],
+                "blockers": summary["blockers"][:3],
+                "next_tasks": summary["next_tasks"][:3],
+                "git_branch": summary["git_branch"],
+                "git_dirty": summary["git_dirty"],
+                "live": summary["live"],
+            },
+            "repo_status": repo_status if isinstance(repo_status, dict) else {},
+        },
+    }
 
 
 def _github_agent(data: dict, model: str) -> dict:

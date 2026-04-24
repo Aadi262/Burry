@@ -850,3 +850,14 @@ The fix:
  `executor/engine.py` now maps plain Terminal opens to a fresh Terminal window and maps running Chrome-family app opens to the browser new-window path.
 Rule added:
  For operator voice commands, `open app` should produce visible actionable UI; focus-only behavior must be explicit.
+
+HARD LESSON — new retrieval tools must also teach the question lane
+Date: 2026-04-24
+What happened:
+ Typed `project status` and `read this page` capabilities were wired in the planner and agents, but live question-mode phrasing like `how is adpilot doing` still fell into generic chat instead of running the new tools.
+Root cause:
+ The planner knew the new lookup routes, but `pipeline/router.py` did not mark those questions as tool-preferring, so the question lane never handed them to the semantic planner.
+The fix:
+ `pipeline/router.py` now treats project-status and current-page phrasing as tool-preferring, and new semantic-routing regressions pin both end-to-end paths.
+Rule added:
+ Every new typed lookup capability must update the question-lane tool-preference gate and get an integration regression, not just planner or agent unit tests.
