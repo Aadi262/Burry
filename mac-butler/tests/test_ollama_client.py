@@ -95,6 +95,41 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(retries[0], "nvidia::google/gemma-3n-e4b-it")
         self.assertIn("nvidia::google/gemma-4-31b-it", retries)
 
+    @patch("brain.ollama_client.get_secret")
+    def test_provider_ready_uses_provider_specific_api_key_env(self, mock_get_secret):
+        def secret(name, default=""):
+            return {
+                "DEEPSEEK_API_KEY": "deepseek-key",
+                "MOONSHOT_API_KEY": "",
+            }.get(name, default)
+
+        mock_get_secret.side_effect = secret
+
+        self.assertTrue(ollama_client._provider_ready("deepseek"))
+        self.assertFalse(ollama_client._provider_ready("kimi"))
+
+    @patch("brain.ollama_client.get_secret", return_value="moonshot-key")
+    def test_get_request_target_routes_kimi_through_openai_compatible_endpoint(self, _mock_get_secret):
+        url, headers, backend = ollama_client._get_request_target_for_model("kimi::kimi-k2.6")
+
+        self.assertEqual(url, "https://api.moonshot.ai/v1/chat/completions")
+        self.assertEqual(headers["Authorization"], "Bearer moonshot-key")
+        self.assertEqual(backend, "kimi")
+
+    def test_retrieval_roles_pick_nvidia_first_when_available(self):
+        with patch.object(ollama_client, "_get_backend_model_map", return_value={}), patch.object(
+            ollama_client,
+            "_provider_ready",
+            side_effect=lambda provider: provider == "nvidia",
+        ):
+            weather = ollama_client.pick_agent_model("weather")
+            fetch = ollama_client.pick_agent_model("fetch")
+            project_status = ollama_client.pick_agent_model("project_status")
+
+        self.assertEqual(weather, "nvidia::google/gemma-3n-e4b-it")
+        self.assertEqual(fetch, "nvidia::google/gemma-3n-e4b-it")
+        self.assertEqual(project_status, "nvidia::google/gemma-3n-e4b-it")
+
     def test_openai_response_strips_gemma_reasoning_channel_markers(self):
         result = ollama_client._openai_text_from_response(
             {

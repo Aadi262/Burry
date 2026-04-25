@@ -78,6 +78,18 @@ OLLAMA_FALLBACK = "deepseek-r1:14b"
 NVIDIA_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_API_KEY_ENV = "NVIDIA_API_KEY"
 
+# --- OpenAI-Compatible External Providers ---
+# These are optional alternates, not default hot-path owners, until host-side
+# benchmarks show they outperform the current NVIDIA-first routing.
+DEEPSEEK_API_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
+DEEPSEEK_V4_FLASH_MODEL = _model_ref("deepseek", "deepseek-v4-flash")
+DEEPSEEK_V4_PRO_MODEL = _model_ref("deepseek", "deepseek-v4-pro")
+
+KIMI_API_BASE_URL = "https://api.moonshot.ai/v1"
+KIMI_API_KEY_ENV = "MOONSHOT_API_KEY"
+KIMI_K2_6_MODEL = _model_ref("kimi", "kimi-k2.6")
+
 NVIDIA_CLASSIFIER_MODEL = _model_ref("nvidia", "nvidia/nvidia-nemotron-nano-9b-v2")
 NVIDIA_GEMMA_GOD_MODEL = _model_ref("nvidia", "google/gemma-4-31b-it")
 NVIDIA_GEMMA_E4B_MODEL = _model_ref("nvidia", "google/gemma-3n-e4b-it")
@@ -120,6 +132,16 @@ MODEL_PROVIDER_ENDPOINTS = {
         "kind": "openai",
         "base_url": NVIDIA_API_BASE_URL,
         "api_key_env": NVIDIA_API_KEY_ENV,
+    },
+    "deepseek": {
+        "kind": "openai",
+        "base_url": DEEPSEEK_API_BASE_URL,
+        "api_key_env": DEEPSEEK_API_KEY_ENV,
+    },
+    "kimi": {
+        "kind": "openai",
+        "base_url": KIMI_API_BASE_URL,
+        "api_key_env": KIMI_API_KEY_ENV,
     },
 }
 
@@ -208,6 +230,7 @@ BUTLER_MODEL_CHAINS = {
 AGENT_MODELS = {
     "news": NVIDIA_GEMMA_E4B_MODEL,
     "market": NVIDIA_GEMMA_E4B_MODEL,
+    "weather": NVIDIA_GEMMA_E4B_MODEL,
     "hackernews": NVIDIA_VOICE_MODEL,
     "reddit": NVIDIA_VOICE_MODEL,
     "github_trending": NVIDIA_VOICE_MODEL,
@@ -215,13 +238,16 @@ AGENT_MODELS = {
     "memory": NVIDIA_VOICE_MODEL,
     "code": NVIDIA_CODING_MODEL,
     "search": NVIDIA_GEMMA_E4B_MODEL,
+    "fetch": NVIDIA_GEMMA_E4B_MODEL,
     "github": NVIDIA_CODING_MODEL,
+    "project_status": NVIDIA_GEMMA_E4B_MODEL,
     "bugfinder": NVIDIA_REVIEW_MODEL,
 }
 
 AGENT_MODEL_CHAINS = {
     "news": _chain(AGENT_MODELS["news"], NVIDIA_REASONING_MODEL, NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_GOD_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "market": _chain(AGENT_MODELS["market"], NVIDIA_REASONING_MODEL, BUTLER_MODELS["review"], NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "weather": _chain(AGENT_MODELS["weather"], NVIDIA_CLASSIFIER_MODEL, NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "hackernews": _chain(AGENT_MODELS["hackernews"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "reddit": _chain(AGENT_MODELS["reddit"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "github_trending": _chain(AGENT_MODELS["github_trending"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
@@ -229,7 +255,9 @@ AGENT_MODEL_CHAINS = {
     "memory": _chain(AGENT_MODELS["memory"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_CLASSIFIER_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "code": _chain(AGENT_MODELS["code"], NVIDIA_GEMMA_GOD_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_E4B_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "search": _chain(AGENT_MODELS["search"], NVIDIA_REASONING_MODEL, BUTLER_MODELS["review"], NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "fetch": _chain(AGENT_MODELS["fetch"], NVIDIA_REVIEW_MODEL, NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "github": _chain(AGENT_MODELS["github"], BUTLER_MODELS["coding"], NVIDIA_GEMMA_GOD_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_GEMMA_E4B_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
+    "project_status": _chain(AGENT_MODELS["project_status"], NVIDIA_REASONING_MODEL, NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_vps", "gemma4:26b"), _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
     "bugfinder": _chain(AGENT_MODELS["bugfinder"], NVIDIA_GEMMA_E4B_MODEL, NVIDIA_REASONING_MODEL, NVIDIA_GEMMA_GOD_MODEL, _model_ref("ollama_local", "gemma4:e4b"), _model_ref("ollama_local", "deepseek-r1:14b")),
 }
 
@@ -267,6 +295,7 @@ DEFAULT_MUSIC_MODE = "focus"
 TTS_ENGINE = "nvidia_riva_tts"     # "nvidia_riva_tts" | "edge" | "kokoro" | "say" | "auto"
 TTS_VOICE = "af_sarah"    # Supported Kokoro voice with cleaner pronunciation than the broken "af" alias
 EDGE_TTS_VOICE = "en-US-AvaMultilingualNeural"
+EDGE_TTS_HINDI_VOICE = "hi-IN-SwaraNeural"
 EDGE_TTS_RATE = "+0%"
 TTS_SPEED = 1.0
 TTS_MAX_WORDS = 32        # Hard cap on spoken words

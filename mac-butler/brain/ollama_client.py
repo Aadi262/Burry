@@ -302,6 +302,16 @@ def _nvidia_api_key() -> str:
     return get_secret(NVIDIA_API_KEY_ENV, default="")
 
 
+def _provider_api_key(provider: str) -> str:
+    config = _provider_config(provider)
+    api_key_env = str(config.get("api_key_env", "") or "").strip()
+    if api_key_env:
+        return get_secret(api_key_env, default="")
+    if provider == "nvidia":
+        return _nvidia_api_key()
+    return ""
+
+
 def _model_provider_and_name(model: str) -> tuple[str, str]:
     provider, model_name = split_model_ref(model)
     return provider, str(model_name or "").strip()
@@ -310,7 +320,7 @@ def _model_provider_and_name(model: str) -> tuple[str, str]:
 def _provider_ready(provider: str) -> bool:
     kind = _provider_kind(provider)
     if kind == "openai":
-        return bool(_nvidia_api_key())
+        return bool(_provider_api_key(provider))
     if provider == "ollama_local":
         return True
     if provider == "ollama_vps":
@@ -684,7 +694,7 @@ def _pick_model_from_chain(candidates: list[str], label: str) -> str:
 
     for candidate in chain:
         provider, model_name = _model_provider_and_name(candidate)
-        if provider == "nvidia":
+        if _provider_kind(provider) == "openai":
             if _provider_ready(provider):
                 if candidate != chain[0]:
                     print(f"[Brain] {label} routed to fallback model {model_name}")
@@ -744,8 +754,8 @@ def pick_agent_model(agent_type: str, override: str | None = None) -> str:
 
 def _backend_for_model(model: str) -> str:
     provider, model_name = _model_provider_and_name(model)
-    if provider == "nvidia":
-        return "nvidia"
+    if _provider_kind(provider) == "openai":
+        return provider
     if provider == "ollama_local":
         return "local"
     if provider == "ollama_vps":
@@ -762,13 +772,14 @@ def _backend_for_model(model: str) -> str:
 
 def _get_request_target_for_model(model: str) -> tuple[str, dict[str, str], str]:
     backend = _backend_for_model(model)
-    if backend == "nvidia":
-        config = _provider_config("nvidia")
-        api_key = _nvidia_api_key()
+    if _provider_kind(backend) == "openai":
+        config = _provider_config(backend)
+        api_key = _provider_api_key(backend)
         if not api_key:
-            raise RuntimeError(f"{NVIDIA_API_KEY_ENV} is not configured")
+            api_key_env = str(config.get("api_key_env", "") or "").strip() or "API key"
+            raise RuntimeError(f"{api_key_env} is not configured")
         url = f"{str(config.get('base_url', '')).rstrip('/')}/chat/completions"
-        return url, {"Authorization": f"Bearer {api_key}"}, "nvidia"
+        return url, {"Authorization": f"Bearer {api_key}"}, backend
     if backend in {"local", "vps"}:
         try:
             url, headers = _get_backend_ollama_url(
@@ -1278,7 +1289,7 @@ def _call_ollama_inner(
             continue
 
     if isinstance(last_error, requests.exceptions.ConnectionError):
-        raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+        raise ConnectionError("LLM backend unreachable. Check Ollama or configured API-provider settings.")
     if isinstance(last_error, requests.exceptions.Timeout):
         return ""
     if isinstance(last_error, LocalOllamaMemoryPressure):
@@ -1504,7 +1515,7 @@ def chat_with_ollama(
             continue
 
     if isinstance(last_error, requests.exceptions.ConnectionError):
-        raise ConnectionError("LLM backend unreachable. Check Ollama or NVIDIA provider settings.")
+        raise ConnectionError("LLM backend unreachable. Check Ollama or configured API-provider settings.")
     if isinstance(last_error, requests.exceptions.Timeout):
         return {"message": {"content": ""}}
     if isinstance(last_error, LocalOllamaMemoryPressure):
