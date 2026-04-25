@@ -872,3 +872,58 @@ The fix:
  Repair common mojibake before speech, strip unstable emoji and symbol noise at the speech boundary, normalize temperature strings, and preserve Unicode mark characters so Hindi survives intact.
 Rule added:
  Multilingual cleanup must be script-safe: remove corrupted bytes and unstable symbols, but never strip Devanagari marks or solve a text-cleanliness bug by downgrading the voice to English-only.
+
+HARD LESSON — dashboard truth must come from canonical project state, not raw rows or weak focus labels
+Date: 2026-04-25
+What happened:
+ The HUD could show stale-looking project cards and the wrong active project because it rendered raw project rows and trusted runtime focus labels like `Terminal`.
+Root cause:
+ `projects/dashboard.py` bypassed the enriched `load_projects()` path, and workspace telemetry was not remapping nested editor paths or GitHub repo URLs back onto tracked project names before writing runtime state.
+The fix:
+ `context/mac_activity.py` now maps nested workspaces and GitHub repo URLs to tracked project names before telemetry writes, and `projects/dashboard.py` now prefers enriched project data, remaps weak runtime focus labels, and keeps the project cards aligned with the live focus project.
+Rule added:
+ Dashboard and memory surfaces must consume canonical project owners plus tracked-path mapping; never build operator truth from raw registry rows or foreground-app placeholders when a stronger project identity is available.
+
+HARD LESSON — speech cleanup at the boundary is not enough when the source format is predictable
+Date: 2026-04-25
+What happened:
+ The multilingual cleanup layer repaired many garbled wake briefings, but the startup weather line was still coming from `wttr.in?format=3`, which regularly injected emoji-heavy strings that caused the weird `Burry Mumbai ...` mixed-language sound in the live wake briefing.
+Root cause:
+ The fix was applied too late in the pipeline. We cleaned the speech output, but we did not first remove the noisy source format when the upstream provider already offered a speech-safe text format.
+The fix:
+ `brain/briefing.py` now requests `wttr.in` with a speech-safe `%l: %t %C` format and normalizes whitespace before the line reaches the TTS cleanup layer.
+Rule added:
+ If an upstream provider supports a speech-safe or machine-stable format, use it at the source instead of treating TTS cleanup as the only defense.
+
+HARD LESSON — terminal-first editor CLIs cannot be launched like GUI apps
+Date: 2026-04-25
+What happened:
+ `open project in codex` and `open project in claude code` looked wired on paper because the router preserved the project/editor choice, but the executor launched those CLIs through headless `subprocess.Popen([...])`, which does not produce a visible interactive editor session.
+Root cause:
+ We treated Terminal-backed tools like GUI applications even though they require a live terminal surface, cwd control, and shell-safe quoting.
+The fix:
+ `executor/engine.py` now opens Codex and Claude Code through fresh Terminal windows, and the Terminal cwd path is shell-quoted so projects with spaces still open correctly.
+Rule added:
+ Any interactive terminal-first editor or coding CLI must launch through a visible terminal surface with quoted cwd handling; headless subprocess launch is not a user-facing open flow.
+
+HARD LESSON — specific deterministic routes must run before their generic cousins
+Date: 2026-04-26
+What happened:
+ The first WhatsApp file-share regression still routed `send resume.pdf to vedang on whatsapp message review this tonight` through the generic WhatsApp compose matcher, so the file-send branch never saw the attachment/contact split correctly.
+Root cause:
+ A broad WhatsApp pattern ran before the more specific file-share pattern, and then the first file-share regex variant still stole the phrase before the contact-bearing variant could match.
+The fix:
+ `intents/router.py` now checks file-first WhatsApp patterns before the generic compose patterns and prioritizes the `send <file> to <contact> on whatsapp` form ahead of the looser `send <file> on whatsapp` variant.
+Rule added:
+ When two deterministic routes overlap, put the more structured and side-effect-specific route first, then add a regression that proves the generic matcher cannot steal it.
+
+HARD LESSON — infrastructure agents must not summarize total connection failure as status
+Date: 2026-04-26
+What happened:
+ The VPS status path could capture only SSH failures, feed that raw failure text into the summarizer, and still return an `ok` status even though no check had succeeded.
+Root cause:
+ The agent treated any captured output as usable status material, but infrastructure probes need to distinguish successful observations from pure transport failure.
+The fix:
+ `agents/runner.py` now tracks successful VPS checks explicitly and returns a truthful connection/setup error when every SSH probe fails, while preserving partial-output summaries only when at least one real check succeeded.
+Rule added:
+ Any health or infrastructure agent that summarizes command output must track whether it saw a real successful observation first; raw transport failure text alone is not a status summary.

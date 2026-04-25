@@ -3,6 +3,61 @@ Sprint: AgentScope Integration (Apr 2026)
 Commits: 5c97615 → f0c97d5
 Done
 
+Phase 3C Closure — 2026-04-26
+
+Completed
+- extended `intents/router.py` so attachment-aware Gmail phrasing, WhatsApp file-share phrasing, git commit/push requests, and VPS connect or remote-command phrases all route directly onto the existing typed owners
+- changed `executor/engine.py` so Gmail attachment drafts prefer Mail automation and fall back truthfully to Gmail compose, WhatsApp file-share assist reveals resolved files in Finder for manual confirmation, git commit/push flows stay confirmation-gated, and the VPS helper path uses the configured default host cleanly
+- changed `agents/runner.py` so VPS status checks use the configured default host and return truthful connection/setup failures instead of summarizing empty SSH failures as healthy status
+- updated `README.md`, `.CODEX/Codex.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, `docs/phases/PHASE.md`, and `docs/phases/PHASE_PROGRESS.md` so the live docs now represent `Phase 3C` as closed and `Phase 3D` as next
+
+Validation
+- `venv/bin/python -m py_compile intents/router.py executor/engine.py agents/runner.py tests/test_intent_router.py tests/test_executor.py tests/test_agents.py`
+- `venv/bin/pytest tests/test_intent_router.py tests/test_executor.py tests/test_agents.py -q` -> `233 passed`
+
+Still pending
+- live host delivery proof is still operator-gated for real Mail send and real WhatsApp send
+- the next bounded runtime slice is `Phase 3D`: pending-state depth, mood visibility, logs/timing, and smarter heartbeat suggestions
+
+Phase 3C Tooling + Notification Intake — 2026-04-25
+
+Completed
+- added `context/notifications.py` and wired `context/mac_activity.py`, `runtime/telemetry.py`, `runtime/notify.py`, `projects/dashboard.py`, and the HUD frontend so recent Notification Center activity now shows up in runtime state and the localhost dashboard through `usernoted` unified-log reads
+- changed `brain/briefing.py` so the wake briefing now asks `wttr.in` for a speech-safe weather line instead of the emoji-heavy default format, which removes the main source of the garbled mixed-language startup line before TTS cleanup even runs
+- extended `intents/router.py` so explicit editor hints like `claude code` and `codex` survive deterministic project-open routing, and `run tests` now resolves the current workspace or named project and infers the local test command
+- changed `executor/engine.py` so Terminal-backed editors like Claude Code and Codex open in a fresh visible Terminal window instead of a headless subprocess, and Terminal cwd changes now quote paths with spaces correctly
+- updated `.CODEX/AGENTS.md`, `.CODEX/Codex.md`, `.CODEX/Capability_Map.md`, `.CODEX/Learning_loop.md`, `README.md`, and `docs/phases/PHASE_PROGRESS.md` to match the new runtime truth
+
+Validation
+- `venv/bin/python -m py_compile brain/briefing.py intents/router.py executor/engine.py tests/test_briefing.py tests/test_intent_router.py tests/test_executor.py`
+- `venv/bin/pytest tests/test_briefing.py tests/test_intent_router.py::IntentRouterTests::test_open_project_in_codex_routes_with_editor_hint tests/test_intent_router.py::IntentRouterTests::test_open_project_in_claude_code_routes_with_editor_hint tests/test_executor.py::ExecutorTests::test_open_editor_opens_codex_in_terminal_window tests/test_executor.py::ExecutorTests::test_open_project_prefers_claude_terminal_flow tests/test_executor.py::ExecutorTests::test_open_terminal_quotes_cwd_with_spaces -q` -> `7 passed`
+- earlier in the same session, notification-intake regressions passed across `tests/test_notifications.py`, `tests/test_runtime_telemetry.py`, `tests/test_mac_activity.py`, and `tests/test_dashboard.py`
+
+Still pending
+- live host verification is still needed for the mixed Hindi/English startup briefing after the new speech-safe weather source is deployed in the running process
+- `Phase 3C` still has Gmail attachments, richer WhatsApp, git commit/push confirmations, and truthful VPS completion work open
+- Notification Center reads remain privacy-limited on macOS, so app/activity truth is stronger than full message-body fidelity
+
+HUD Project Truth + Provider Flexibility — 2026-04-25
+
+Completed
+- changed `context/mac_activity.py` so nested editor workspaces and GitHub repo URLs map back onto tracked project names before runtime workspace telemetry is written
+- changed `projects/dashboard.py` to prefer the enriched `load_projects()` view, remap weak runtime focus labels onto tracked workspace projects, and report NVIDIA Riva speech backends as healthy instead of offline
+- changed `projects/frontend/modules/panels.js` and `projects/frontend/style.css` so project cards follow the live focus project with clearer visual emphasis instead of looking stale
+- extended `butler_config.py` and `brain/ollama_client.py` so optional DeepSeek and Kimi OpenAI-compatible providers can be configured, while the default hot path stays NVIDIA-first
+- added explicit NVIDIA-first chains for `weather`, `fetch`, and `project_status`, and added new focused regressions for provider-specific API keys, OpenAI-compatible endpoint routing, tracked project mapping, and HUD runtime truth
+
+Validation
+- `venv/bin/python -m py_compile butler_config.py brain/ollama_client.py context/mac_activity.py projects/dashboard.py tests/test_ollama_client.py tests/test_mac_activity.py tests/test_dashboard.py`
+- `venv/bin/pytest tests/test_ollama_client.py::OllamaClientTests::test_provider_ready_uses_provider_specific_api_key_env tests/test_ollama_client.py::OllamaClientTests::test_get_request_target_routes_kimi_through_openai_compatible_endpoint tests/test_ollama_client.py::OllamaClientTests::test_retrieval_roles_pick_nvidia_first_when_available tests/test_mac_activity.py::MacActivityTests::test_focus_project_name_maps_nested_workspace_to_tracked_project tests/test_mac_activity.py::MacActivityTests::test_focus_project_name_maps_github_repo_url_to_tracked_project tests/test_dashboard.py::DashboardTests::test_dashboard_projects_prefers_enriched_loader_before_raw_fallback tests/test_dashboard.py::DashboardTests::test_operator_snapshot_marks_nvidia_riva_backends_healthy tests/test_dashboard.py::DashboardTests::test_operator_snapshot_remaps_unknown_runtime_focus_to_tracked_workspace_project -q` -> `8 passed`
+- `node --check projects/frontend/app.js`
+- `node --check projects/frontend/modules/panels.js`
+- `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks`
+
+Still pending
+- notifications are still write-only in the current runtime; there is no Notification Center ingestion path yet
+- the next bounded product slice remains `Phase 3C`: Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion
+
 Live Multilingual Speech Cleanup — 2026-04-25
 
 Completed
