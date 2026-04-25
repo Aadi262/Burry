@@ -59,17 +59,27 @@ That means the product is built around:
 - tracked project-status lookup now summarizes project health, blockers, next tasks, and adjacent GitHub state in one typed answer
 - `read this page` now resolves the active browser URL from runtime context and reads it through the indexed page-fetch path before falling back to explicit URL handling
 - page summarization and page fetch now reuse indexed page snapshots, with Jina first and direct extraction fallback when live fetch is needed
+- workspace tracking now maps nested editor workspaces and GitHub repo URLs back onto tracked project names before runtime memory and HUD output are written
 - video summarization with YouTube captions first, then `yt-dlp` / Whisper / Jina fallbacks
 - project-aware `what should i do next`
 - startup briefing with optional daily intelligence block
+- startup briefing now requests speech-safe Mumbai weather text from `wttr.in` instead of the emoji-heavy default line, which avoids the garbled mixed-language wake briefing
 - plain `venv/bin/python butler.py` now starts a passive backend on `3335`; it stays quiet until clap, wake phrase, or explicit HUD/API activation
 - passive clap wake now arms after startup and ignores active sessions so standby does not immediately retrigger itself
 - clap wake now also requires a sharp transient instead of any sustained loud audio block
 - continuous clap sessions keep the microphone closed while TTS is actually playing and drop recent spoken-text echoes before command dispatch
 - spoken-text cleanup now repairs common mojibake, strips unstable weather or emoji symbols, and preserves Hindi plus English text before TTS or startup-briefing narration
+- recent Notification Center activity now feeds runtime telemetry and the localhost dashboard notifications panel through unified-log reads; app/activity truth is reliable, but full notification body text is still privacy-limited by macOS
 - the dashboard now serves localhost on `7532/7533` by default; native pywebview HUD and browser auto-open are opt-in with `BURRY_USE_NATIVE_HUD=1` or `BURRY_ALLOW_BROWSER_HUD=1`
+- dashboard project cards now use enriched project-store data, remap weak runtime focus labels onto tracked projects, highlight the live focus project, and report NVIDIA Riva speech backends truthfully
 - the news agent rejects model timeout filler such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - plain `open terminal` now opens a fresh Terminal window, and plain browser app opens such as `open Google Chrome` create a fresh visible browser window when that browser is already running
+- `run tests` now resolves the current workspace or named project and infers a local test command like `pytest`, `npm test`, `pnpm test`, `cargo test`, or `go test ./...`
+- `open <project> in claude code|codex|cursor|vscode` now respects the explicit editor hint; Terminal-backed Claude/Codex launches open in a fresh Terminal window instead of a headless subprocess
+- Gmail attachment drafts now prefer Mail automation when the host allows it and fall back truthfully to Gmail compose when attachment automation is blocked
+- WhatsApp file-share phrases now open the message flow and reveal resolved attachment files in Finder for manual send confirmation instead of pretending the file was delivered
+- `git commit`, `git push`, `git commit and push`, `connect to vps`, `run docker ps on vps`, and `check vps` now route deterministically with confirmation or truthful degraded-state handling on the covered path
+- optional OpenAI-compatible provider slots now exist for DeepSeek (`DEEPSEEK_API_KEY`) and Kimi (`MOONSHOT_API_KEY`), while the default hot path stays NVIDIA-first; weather, project-status, and page-read retrieval roles now also benchmark as NVIDIA-first
 - structured execution results written back into memory
 - recent turn memory and pending follow-ups now survive short restarts through a persisted `session_context.py` snapshot
 
@@ -78,6 +88,8 @@ That means the product is built around:
 - browser, filesystem, terminal, project-open, and calendar-create actions now return verification-aware follow-ups instead of optimistic success only
 - reminders now verify against the Reminders list when automation access is available
 - Gmail compose and WhatsApp flows are verification-aware about what was actually opened
+- attachment-aware Gmail drafts degrade truthfully to Gmail compose when Mail automation is unavailable, and WhatsApp file-share flows degrade truthfully to manual confirmation instead of claiming delivery
+- git commit or push flows now stay confirmation-gated on the typed executor path, and VPS status or SSH flows now use the configured default host or report a truthful connection/setup error
 - Mail send and WhatsApp desktop send still use degraded-state messaging when delivery cannot be confirmed
 - calendar read and calendar create now return explicit host-permission messages when Calendar automation access is unavailable instead of bubbling raw automation errors
 - long-lived Butler startup now refuses a second live backend instead of allowing duplicate voice sessions to race for audio and ports
@@ -139,10 +151,17 @@ These are the main active roles in the current Butler system:
 
 - `open adpilot`
 - `open mac-butler`
+- `open mac-butler in codex`
+- `open mac-butler in claude code`
 - `what should i do next`
 - `open dashboard`
 - `git status`
+- `run tests`
 - `check vps`
+- `commit with message tighten routing`
+- `commit and push with message close phase 3c for mac-butler`
+- `connect to vps`
+- `run docker ps on vps`
 
 ### Intelligence Commands
 
@@ -174,7 +193,9 @@ These are the main active roles in the current Butler system:
 - `save notes from this video`
 - `save note ...`
 - `write a mail to vedang@gmail.com`
+- `write a mail to vedang@gmail.com with attachment resume.pdf subject project update`
 - `send whatsapp to vedang message ship it tonight`
+- `send resume.pdf to vedang on whatsapp message review this tonight`
 
 ## System Flow
 
@@ -320,6 +341,7 @@ If you want Butler to read and write to Obsidian, set `OBSIDIAN_VAULT_NAME` corr
 ### VPS
 
 If you want infrastructure checks and SSH helpers, configure `VPS_HOSTS` and local secrets.
+The covered VPS flows now use the first configured host by default, open a real SSH terminal for `connect to vps`, and fail truthfully when `ssh`, credentials, or reachability are missing.
 
 ### NVIDIA
 

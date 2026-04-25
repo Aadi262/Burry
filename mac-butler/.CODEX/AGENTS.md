@@ -67,6 +67,8 @@ Do not reorder this without code, tests, and docs moving together.
 - TTS follows `nvidia_riva_tts -> edge -> kokoro -> say` so the stable system voice is tried before the crackle-prone local neural path when Riva is unavailable
 - STT follows `nvidia_riva_asr -> mlx -> faster-whisper`
 - Continuous mic sessions must use the actual TTS speech-active signal plus recent-speech echo filtering; state transitions alone are not enough to prevent Burry hearing herself
+- Startup briefing inputs should prefer speech-safe source text when the upstream provider supports it; do not rely only on last-second TTS cleanup to neutralize noisy symbols or mojibake
+- Recent Notification Center activity is ingested through `context/notifications.py` via `usernoted` unified-log reads and surfaced in runtime telemetry/HUD; full message bodies remain privacy-limited on macOS
 - `gemma4:26b` remains a VPS-only fallback, not the local voice hot path
 
 ## Validation floor

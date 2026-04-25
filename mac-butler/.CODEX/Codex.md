@@ -95,6 +95,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - context/app_context.py      — frontmost app, open windows
 - context/git_context.py      — git log, current branch
 - context/mac_activity.py     — Mac activity watcher
+- context/notifications.py    — recent Notification Center ingestion via unified log
 - context/vscode_context.py   — VS Code/Cursor state
 - context/obsidian_context.py — Obsidian vault
 - context/vps_context.py      — VPS status
@@ -126,7 +127,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 ### Runtime
 - runtime/telemetry.py        — live session state tracking
 - runtime/tracing.py          — OTel tracing
-- runtime/notify.py           — macOS notifications (NOT AppleScript)
+- runtime/notify.py           — notification delivery plus runtime telemetry write-back
 - runtime/log_store.py        — log persistence
 
 ### Channels
@@ -167,15 +168,18 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 
 ### Working
 - config-driven provider routing for LLM, TTS, and STT
+- optional OpenAI-compatible provider slots now also exist for DeepSeek and Kimi, while the default hot path stays NVIDIA-first until host benchmarks prove a better winner
 - NVIDIA-backed primary model roles with local Ollama fallbacks preserved
 - multilingual speech stack via NVIDIA Riva targets with Edge before Kokoro in the local fallback chain to avoid crackly local neural playback when Riva is unavailable
 - spoken text is now cleaned before TTS and startup-briefing logging: common UTF-8 mojibake is repaired, unstable emoji/weather symbols are stripped, and Devanagari text is preserved so the multilingual voice does not code-switch on garbage bytes
+- startup briefing weather now requests speech-safe `wttr.in` text at the source instead of the emoji-heavy default format, reducing mixed-language sounding garbage before TTS cleanup even runs
 - browser control now covers new tab, new window, close tab/window, back, refresh, and URL navigation on the resolved browser family
 - current-news lookup with search backends plus Google News RSS fallback, repeated-query caching, and snippet-first enrichment so rich provider results avoid unnecessary live page fetches
 - weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback
 - quick-fact lookup now prefers DuckDuckGo instant answers and Wikipedia summaries before generic search fallback, and current-role questions like "who is PM of India" skip lightweight model narration for retrieval-backed lookup
 - GitHub status lookup now resolves tracked project repos and direct `owner/repo` phrases through public GitHub API reads before MCP fallback
 - tracked project-status lookup now summarizes the project registry state, derived health, blockers, next tasks, and adjacent GitHub repo status through one typed retrieval path
+- weather, tracked project-status, and current-page fetch roles now have explicit NVIDIA-first chains instead of silently falling back to local Ollama in the benchmark path
 - calendar read now supports today, tomorrow, next event, and this-week phrasing with truthful permission fallback; calendar create phrases like "add meeting tomorrow 3pm" now route deterministically through router/executor
 - filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases with fuzzy path resolution and verification-aware results
 - system-control routing now covers common volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrasing on the existing executor actions
@@ -188,6 +192,8 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Session memory across turns, with recent turns and pending follow-ups now restored from disk across short restarts (`session_context.py`)
 - Default `butler.py` startup now holds the backend in passive standby, refuses duplicate live owners, and waits for clap, wake phrase, or explicit HUD/API activation before speaking; `--clap-only` disables wake-word arming, and passive clap wake now arms after startup, ignores active-session noise, and requires a sharp transient instead of any sustained loud block
 - Continuous clap sessions now keep the mic closed on the actual TTS speech-active signal and drop recent TTS echo before dispatch, so Butler should not turn its own spoken answer into the next command
+- recent Notification Center activity now ingests from `usernoted` unified-log entries into runtime telemetry and the dashboard notifications panel; app/activity truth is reliable, but full message content remains privacy-limited
+- workspace tracking now maps nested editor workspaces and GitHub repo URLs to tracked project names before runtime telemetry writes, and the dashboard now uses enriched project-store data, remaps weak focus labels, highlights the live focus project, and reports NVIDIA Riva speech backends as healthy
 - `projects/dashboard.py` now serves localhost on `7532/7533` by default, accepts `BURRY_HUD_PORT`, `BURRY_HUD_WS_PORT`, and `BURRY_BACKEND_PORT`, and keeps native pywebview HUD/browser auto-open behind explicit opt-ins
 - `SEARXNG_URL` is env-configurable and defaults to `http://127.0.0.1:18080` so local news search does not collide with other projects on `8080`
 - SearXNG readiness checks now use the JSON `/search` endpoint instead of the root page
@@ -197,11 +203,17 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - `butler_config.py` now uses NVIDIA Gemma E4B as the primary hot output/conversation/news/search model, with larger NVIDIA models and local `gemma4:e4b` preserved in the fallback chains
 - Gemma provider thought/channel wrappers are stripped from OpenAI-compatible responses before they reach speech, chat, or history
 - Plain `open terminal` now opens a fresh Terminal window, and plain browser app opens such as `open Google Chrome` force a fresh visible browser window when the browser is already running
+- `run tests` now routes deterministically, resolves the current workspace or named project, and infers the local test command from project markers like `package.json`, `pnpm-lock.yaml`, `Cargo.toml`, or `tests/`
+- explicit editor hints like `open mac-butler in claude code`, `open mac-butler in codex`, `open adpilot in cursor`, or `open adpilot in vscode` now survive the router and the terminal-backed editors launch through visible Terminal windows instead of headless subprocesses
+- Gmail attachment drafts now prefer Mail automation and fall back truthfully to Gmail compose when the host cannot pre-attach files through Mail automation
+- WhatsApp file-share phrasing now routes deterministically, opens the compose flow truthfully, and reveals resolved files in Finder for manual send confirmation instead of pretending delivery happened
+- typed git commit, push, and commit-and-push actions now stay confirmation-gated on the executor path, and VPS connect/status/remote-command flows now use the configured default host or return truthful setup or connection failures
 - HUD command + mic paths now proxy to the live backend on `3335`
 - Fresh launch resets transient runtime state before the new session starts
 - Mood engine connected to prompts
 - Routing order pinned: pending → instant → skills → deterministic router → classifier
 - Verification-aware outcomes for filesystem, browser, terminal, project-open, calendar add, reminders, Gmail compose, and WhatsApp flows
+- attachment-aware Gmail drafts, WhatsApp file-share assist, git confirmations, and VPS status/SSH flows now stay on typed truthful executor or agent paths instead of raw fallback behavior
 - Obsidian note writes now open notes through vault-relative `vault` + `file` URLs and daily notes no longer duplicate the date in filenames
 - `scripts/benchmark_models.py` now benchmarks the configured Butler and agent roles on representative prompts and can run explicit `--real-tasks` retrieval probes for PM quick-fact, weather, GitHub status, tracked project status, page read, and news latency
 - `scripts/system_check.py --phase1-host --phase1-host-only` now covers filesystem, browser, terminal, Gmail compose, WhatsApp open, reminders, and the operator-gated delivery checks
@@ -220,7 +232,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - Screen reading (llama3.2-vision not installed)
 - richer GitHub MCP actions still depend on MCP server setup and token availability
 - SearXNG (Docker not always running)
-- WhatsApp file sending
+- true verified Mail delivery and true verified WhatsApp delivery
 - Claude Code as coding brain (not wired)
 - NVIDIA speech paths still require host setup (`NVIDIA_API_KEY` plus NVIDIA Riva Python clients)
 - Live answer quality still depends on NVIDIA credentials, SearXNG availability, and enough system RAM for optional local fallback; low RAM now skips local Ollama instead of stalling, but there is not yet a full runtime memory budgeter
