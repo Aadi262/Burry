@@ -1,6 +1,6 @@
 # Burry Phase Tracker
 
-Last updated: 2026-04-12
+Last updated: 2026-04-26
 Status: Active
 Primary rule: `understand -> decide -> act -> verify -> speak`
 
@@ -545,16 +545,10 @@ Otherwise, keep the system in Python and simplify first.
 
 ## Immediate Next Build Order
 
-1. Keep Phase 2 closed and stable; do not casually reopen the public contract surface
-2. Execute Phase `3A` first:
-   browser host-smoke, filesystem CRUD correctness, system-control basics, calendar write and reminder verification
-3. Then execute Phase `3B`:
-   weather, facts, news latency, GitHub status, page/article/video summarization, and indexed retrieval
-4. Then execute Phase `3C`:
-   Gmail attachments, WhatsApp refinement, run-tests, editor openers, git confirmations, and VPS checks
-5. Then execute Phase `3D`:
+1. Keep Phase 2 plus the closed `3A`, `3B`, and `3C` slices stable; do not casually reopen the public contract surface or the closed feature slices
+2. Execute Phase `3D` now:
    pending UI, mood UI, logs and timing, smarter heartbeat suggestions
-6. Only after the Phase 3 slices are stable should profiling begin
+3. Only after the Phase 3 slices are stable should profiling begin
 
 ## Session Update Template
 

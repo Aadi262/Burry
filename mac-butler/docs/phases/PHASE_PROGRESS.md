@@ -1,6 +1,6 @@
 # Burry Phase Progress
 
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 Status: Active
 Read after: `docs/phases/PHASE.md`
 
@@ -11,10 +11,10 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 ## Current State
 
 - Current phase: `Phase 3 - Feature Completion`
-- Current focus: prepare `Phase 3C - Messaging and Project Tooling`, with `Phase 3B` now closed through typed project-status and current-page lookup, bounded deep-research fast paths for live retrieval questions, and broader real-task benchmark coverage across the retrieval surface
+- Current focus: `Phase 3D - HUD and Proactive Loops` is now in progress, with the `Phase 3C` messaging/tooling slice closed through attachment-aware compose, richer WhatsApp file-share assist, typed git confirmations, and truthful VPS handling
 - Last completed phase: `Phase 2 - Contract Versioning`
-- Last completed slice: `Phase 3B - Retrieval and Knowledge Quality`
-- Next milestone: start the bounded `Phase 3C` messaging and project-tooling work on top of the frozen v1 contracts
+- Last completed slice: `Phase 3C - Messaging and Project Tooling`
+- Next milestone: continue the bounded `Phase 3D` HUD and proactive-loop work with pending-state depth, mood visibility, logs/timing, and smarter heartbeat suggestions on top of the frozen v1 contracts
 
 ## Phase Status
 
@@ -22,7 +22,7 @@ This file tracks live progress against the roadmap in `PHASE.md`.
 | --- | --- | --- | --- | --- |
 | 1 | Hardening | Complete | 100% | Deterministic routing, truthful verification, runtime boundaries, phrase regressions, and the host smoke harness are in place for the current advertised surface |
 | 2 | Contract Versioning | Complete | 100% | `/api/v1` is the only supported public API namespace, public payloads are typed, stable capability IDs are emitted from code, and v1 release notes exist |
-| 3 | Feature Completion | In Progress | 86% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, tracked project status now summarizes derived project health plus adjacent repo state, current-page reads now resolve the active browser URL through the fetch path, deeper research now fast-paths live lookup-shaped questions into typed retrieval agents, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, real-task retrieval benchmarks now cover quick-fact, weather, GitHub, project-status, page-read, and news probes, live voice sessions now gate STT on actual TTS playback and drop TTS echoes, low-RAM local Ollama fallback now skips instead of stalling, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
+| 3 | Feature Completion | In Progress | 94% | Provider abstraction is live, summarization has layered extraction fallbacks, indexed page retrieval now reuses KB-backed page snapshots in page summary and fetch/search reads, dedicated weather and quick-fact retrieval now use direct public providers before generic search fallback, current-role fact questions now bypass lightweight model narration for retrieval-backed answers, GitHub status now resolves tracked project repos and direct `owner/repo` phrases through public API reads before MCP fallback, tracked project status now summarizes derived project health plus adjacent repo state, current-page reads now resolve the active browser URL through the fetch path, deeper research now fast-paths live lookup-shaped questions into typed retrieval agents, current-news lookup has an RSS fallback plus repeated-query caching and snippet-first enrichment, real-task retrieval benchmarks now cover quick-fact, weather, GitHub, project-status, page-read, and news probes, recent Notification Center activity now feeds runtime telemetry and the HUD, live voice sessions now gate STT on actual TTS playback and drop TTS echoes, low-RAM local Ollama fallback now skips instead of stalling, startup briefing weather now uses a speech-safe source format, deterministic `run tests`, explicit project editor-openers, attachment-aware Gmail compose, WhatsApp file-share assist, typed git confirmations, and truthful VPS default-host handling are in place for the covered paths, calendar reads cover next-event and week-style phrases, inline calendar-create phrases route deterministically through router/executor, browser control covers back/refresh/new-window routing with host smoke on local temp pages, filesystem CRUD now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip flows with broader host smoke, system-control basics now cover common deterministic volume, brightness, lock-screen, dark-mode, DND, screenshot, and battery or wifi phrases, and the remaining work is organized as Phase `3A` to `3D` slices |
 | 4 | Performance Profiling | Blocked by earlier phases | 0% | No profiling before reliability and contract stability |
 
 ## Phase 1 Progress
@@ -106,8 +106,8 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 | --- | --- | --- |
 | 3A — Deterministic action gaps | Complete | deterministic browser/filesystem/system-control routing, delete/zip/reminder/calendar-write hardening, truthful verification, and `--phase3a-host` evidence are now in place; live calendar writes still skip truthfully on hosts without Calendar automation access |
 | 3B — Retrieval and knowledge quality | Complete | current-information flows now return one retrieval-backed final answer across weather, quick facts, news, GitHub status, project status, current-page reads, page/video summarization, and bounded deep-research fast paths; repeated-query caching, snippet-first fetches, indexed page reuse, timeout-filler rejection, and broader `--real-tasks` benchmark coverage are all in place |
-| 3C — Messaging and project tooling | Queued | Gmail compose and basic terminal/project-open flows exist, but attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion work remain |
-| 3D — HUD and proactive loops | Queued | pending and mood events already publish, but richer HUD rendering, logs/timing, and smarter heartbeat behavior remain |
+| 3C — Messaging and project tooling | Complete | attachment-aware Gmail compose, WhatsApp file-share assist, deterministic `run tests`, explicit project editor-openers, typed git confirmations, and truthful VPS default-host handling are now wired on the existing owners |
+| 3D — HUD and proactive loops | In Progress | pending and mood events already publish, recent notifications already surface in the HUD, but richer pending-state rendering, mood visibility, logs/timing, and smarter heartbeat behavior remain |
 
 ## Phase 3 Breakdown
 
@@ -145,8 +145,8 @@ Freeze stable interfaces so Burry can evolve without breaking the HUD, tools, or
 
 ## Next Actions
 
-1. Start `Phase 3C` messaging and project-tooling work on the frozen v1 contracts
-2. Keep Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion at the front of the `3C` queue
+1. Continue `Phase 3D` HUD and proactive-loop work on the frozen v1 contracts
+2. Keep pending-state depth, mood visibility, logs/timing, and smarter heartbeat suggestions at the front of the `3D` queue
 3. Keep the v1 contract notes updated only if a future versioned migration becomes necessary
 4. Do not reopen the closed `3A`, `3B`, or Phase 2 surfaces casually while adding breadth
 
@@ -761,3 +761,66 @@ Append a new status block after each working session:
   `venv/bin/python -m py_compile voice/tts.py trigger.py butler_config.py tests/test_tts.py tests/test_trigger.py`
   `venv/bin/pytest tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_repairs_mojibake_and_removes_weather_emoji tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_keeps_devanagari_text_while_stripping_symbols tests/test_tts.py::TTSVoiceTests::test_edge_voice_name_uses_multilingual_fallback_when_unconfigured tests/test_tts.py::TTSVoiceTests::test_describe_tts_prefers_edge_when_available tests/test_trigger.py::TriggerTests::test_speak_startup_briefing_broadcasts_and_speaks -q` -> `5 passed`
 - Next action: run one live multilingual voice pass on the host, then return to the bounded `Phase 3C` implementation slice
+
+## Progress Update - 2026-04-25
+
+- Phase: `Phase 3C - Messaging and Project Tooling`
+- Status: operator-truth hardening landed while `Phase 3C` remains the next implementation slice
+- What moved:
+  changed `context/mac_activity.py` so nested editor workspaces and GitHub repo URLs map to tracked project names before runtime workspace telemetry is written
+  changed `projects/dashboard.py` to prefer enriched project-store data, remap weak runtime focus labels onto tracked projects, and report NVIDIA Riva speech backends truthfully
+  changed `projects/frontend/modules/panels.js` and `projects/frontend/style.css` so project cards visually follow the live focus project instead of reading like stale cache
+  extended `brain/ollama_client.py` and `butler_config.py` so optional DeepSeek/Kimi OpenAI-compatible providers can be configured, while `weather`, `fetch`, and `project_status` now stay NVIDIA-first in the default retrieval chain
+- What is still blocked:
+  notification ingestion is still not built; the runtime can emit notifications but does not yet read Notification Center state back into memory
+  the actual `Phase 3C` feature slice is still messaging and project tooling: Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion
+- Tests run:
+  `venv/bin/python -m py_compile butler_config.py brain/ollama_client.py context/mac_activity.py projects/dashboard.py tests/test_ollama_client.py tests/test_mac_activity.py tests/test_dashboard.py`
+  `venv/bin/pytest tests/test_ollama_client.py::OllamaClientTests::test_provider_ready_uses_provider_specific_api_key_env tests/test_ollama_client.py::OllamaClientTests::test_get_request_target_routes_kimi_through_openai_compatible_endpoint tests/test_ollama_client.py::OllamaClientTests::test_retrieval_roles_pick_nvidia_first_when_available tests/test_mac_activity.py::MacActivityTests::test_focus_project_name_maps_nested_workspace_to_tracked_project tests/test_mac_activity.py::MacActivityTests::test_focus_project_name_maps_github_repo_url_to_tracked_project tests/test_dashboard.py::DashboardTests::test_dashboard_projects_prefers_enriched_loader_before_raw_fallback tests/test_dashboard.py::DashboardTests::test_operator_snapshot_marks_nvidia_riva_backends_healthy tests/test_dashboard.py::DashboardTests::test_operator_snapshot_remaps_unknown_runtime_focus_to_tracked_workspace_project -q` -> `8 passed`
+  `node --check projects/frontend/app.js`
+  `node --check projects/frontend/modules/panels.js`
+  `venv/bin/python scripts/benchmark_models.py --json --dry-run --real-tasks`
+- Evidence:
+  dry-run retrieval benchmark now plans `weather`, `project_status`, and `page_read` on NVIDIA-first selections instead of silent local-Ollama fallback
+  HUD project cards now derive from the enriched project store and the live focus-project remap path
+- Next action: start the bounded `Phase 3C` implementation slice, beginning with Gmail attachments plus richer project-tooling commands, without reopening retrieval or HUD truth that is already closed
+
+## Progress Update - 2026-04-25
+
+- Phase: `Phase 3C - Messaging and Project Tooling`
+- Status: notification intake plus the first concrete project-tooling slice are now landed
+- What moved:
+  added `context/notifications.py` and wired runtime telemetry plus the localhost HUD so recent Notification Center activity now appears in the operator surface through `usernoted` unified-log reads
+  changed `brain/briefing.py` to request a speech-safe `wttr.in` weather format instead of the emoji-heavy default line, which removes the main startup-briefing source of garbled mixed-language speech before TTS cleanup runs
+  extended `intents/router.py` so explicit editor hints like `claude code` and `codex` survive deterministic project-open routing, and `run tests` now resolves the current workspace or named project and infers the local test command
+  changed `executor/engine.py` so Codex and Claude Code open through fresh Terminal windows instead of headless subprocesses, and Terminal cwd changes now quote paths with spaces correctly
+- What is still blocked:
+  live host verification is still needed for the mixed Hindi/English startup briefing after the new speech-safe weather source is deployed in the running process
+  `Phase 3C` still has Gmail attachments, richer WhatsApp, git commit/push confirmations, and truthful VPS completion work open
+  Notification Center reads remain privacy-limited on macOS, so app/activity truth is stronger than full message-body fidelity
+- Tests run:
+  `venv/bin/python -m py_compile brain/briefing.py intents/router.py executor/engine.py tests/test_briefing.py tests/test_intent_router.py tests/test_executor.py`
+  `venv/bin/pytest tests/test_briefing.py tests/test_intent_router.py::IntentRouterTests::test_open_project_in_codex_routes_with_editor_hint tests/test_intent_router.py::IntentRouterTests::test_open_project_in_claude_code_routes_with_editor_hint tests/test_executor.py::ExecutorTests::test_open_editor_opens_codex_in_terminal_window tests/test_executor.py::ExecutorTests::test_open_project_prefers_claude_terminal_flow tests/test_executor.py::ExecutorTests::test_open_terminal_quotes_cwd_with_spaces -q` -> `7 passed`
+- Manual checks:
+  readback confirmed `.CODEX/Capability_Map.md`, `.CODEX/Codex.md`, `README.md`, and this tracker now all reflect notification intake, speech-safe startup briefing input, deterministic `run tests`, and Terminal-backed Codex/Claude project opens
+- Next action: keep `Phase 3C` moving with Gmail attachments, richer WhatsApp, git confirmations, and VPS completion, then run one host multilingual wake-briefing check on the refreshed runtime
+
+## Progress Update - 2026-04-26
+
+- Phase: `Phase 3C - Messaging and Project Tooling`
+- Status: completed for the current advertised surface
+- What moved:
+  extended `intents/router.py` so attachment-aware Gmail phrases, WhatsApp file-share phrasing, deterministic git commit/push flows, and VPS connect or remote-command phrases all route directly onto the existing typed executor or agent owners
+  changed `executor/engine.py` so attachment-aware Gmail drafts prefer Mail automation and fall back truthfully to Gmail compose, WhatsApp file-share assist reveals resolved files in Finder for manual confirmation, git commit/push flows stay confirmation-gated, and the VPS helper path uses the configured default host cleanly
+  changed `agents/runner.py` so VPS status checks use the configured default host and return truthful connection/setup failures instead of summarizing empty SSH failures as healthy status
+  updated `.CODEX/Codex.md`, `.CODEX/Capability_Map.md`, `.CODEX/SPRINT_LOG.md`, `.CODEX/Learning_loop.md`, `README.md`, `docs/phases/PHASE.md`, and this tracker so the repo now represents `Phase 3C` as closed and `Phase 3D` as the next active slice
+- What is still blocked:
+  real Mail delivery and real WhatsApp delivery remain operator-gated and are not claimed as verified sends
+  live calendar reads and writes still depend on Calendar automation access on the host
+  the next bounded slice is `Phase 3D`: deeper pending/mood HUD exposure, logs/timing, and smarter proactive suggestions
+- Tests run:
+  `venv/bin/python -m py_compile intents/router.py executor/engine.py agents/runner.py tests/test_intent_router.py tests/test_executor.py tests/test_agents.py`
+  `venv/bin/pytest tests/test_intent_router.py tests/test_executor.py tests/test_agents.py -q` -> `233 passed`
+- Manual checks:
+  readback confirmed `README.md`, `.CODEX/Codex.md`, `.CODEX/Capability_Map.md`, `docs/phases/PHASE.md`, and this tracker now all agree that `Phase 3C` is closed and `Phase 3D` is next
+- Next action: start the bounded `Phase 3D - HUD and Proactive Loops` slice without reopening closed `3A`, `3B`, or `3C` behavior

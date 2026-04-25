@@ -1,5 +1,5 @@
 # BURRY OS — Capability Map
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 Legend: `✅ working` | `🟡 partial` | `❌ not built` | `🔧 needs your setup`
 
 This file now has 2 layers:
@@ -15,8 +15,8 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | Metric | Count |
 | --- | ---: |
 | Working capabilities | 40 |
-| Partial capabilities | 72 |
-| Not built capabilities | 42 |
+| Partial capabilities | 80 |
+| Not built capabilities | 34 |
 | Setup-dependent-only capabilities | 2 |
 | Capabilities that still touch setup prerequisites | 7 |
 | Total capability IDs tracked | 156 |
@@ -43,17 +43,17 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 
 | IDs | Status | Current truth |
 | --- | --- | --- |
-| B09, E03, E04, W02, M06 | mixed | YouTube play/search, Gmail compose, and WhatsApp compose flows are wired enough to be truthful, but they still stop short of guaranteed autoplay or delivery |
+| B09, E03, E04, E08, W02, W05, M06 | mixed | YouTube play/search, Gmail compose plus attachment drafts, and WhatsApp compose/file-share flows are wired enough to be truthful, but they still stop short of guaranteed autoplay or delivery |
 | T01 | ✅ | Plain `open terminal` now opens a fresh Terminal window in the covered path; focus-only behavior is reserved for explicit focus semantics |
 | C01-C06 | mixed | calendar read, calendar add, reminders, task read, and task add all moved forward on the existing owners; live calendar reads and writes still require Calendar automation access, while reminders verify when Reminders automation is available |
 | I01-I02, I05 | mixed | pending dialogue memory is real for the compose flow; general conversation exists, but dedicated brainstorm behavior is still shallow |
-| H10, H12, H13 | mixed | memory and pending events now publish; mood events exist but the HUD presentation is still thin |
+| H10, H12, H13 | mixed | memory and pending events now publish, recent Notification Center activity is ingested into runtime/HUD truth through unified-log reads, and project cards stay aligned with tracked live focus; mood events exist but the HUD presentation is still thinner than the backend signal |
 
 ### Phase 3 feature completion
 
 | IDs / slice | Status | Current truth |
 | --- | --- | --- |
-| Provider-aware LLM/TTS/STT routing | 🟡 | config-driven provider selection is live across classifier, conversation, briefing, planner, search, browser, research, heartbeat, bug-hunter, TTS, and STT roles; local Ollama fallback now skips under low-RAM pressure instead of stalling live voice turns |
+| Provider-aware LLM/TTS/STT routing | 🟡 | config-driven provider selection is live across classifier, conversation, briefing, planner, search, browser, research, heartbeat, bug-hunter, TTS, and STT roles; optional DeepSeek/Kimi OpenAI-compatible endpoints are now wired, local Ollama fallback skips under low-RAM pressure, and retrieval roles like weather/project-status/page-read stay NVIDIA-first by default |
 | B02, B13, B14 | 🟡 | browser new-window, back, and refresh phrases now route deterministically, execute on the resolved browser family, and are host-smoke validated against local temp pages; plain running-browser app opens now force a fresh visible browser window |
 | F01-F15 | 🟡 | filesystem routing now covers common local create/open/read/write/find/list/move/copy/rename/delete/zip phrases on Desktop/Documents/Downloads/Home-style aliases; delete remains confirmation-gated and broader naming variants are still thinner than the core paths |
 | SY01-SY09, SY11, SY17-SY20 | 🟡 | system-control routing now covers common volume or mute, brightness, screenshot, lock-screen, sleep, show-desktop, dark-mode, do-not-disturb, and battery or wifi phrases; safe host smoke now covers screenshot/battery/wifi while disruptive controls remain operator-gated |
@@ -62,7 +62,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | B10, B16, K06 | 🟡 | current-page reads plus page summarization now reuse indexed web-page snapshots from `memory/knowledge_base.py`, resolve the active browser URL when needed, and fall back through Jina or direct HTML extraction |
 | K09, K10 | 🟡 | tracked project status now summarizes derived project health, blockers, next tasks, and adjacent GitHub repo state; direct GitHub status still works for tracked projects and raw `owner/repo` phrases |
 | M09, K07, M10 | 🟡 | video summarization now has caption and transcript fallbacks and can save notes into Obsidian when configured |
-| Live voice session loop | 🟡 | continuous clap sessions now gate STT on actual TTS playback and drop recent spoken-text echoes before dispatch; broader barge-in and audio-ducking behavior still needs live tuning |
+| Live voice session loop | 🟡 | continuous clap sessions now gate STT on actual TTS playback and drop recent spoken-text echoes before dispatch; startup briefing weather now comes from a speech-safe provider format instead of the emoji-heavy default line, but broader barge-in and audio-ducking behavior still needs live tuning |
 
 ## Full Inventory
 
@@ -125,17 +125,17 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | E05 | Reply to last email | reply to last email | ❌ | needs a Gmail API or a reliable mailbox integration |
 | E06 | Read inbox | read my emails | ❌ | needs a Gmail API or a reliable mailbox integration |
 | E07 | Search emails | find emails from vedang | ❌ | needs a Gmail API or a reliable mailbox integration |
-| E08 | Send with attachment | attach file and send | ❌ | attachment flow is not built |
+| E08 | Send with attachment | attach file and send | 🟡 | attachment-aware compose now prefers a Mail draft with pre-attached files when automation is available and falls back truthfully to Gmail compose when it is not; actual send remains operator-driven |
 
 ### WhatsApp
 
 | ID | Capability | Voice example | Effective status | Current gap or note |
 | --- | --- | --- | --- | --- |
 | W01 | Open WhatsApp | open whatsapp | ✅ | working |
-| W02 | Send to contact | whatsapp vedang saying hi | 🟡 | opens WhatsApp message flow truthfully; delivery remains degraded unless explicitly confirmed |
+| W02 | Send to contact | whatsapp vedang saying hi | 🟡 | contact and phone phrasing open the WhatsApp message flow truthfully; delivery remains degraded unless explicitly confirmed |
 | W03 | Send with phone number | whatsapp +91XXXX hi | 🟡 | still depends on optional GUI-path packages |
 | W04 | Read last message | read my last whatsapp | ❌ | no clean supported API on the local-app path |
-| W05 | Send file | send resume on whatsapp | ❌ | needs GUI automation |
+| W05 | Send file | send resume on whatsapp | 🟡 | file-share phrasing now opens WhatsApp truthfully and reveals resolved files in Finder for manual confirmation; true file delivery verification still needs GUI automation |
 | W06 | Open specific chat | open vedang's chat | ❌ | needs GUI automation |
 | W07 | Reply to last | reply to last whatsapp saying ok | ❌ | not built |
 
@@ -187,17 +187,17 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | T01 | Open Terminal | open terminal | ✅ | host smoke verified; plain `open terminal` now opens a fresh Terminal window instead of only focusing an existing one |
 | T02 | Run command | run git status | ✅ | allowlist works |
 | T03 | Open project in Terminal | open mac-butler in terminal | ✅ | working |
-| T04 | Open in Claude Code | open adpilot in claude code | ❌ | not wired |
-| T05 | Open in Codex | open adpilot in codex | ❌ | not wired |
-| T06 | Open in Cursor | open adpilot in cursor | ❌ | not wired |
+| T04 | Open in Claude Code | open adpilot in claude code | 🟡 | deterministic project-open routing now preserves the Claude Code editor hint and launches it through a fresh Terminal window; broader host verification is still thin |
+| T05 | Open in Codex | open adpilot in codex | 🟡 | deterministic project-open routing now preserves the Codex editor hint and launches it through a fresh Terminal window; broader host verification is still thin |
+| T06 | Open in Cursor | open adpilot in cursor | 🟡 | project-open routing already respects explicit Cursor hints on the covered path; broader host verification is still thinner than VS Code |
 | T07 | Open in VS Code | open adpilot in vscode | ✅ | working |
-| T08 | Run tests | run tests for mac-butler | ❌ | not built |
+| T08 | Run tests | run tests for mac-butler | 🟡 | deterministic `run tests` routing now resolves the current workspace or named project, infers a local test command, and executes it on the typed executor path; richer target selection and result verification are still limited |
 | T09 | Git status | show git status | ✅ | working |
-| T10 | Git commit | commit with message X | ❌ | confirmation-aware git flow is still missing |
-| T11 | Git push | push to main | ❌ | confirmation-aware git flow is still missing |
+| T10 | Git commit | commit with message X | 🟡 | confirmation-aware typed git commit flow is now wired on the executor path; host verification remains command-exit based |
+| T11 | Git push | push to main | 🟡 | confirmation-aware typed git push and commit-and-push flows are now wired on the executor path; host verification remains command-exit based |
 | T12 | Ask Claude Code to fix | fix login bug in adpilot | ❌ | not wired |
-| T13 | SSH to VPS | connect to VPS | 🟡 + 🔧 | credentials are not configured cleanly enough |
-| T14 | Check VPS status | check my VPS | 🟡 + 🔧 | current path still degrades on missing credentials |
+| T13 | SSH to VPS | connect to VPS | 🟡 + 🔧 | deterministic SSH-open routing now uses the configured default host and opens a real Terminal-backed helper flow; host credentials and reachability still gate success |
+| T14 | Check VPS status | check my VPS | 🟡 + 🔧 | typed VPS status now uses the configured default host and returns truthful setup or connection failures instead of generic empty degradation |
 
 ### Calendar and Tasks
 
@@ -248,7 +248,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | --- | --- | --- | --- | --- |
 | I01 | Session memory | "with subject hello" after email | ✅ | email follow-up fields and recent turns now persist across short restarts through the `session_context.py` snapshot |
 | I02 | Multi-turn commands | two-part commands connected | ✅ | pending dialogue resolution is wired, regression-covered, and restored truthfully after short restarts |
-| I03 | Startup briefing | GitHub weather tasks on wake | 🟡 | startup briefing is trigger-gated with deterministic fallback; default `butler.py` startup now stays passive until clap, wake phrase, or explicit command, and `--clap-only` keeps spoken wake disabled |
+| I03 | Startup briefing | GitHub weather tasks on wake | 🟡 | startup briefing is trigger-gated with deterministic fallback; the weather line now uses a speech-safe provider format, default `butler.py` startup stays passive until clap, wake phrase, or explicit command, and `--clap-only` keeps spoken wake disabled |
 | I04 | Mood-aware responses | 3am tone vs morning tone | ❌ | mood-aware reply shaping is still too shallow to count as complete |
 | I05 | Brainstorm mode | "lets think about adpilot" | 🟡 | general conversation lane exists, but not a dedicated high-opinion brainstorm subsystem |
 | I06 | Argue back | "you should work on email-infra" | ❌ | no explicit opinion or pushback lane |
@@ -271,7 +271,7 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | H08 | Plan steps live |  | ✅ | working |
 | H09 | Rolling log 100 events |  | 🟡 | event feed still truncates too aggressively |
 | H10 | Shows memory being read |  | ✅ | memory-read event publishing is wired |
-| H11 | Shows which model running |  | 🟡 | partial |
+| H11 | Shows which model running |  | 🟡 | speech/runtime chips now report NVIDIA Riva backends truthfully, but per-command model visibility is still partial |
 | H12 | Shows session context/pending |  | 🟡 | pending events publish correctly; HUD rendering is still basic |
 | H13 | Shows mood state |  | 🟡 | mood events publish through runtime telemetry; front-end depth remains limited |
 | H14 | Project graph |  | ✅ | working |
@@ -296,6 +296,8 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | `bash scripts/start_searxng.sh` | improves K01, K02, K03, and K08 search and research quality |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | improves K10 for private repos and higher rate limits, and improves I08 project-context quality |
 | `NVIDIA_API_KEY` plus NVIDIA Riva Python clients | unlocks provider-primary LLM, TTS, and STT paths |
+| `DEEPSEEK_API_KEY` | unlocks optional DeepSeek V4 Flash/Pro evaluation on the generic OpenAI-compatible provider path |
+| `MOONSHOT_API_KEY` | unlocks optional Kimi K2.6 evaluation on the generic OpenAI-compatible provider path |
 | `VPS` credentials in `butler_secrets` | unlocks T13 and T14 |
 | `pip install pywhatkit pyautogui` | improves W02, W03, W05, W06, W07 and GUI-heavy flows |
 | `ollama pull llama3.2-vision` | unlocks V02-V05 and the vision stack baseline |
@@ -307,20 +309,20 @@ The old compact map claimed `150` total capabilities, but the live inventory act
 | --- | --- | --- | --- |
 | Browser and page actions | `intents/router.py`, `pipeline/router.py`, `executor/engine.py`, `agents/browser_agent.py` | B01-B20 | tab/window/back/refresh host smoke is now in place; next gaps are incognito, YouTube-specific search/play hardening, and page-read/page-summary verification beyond URL state |
 | Filesystem and Finder | `intents/router.py`, `executor/engine.py`, `capabilities/registry.py` | F01-F18 | common local path routing plus create/open/read/write/find/list/move/copy/rename/delete/zip flows are now landed; next gaps are broader naming variants, terminal-created files, and the Google Doc/Sheet create-new shortcuts |
-| Email and WhatsApp | `brain/session_context.py`, `intents/router.py`, `executor/engine.py`, `channels/*` when needed | E01-E08, W01-W07 | keep Gmail and WhatsApp on draft-or-compose semantics unless the host can verify delivery; add attachment flow, phone/contact normalization, and explicit operator confirmation before true send steps |
+| Email and WhatsApp | `brain/session_context.py`, `intents/router.py`, `executor/engine.py`, `channels/*` when needed | E01-E08, W01-W07 | Gmail attachment drafts plus WhatsApp file-share assist are now truthful on the covered path; the next gaps are inbox/reply reads, richer chat targeting, and true delivery/file-send verification beyond manual confirmation |
 | Calendar, reminders, tasks, and notes | `intents/router.py`, `executor/engine.py`, `skills/calendar_skill.py`, `context/obsidian_context.py` | C01-C10 | calendar and reminder verification are now truthful on supported hosts; next gaps are task-done wiring plus Obsidian search/read flows, while Calendar read/write remain setup-dependent on host automation access |
-| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, GitHub-status, project-status, and current-page lookup are now in place; news rejects timeout filler, deeper research fast-paths live retrieval first, and `scripts/benchmark_models.py --real-tasks` now covers quick-fact, weather, GitHub, project-status, page-read, and news probes |
+| Current info and research | `agents/runner.py`, `agents/research_agent.py`, `capabilities/registry.py`, `brain/tools_registry.py` | K01-K10, B10, B16, M09, K07 | indexed page retrieval plus dedicated weather, quick-fact, GitHub-status, project-status, and current-page lookup are now in place; those retrieval roles now stay NVIDIA-first in the default chain, news rejects timeout filler, deeper research fast-paths live retrieval first, and `scripts/benchmark_models.py --real-tasks` covers quick-fact, weather, GitHub, project-status, page-read, and news probes |
 | System control | `intents/router.py`, `executor/engine.py` | SY01-SY20 | deterministic volume, mute, brightness, screenshot, lock-screen, sleep, show-desktop, battery, wifi, dark-mode, and DND routing are now wired; safe host smoke is in place and the next gaps are disruptive-control smoke plus empty-trash, mission-control, and force-quit |
-| Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | plain Terminal opens now create a fresh window; next gaps are open-in-Codex/Claude/Cursor, run-tests, git commit/push confirmation flows, and truthful VPS credential degradation |
+| Terminal, editors, and project actions | `projects/open_project.py`, `executor/engine.py`, `capabilities/planner.py` | T01-T14 | plain Terminal opens now create a fresh window, explicit editor hints for Claude/Codex/Cursor/VS Code now survive project-open routing, `run tests` resolves workspace-local commands, and git/VPS flows are typed plus confirmation-aware on the covered path; next gaps are ask-Claude fix workflows, richer test-target selection, and deeper host verification |
 | Vision and full computer control | `agents/vision.py`, `executor/engine.py`, `agents/browser_agent.py` | V01-V08, B11-B12, V06-V07 | treat screenshot capture, OCR, screen understanding, click targeting, and form fill as one stack: capture -> detect -> act -> verify; do not wire click/fill until the vision read path is stable |
 | Conversation, memory, and proactive behavior | `brain/session_context.py`, `brain/conversation.py`, `brain/mood_engine.py`, `daemon/heartbeat.py`, `memory/*` | I01-I10 | recent-turn and pending-memory persistence now live in `session_context.py`; next gaps are brainstorm, mood, yesterday memory, and proactive suggestions as explicit tested flows |
-| HUD and telemetry | `runtime/telemetry.py`, `projects/dashboard.py`, `projects/frontend/modules/*` | H01-H20 | localhost dashboard defaults to `7532` with native/browser auto-open opt-in only; finish pending-state rendering, richer mood display, log download/filtering, and per-command timing on the existing WS envelope instead of adding parallel UI channels |
+| HUD and telemetry | `runtime/telemetry.py`, `projects/dashboard.py`, `projects/frontend/modules/*` | H01-H20 | localhost dashboard defaults to `7532` with native/browser auto-open opt-in only; project cards now use enriched project-store data and live-focus highlighting, recent Notification Center activity now surfaces in the runtime notifications panel, and the next gaps are pending-state depth, richer mood display, log download/filtering, and per-command timing on the existing WS envelope |
 
 ## Suggested Phase Sequence From Here
 
 | Slice | Main scope | Why this order |
 | --- | --- | --- |
 | Phase 3B — knowledge and retrieval breadth | weather/fact/news latency, GitHub status, page/article/video summarization reliability, indexed retrieval | complete for the current advertised surface: page-read and project-status now have typed retrieval paths, deeper research fast-paths live lookups first, and the real-task benchmark path covers the main retrieval routes |
-| Phase 3C — messaging and project tooling | Gmail attachments, WhatsApp compose/send refinement, run-tests, editor openers, git confirmations, VPS checks | next active slice; these flows already have partial wiring and mostly need completion plus truthful verification |
-| Phase 3D — HUD visibility and proactive loops | pending context UI, mood UI, logs/timing, smarter heartbeat suggestions | the runtime already publishes most of the signals; the HUD just does not expose them well enough yet |
+| Phase 3C — messaging and project tooling | Gmail attachments, WhatsApp compose/send refinement, git confirmations, VPS checks | complete for the current advertised surface: attachment-aware compose, WhatsApp file-share assist, git confirmations, run-tests, explicit editor-openers, and truthful VPS default-host degradation are all wired on the existing owners |
+| Phase 3D — HUD visibility and proactive loops | pending context UI, mood UI, logs/timing, smarter heartbeat suggestions | now the primary remaining feature slice; the runtime already publishes most of the signals, but the HUD still needs deeper pending/mood/log/timing exposure |
 | Phase 4 — vision and full GUI control | screen reading, OCR, click/fill, PDF-on-screen, browser form control | this stack is heavier, setup-sensitive, and should land only after the deterministic action surface is reliable |
