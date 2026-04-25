@@ -105,7 +105,7 @@ def _warm_planning_model() -> None:
 def _speak_startup_briefing() -> None:
     try:
         from brain.briefing import build_briefing
-        from voice import speak
+        from voice import shape_for_speech, speak
     except Exception as exc:
         print(f"[Trigger] Briefing skipped: {exc}")
         return
@@ -113,9 +113,10 @@ def _speak_startup_briefing() -> None:
     text = " ".join(str(build_briefing() or "").split()).strip()
     if not text:
         text = "You're up. What are we building?"
+    spoken_text = shape_for_speech(text) or text
 
     payload = {
-        "text": text,
+        "text": spoken_text,
         "at": datetime.now().isoformat(timespec="seconds"),
     }
     try:
@@ -123,12 +124,12 @@ def _speak_startup_briefing() -> None:
     except Exception:
         pass
     try:
-        note_runtime_event("briefing_spoken", f"Briefing: {text}", {"text": text})
+        note_runtime_event("briefing_spoken", f"Briefing: {spoken_text}", {"text": spoken_text})
     except Exception:
         pass
     try:
-        ctx.add_butler(text)
-        speak(text)
+        ctx.add_butler(spoken_text)
+        speak(spoken_text)
     except Exception as exc:
         print(f"[Trigger] Briefing speak failed: {exc}")
 

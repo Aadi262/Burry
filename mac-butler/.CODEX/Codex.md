@@ -169,6 +169,7 @@ Docs-only sessions still require a readback pass across the touched `.CODEX` and
 - config-driven provider routing for LLM, TTS, and STT
 - NVIDIA-backed primary model roles with local Ollama fallbacks preserved
 - multilingual speech stack via NVIDIA Riva targets with Edge before Kokoro in the local fallback chain to avoid crackly local neural playback when Riva is unavailable
+- spoken text is now cleaned before TTS and startup-briefing logging: common UTF-8 mojibake is repaired, unstable emoji/weather symbols are stripped, and Devanagari text is preserved so the multilingual voice does not code-switch on garbage bytes
 - browser control now covers new tab, new window, close tab/window, back, refresh, and URL navigation on the resolved browser family
 - current-news lookup with search backends plus Google News RSS fallback, repeated-query caching, and snippet-first enrichment so rich provider results avoid unnecessary live page fetches
 - weather lookup now uses dedicated public-provider reads through `wttr.in` with Open-Meteo fallback

@@ -3,6 +3,22 @@ Sprint: AgentScope Integration (Apr 2026)
 Commits: 5c97615 → f0c97d5
 Done
 
+Live Multilingual Speech Cleanup — 2026-04-25
+
+Completed
+- kept the multilingual Edge fallback voice in place instead of forcing English-only fallback behavior
+- hardened `voice/tts.py` so the speech boundary now repairs common UTF-8 mojibake, strips unstable emoji/weather symbols, expands temperature strings like `+31°C`, and preserves Devanagari combining marks
+- changed `trigger.py` startup briefing publishing to record the cleaned spoken text instead of the raw corrupted weather string when briefing sources return noisy symbols
+- added new branch-specific regressions for mojibake cleanup, Devanagari preservation, multilingual Edge fallback reporting, and cleaned startup-briefing narration
+
+Validation
+- `venv/bin/python -m py_compile voice/tts.py trigger.py butler_config.py tests/test_tts.py tests/test_trigger.py`
+- `venv/bin/pytest tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_repairs_mojibake_and_removes_weather_emoji tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_keeps_devanagari_text_while_stripping_symbols tests/test_tts.py::TTSVoiceTests::test_edge_voice_name_uses_multilingual_fallback_when_unconfigured tests/test_tts.py::TTSVoiceTests::test_describe_tts_prefers_edge_when_available tests/test_trigger.py::TriggerTests::test_speak_startup_briefing_broadcasts_and_speaks -q` -> `5 passed`
+
+Still pending
+- run a live voice pass on the host to confirm the cleaned startup briefing and mixed Hindi/English speech sound stable through the actual runtime
+- `Phase 3C` messaging and project-tooling work remains next after the live voice verification
+
 Phase 3B Closure — 2026-04-24
 
 Completed

@@ -19,7 +19,7 @@ class TriggerTests(unittest.TestCase):
     @patch("trigger.note_runtime_event")
     @patch("voice.speak")
     @patch("trigger.publish_ui_event")
-    @patch("brain.briefing.build_briefing", return_value="Mumbai: 31C. What are we building?")
+    @patch("brain.briefing.build_briefing", return_value="Mumbai: ☁️ +31°C. What are we building?")
     def test_speak_startup_briefing_broadcasts_and_speaks(
         self,
         _mock_briefing,
@@ -32,6 +32,8 @@ class TriggerTests(unittest.TestCase):
         mock_speak.assert_called_once()
         mock_publish.assert_called_once()
         self.assertEqual(mock_publish.call_args.args[0], "briefing_spoken")
+        self.assertEqual(mock_publish.call_args.args[1]["text"], "Mumbai. plus 31 degrees Celsius. What are we building?")
+        self.assertEqual(mock_speak.call_args.args[0], "Mumbai. plus 31 degrees Celsius. What are we building?")
         mock_note_event.assert_called_once()
 
     @patch("trigger._planning_keepalive_model", return_value="ollama_local::gemma4:e4b")

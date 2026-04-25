@@ -32,6 +32,25 @@ class TTSVoiceTests(unittest.TestCase):
         self.assertIn("G mail", shaped)
         self.assertIn("You tube", shaped)
 
+    def test_shape_for_speech_repairs_mojibake_and_removes_weather_emoji(self):
+        shaped = tts._shape_for_speech("Last push. Burry. mumbai. âï¸ +35Â°C. Pending.")
+
+        self.assertEqual(shaped, "Last push. Burry. mumbai. plus 35 degrees Celsius. Pending.")
+        self.assertNotIn("â", shaped)
+        self.assertNotIn("Â", shaped)
+        self.assertNotIn("☁", shaped)
+
+    @patch("voice.tts.EDGE_TTS_VOICE", "")
+    def test_edge_voice_name_uses_multilingual_fallback_when_unconfigured(self):
+        self.assertEqual(tts._edge_voice_name(), "en-US-AvaMultilingualNeural")
+
+    def test_shape_for_speech_keeps_devanagari_text_while_stripping_symbols(self):
+        shaped = tts._shape_for_speech("Burry नमस्ते ☁️ +31°C")
+
+        self.assertEqual(shaped, "Burry नमस्ते plus 31 degrees Celsius")
+        self.assertIn("नमस्ते", shaped)
+        self.assertNotIn("☁", shaped)
+
     @patch("voice.tts._say_fallback")
     @patch("voice.tts._try_edge_tts", return_value=False)
     @patch("voice.tts._try_kokoro", return_value=False)
@@ -66,6 +85,7 @@ class TTSVoiceTests(unittest.TestCase):
     def test_describe_tts_prefers_edge_when_available(self, _mock_available):
         desc = tts.describe_tts()
         self.assertEqual(desc["backend"], "edge")
+        self.assertEqual(desc["voice"], "en-US-AvaMultilingualNeural")
 
     @patch("voice.tts.TTS_ENGINE", "nvidia_riva_tts")
     def test_nvidia_tts_fallback_uses_edge_before_kokoro(self):

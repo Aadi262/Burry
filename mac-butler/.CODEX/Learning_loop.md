@@ -861,3 +861,14 @@ The fix:
  `pipeline/router.py` now treats project-status and current-page phrasing as tool-preferring, and new semantic-routing regressions pin both end-to-end paths.
 Rule added:
  Every new typed lookup capability must update the question-lane tool-preference gate and get an integration regression, not just planner or agent unit tests.
+
+HARD LESSON — multilingual TTS cleanup must remove garbage bytes without destroying Hindi text
+Date: 2026-04-25
+What happened:
+ The live startup briefing spoke mojibake like `âï¸ +35Â°C`, and the multilingual fallback voice sounded like it changed language mid-sentence.
+Root cause:
+ Corrupted UTF-8 weather text and emoji reached TTS, and the first cleanup pass stripped Devanagari combining marks along with the bad symbols.
+The fix:
+ Repair common mojibake before speech, strip unstable emoji and symbol noise at the speech boundary, normalize temperature strings, and preserve Unicode mark characters so Hindi survives intact.
+Rule added:
+ Multilingual cleanup must be script-safe: remove corrupted bytes and unstable symbols, but never strip Devanagari marks or solve a text-cleanliness bug by downgrading the voice to English-only.

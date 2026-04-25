@@ -66,6 +66,7 @@ That means the product is built around:
 - passive clap wake now arms after startup and ignores active sessions so standby does not immediately retrigger itself
 - clap wake now also requires a sharp transient instead of any sustained loud audio block
 - continuous clap sessions keep the microphone closed while TTS is actually playing and drop recent spoken-text echoes before command dispatch
+- spoken-text cleanup now repairs common mojibake, strips unstable weather or emoji symbols, and preserves Hindi plus English text before TTS or startup-briefing narration
 - the dashboard now serves localhost on `7532/7533` by default; native pywebview HUD and browser auto-open are opt-in with `BURRY_USE_NATIVE_HUD=1` or `BURRY_ALLOW_BROWSER_HUD=1`
 - the news agent rejects model timeout filler such as "I'm still thinking" and falls back to collected headlines/snippets or a truthful fetch failure
 - plain `open terminal` now opens a fresh Terminal window, and plain browser app opens such as `open Google Chrome` create a fresh visible browser window when that browser is already running
@@ -109,6 +110,7 @@ That means the product is built around:
 - model timeouts now continue to the next candidate instead of immediately returning "I'm still thinking"
 - local Ollama fallback is skipped under low-RAM pressure instead of loading another model and stalling a live voice turn
 - Gemma provider thought/channel wrappers are stripped before user-facing speech or chat output
+- speech cleanup repairs corrupted UTF-8 weather strings like `âï¸ +35Â°C` before they hit the multilingual fallback voice, while keeping Devanagari text intact
 - Kokoro local neural TTS on Apple Silicon
 - Edge and safe macOS `say` fallbacks
 - local Whisper fallbacks for STT

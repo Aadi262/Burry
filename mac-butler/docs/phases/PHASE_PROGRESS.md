@@ -745,3 +745,19 @@ Append a new status block after each working session:
   dry-run benchmark planned the new `project_status_adpilot` and `page_read_example` retrieval probes with zero wiring errors
   doc and capability readback confirmed `Phase 3B` is now represented as closed and `Phase 3C` is next
 - Next action: start `Phase 3C - Messaging and Project Tooling` on the frozen v1 contracts
+
+## Progress Update - 2026-04-25
+
+- Phase: `Phase 3C - Messaging and Project Tooling`
+- Status: runtime speech cleanup tightened while `Phase 3C` remains the next implementation slice
+- What moved:
+  kept the multilingual Edge fallback voice instead of forcing English-only fallback
+  hardened `voice/tts.py` so spoken text now repairs common mojibake, strips unstable emoji/weather symbols, expands temperature strings like `+31°C`, and preserves Devanagari marks
+  changed `trigger.py` startup briefing publishing to store and narrate the cleaned spoken text instead of the raw corrupted weather string
+- What is still blocked:
+  live host verification is still needed for the mixed Hindi/English speech path because sandbox tests cannot prove real speaker output quality
+  the actual `Phase 3C` feature slice is still messaging and project tooling: Gmail attachments, richer WhatsApp, run-tests, editor openers, git confirmations, and VPS completion
+- Tests run:
+  `venv/bin/python -m py_compile voice/tts.py trigger.py butler_config.py tests/test_tts.py tests/test_trigger.py`
+  `venv/bin/pytest tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_repairs_mojibake_and_removes_weather_emoji tests/test_tts.py::TTSVoiceTests::test_shape_for_speech_keeps_devanagari_text_while_stripping_symbols tests/test_tts.py::TTSVoiceTests::test_edge_voice_name_uses_multilingual_fallback_when_unconfigured tests/test_tts.py::TTSVoiceTests::test_describe_tts_prefers_edge_when_available tests/test_trigger.py::TriggerTests::test_speak_startup_briefing_broadcasts_and_speaks -q` -> `5 passed`
+- Next action: run one live multilingual voice pass on the host, then return to the bounded `Phase 3C` implementation slice

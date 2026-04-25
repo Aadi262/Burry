@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 import wave
 from contextlib import contextmanager
 from difflib import SequenceMatcher
@@ -55,6 +56,8 @@ _SPEECH_ACTIVE = threading.Event()
 _SPEECH_GRACE_UNTIL = 0.0
 _LAST_SPOKEN_TEXT = ""
 _LAST_SPOKEN_AT = 0.0
+_EDGE_FALLBACK_VOICE = "en-US-AvaMultilingualNeural"
+_MOJIBAKE_MARKERS = ("Ã", "Â", "â", "ð", "ï", "\ufffd")
 
 
 @lru_cache(maxsize=1)
@@ -248,6 +251,11 @@ def _edge_tts_available() -> bool:
         return False
 
 
+def _edge_voice_name() -> str:
+    configured = str(EDGE_TTS_VOICE or "").strip()
+    return configured or _EDGE_FALLBACK_VOICE
+
+
 def describe_tts() -> dict:
     for target in _tts_targets():
         backend = _target_provider(target)
@@ -259,7 +267,7 @@ def describe_tts() -> dict:
                 "language_code": str(target.get("language_code", "") or "auto").strip() or "auto",
             }
         if backend == "edge" and _edge_tts_available():
-            return {"backend": "edge", "voice": EDGE_TTS_VOICE, "rate": EDGE_TTS_RATE}
+            return {"backend": "edge", "voice": _edge_voice_name(), "rate": EDGE_TTS_RATE}
         if backend == "kokoro" and KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists():
             return {"backend": "kokoro", "voice": TTS_VOICE, "speed": TTS_SPEED}
         if backend == "say":
@@ -345,6 +353,55 @@ def _remember_recent_speech(text: str) -> None:
         _LAST_SPOKEN_AT = time.monotonic()
 
 
+def _mojibake_score(text: str) -> int:
+    sample = str(text or "")
+    return sum(sample.count(marker) for marker in _MOJIBAKE_MARKERS)
+
+
+def _repair_common_mojibake(text: str) -> str:
+    raw = str(text or "")
+    best = raw
+    best_score = _mojibake_score(raw)
+    if best_score <= 0:
+        return raw
+
+    for encoding in ("latin-1", "cp1252"):
+        try:
+            candidate = raw.encode(encoding).decode("utf-8")
+        except Exception:
+            continue
+        candidate_score = _mojibake_score(candidate)
+        if candidate_score < best_score:
+            best = candidate
+            best_score = candidate_score
+    return best
+
+
+def _strip_unstable_speech_symbols(text: str) -> str:
+    cleaned = unicodedata.normalize("NFKC", str(text or ""))
+    cleaned = cleaned.replace("\u00a0", " ")
+    cleaned = re.sub(r"(?<!\w)\+(\d)", r"plus \1", cleaned)
+    cleaned = re.sub(
+        r"([+-]?\d+(?:\.\d+)?)\s*[°º]\s*([CF])\b",
+        lambda match: f"{match.group(1)} degrees {'Celsius' if match.group(2).lower() == 'c' else 'Fahrenheit'}",
+        cleaned,
+    )
+    cleaned = re.sub(r"([+-]?\d+(?:\.\d+)?)\s*°\b", r"\1 degrees", cleaned)
+
+    allowed_chars: list[str] = []
+    for char in cleaned:
+        codepoint = ord(char)
+        if codepoint in {0x200C, 0x200D} or 0xFE00 <= codepoint <= 0xFE0F:
+            continue
+        category = unicodedata.category(char)
+        if char in "\n\t " or category[0] in {"L", "M", "N", "P"}:
+            allowed_chars.append(char)
+            continue
+        if category == "Zs":
+            allowed_chars.append(" ")
+    return "".join(allowed_chars)
+
+
 @contextmanager
 def _speech_lock(timeout: float = TTS_LOCK_TIMEOUT_SECONDS):
     TTS_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -373,7 +430,8 @@ def _speech_lock(timeout: float = TTS_LOCK_TIMEOUT_SECONDS):
 
 
 def _shape_for_speech(text: str) -> str:
-    cleaned = text or ""
+    cleaned = _repair_common_mojibake(text or "")
+    cleaned = _strip_unstable_speech_symbols(cleaned)
     cleaned = re.sub(r"\[\[slnc\s+\d+\]\]", " ", cleaned)
     cleaned = re.sub(r"[*_`#]", "", cleaned)
     cleaned = re.sub(r"https?://\S+", "", cleaned)
@@ -486,13 +544,13 @@ def _try_edge_tts(text: str) -> bool:
     try:
         communicate = edge_tts.Communicate(
             text,
-            voice=EDGE_TTS_VOICE or "en-US-AvaMultilingualNeural",
+            voice=_edge_voice_name(),
             rate=EDGE_TTS_RATE or "+0%",
         )
         _run_async(communicate.save(str(mp3_path)))
         if not mp3_path.exists() or mp3_path.stat().st_size <= 0:
             return False
-        print(f"[Voice] 🔊 (edge:{EDGE_TTS_VOICE or 'en-US-AvaMultilingualNeural'}) {text[:120]}")
+        print(f"[Voice] 🔊 (edge:{_edge_voice_name()}) {text[:120]}")
         subprocess.run(
             ["afplay", "-v", "0.85", str(mp3_path)],
             check=False,
