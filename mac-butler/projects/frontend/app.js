@@ -37,6 +37,7 @@ const refs = {
   workspaceApp: document.getElementById("workspace-app"),
   workspaceName: document.getElementById("workspace-name"),
   ambientList: document.getElementById("ambient-list"),
+  notificationsList: document.getElementById("notifications-list"),
   memoryRecallList: document.getElementById("memory-recall-list"),
   pendingPanel: document.getElementById("pending-panel"),
   taskList: document.getElementById("task-list"),

@@ -109,9 +109,12 @@ def _status_rank(status: str) -> int:
 
 def _dashboard_projects() -> list[dict]:
     try:
-        raw_projects = _load_projects_raw()
+        raw_projects = load_projects()
     except Exception:
-        raw_projects = []
+        try:
+            raw_projects = _load_projects_raw()
+        except Exception:
+            raw_projects = []
 
     projects: list[dict] = []
     for project in raw_projects:
@@ -248,7 +251,20 @@ def _vps_payload() -> dict:
 
 def _status_tone(status: str) -> str:
     lowered = str(status or "").lower()
-    if lowered in {"live", "ready", "healthy", "online", "active"}:
+    if lowered in {
+        "live",
+        "ready",
+        "healthy",
+        "online",
+        "active",
+        "edge",
+        "kokoro",
+        "say",
+        "mlx",
+        "faster",
+        "nvidia_riva_tts",
+        "nvidia_riva_asr",
+    }:
         return "healthy"
     if lowered in {"standby", "pending", "local", "vps", "configured", "disabled"}:
         return "degraded"
@@ -425,7 +441,14 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
     mood_state = describe_mood_state() or {}
     runtime_workspace = runtime_state.get("workspace") if isinstance(runtime_state.get("workspace"), dict) else {}
     workspace = str(runtime_workspace.get("workspace", "") or mac_state.get("cursor_workspace", "") or "").strip()
-    focus_project = str(runtime_workspace.get("focus_project", "") or "").strip() or _workspace_project_name(workspace, catalog)
+    runtime_focus_project = str(runtime_workspace.get("focus_project", "") or "").strip()
+    mapped_focus_project = _workspace_project_name(workspace, catalog)
+    catalog_names = {str(item.get("name", "") or "").strip() for item in catalog if isinstance(item, dict)}
+    focus_project = runtime_focus_project
+    if mapped_focus_project and runtime_focus_project not in catalog_names:
+        focus_project = mapped_focus_project
+    elif not focus_project:
+        focus_project = mapped_focus_project
     frontmost_app = str(runtime_workspace.get("frontmost_app", "") or mac_state.get("frontmost_app", "") or "").strip()
 
     tasks = []
@@ -460,13 +483,13 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
             "name": "Voice",
             "status": voice_backend,
             "detail": str(tts.get("voice", "") or tts.get("rate", "")).strip(),
-            "tone": _status_tone("healthy" if voice_backend in {"edge", "kokoro", "say"} else "offline"),
+            "tone": _status_tone(voice_backend),
         },
         {
             "name": "Listen",
             "status": listen_backend,
             "detail": str(stt.get("active_model", "") or stt.get("requested_model", "")).strip(),
-            "tone": _status_tone("healthy" if listen_backend in {"mlx", "faster"} else "pending"),
+            "tone": _status_tone(listen_backend),
         },
     ]
 
@@ -518,6 +541,14 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         for item in list(runtime_state.get("ambient_context") or [])[:3]
         if _clip_text(item, limit=140)
     ]
+    notifications = runtime_state.get("notifications") if isinstance(runtime_state.get("notifications"), dict) else {}
+    if not notifications and isinstance(mac_state.get("notifications"), dict):
+        notifications = dict(mac_state.get("notifications") or {})
+    notification_items = [
+        item
+        for item in list(notifications.get("items") or [])[:6]
+        if isinstance(item, dict)
+    ]
     # Append active plan status to ambient context (Phase 10)
     try:
         from memory.plan_notebook import get_plan_status
@@ -566,6 +597,13 @@ def operator_snapshot(projects: list[dict] | None = None) -> dict:
         "metrics": metrics,
         "memory_recall": memory_recall,
         "ambient_context": ambient_context,
+        "notifications": {
+            "source": str(notifications.get("source", "") or ""),
+            "status": str(notifications.get("status", "") or "unavailable"),
+            "detail": str(notifications.get("detail", "") or ""),
+            "items": notification_items,
+            "at": str(notifications.get("at", "") or ""),
+        },
         "last_agent_result": last_agent_result,
         "events": events,
         "observability": {

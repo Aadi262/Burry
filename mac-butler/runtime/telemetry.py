@@ -79,6 +79,13 @@ def _default_runtime_state() -> dict:
             "matches": [],
             "at": "",
         },
+        "notifications": {
+            "source": "",
+            "status": "unavailable",
+            "detail": "",
+            "items": [],
+            "at": "",
+        },
         "turns": [],
         "pending_confirmation": {
             "id": "",
@@ -98,6 +105,8 @@ def _default_runtime_state() -> dict:
         "metrics": _default_metrics(now),
         "events": [],
     }
+
+
 def _load_unlocked() -> dict:
     if not RUNTIME_STATE_PATH.exists():
         return _default_runtime_state()
@@ -125,6 +134,17 @@ def _load_unlocked() -> dict:
         default["pending_confirmation"] = _default_runtime_state()["pending_confirmation"]
     if not isinstance(default.get("project_context_hint"), dict):
         default["project_context_hint"] = _default_runtime_state()["project_context_hint"]
+    if not isinstance(default.get("notifications"), dict):
+        default["notifications"] = _default_runtime_state()["notifications"]
+    notifications = default.get("notifications") if isinstance(default.get("notifications"), dict) else {}
+    merged_notifications = _default_runtime_state()["notifications"]
+    merged_notifications.update(notifications)
+    merged_notifications["items"] = [
+        item
+        for item in list(merged_notifications.get("items") or [])[:8]
+        if isinstance(item, dict)
+    ]
+    default["notifications"] = merged_notifications
     metrics = default.get("metrics") if isinstance(default.get("metrics"), dict) else {}
     merged_metrics = _default_metrics()
     merged_metrics.update(metrics)
@@ -363,6 +383,175 @@ def note_workspace_context(focus_project: str = "", frontmost_app: str = "", wor
                 "frontmost_app": payload["frontmost_app"],
                 "workspace": payload["workspace"],
             },
+        )
+        _save_unlocked(data)
+
+
+def _clean_notification_item(item: dict | None, *, default_source: str = "system_log") -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    cleaned = {
+        "app": _clip_text(item.get("app", ""), limit=80),
+        "bundle": _clip_text(item.get("bundle", ""), limit=140),
+        "title": _clip_text(item.get("title", ""), limit=120),
+        "subtitle": _clip_text(item.get("subtitle", ""), limit=120),
+        "message": _clip_text(item.get("message", ""), limit=180),
+        "summary": _clip_text(item.get("summary", ""), limit=140),
+        "detail": _clip_text(item.get("detail", ""), limit=180),
+        "status": _clip_text(item.get("status", ""), limit=40) or "activity",
+        "source": _clip_text(item.get("source", ""), limit=40) or _clip_text(default_source, limit=40),
+        "at": _clip_text(item.get("at", ""), limit=40) or _now_iso(),
+    }
+    if not any(cleaned.get(key) for key in ("app", "title", "message", "summary", "bundle")):
+        return None
+    return cleaned
+
+
+def _notification_signature(item: dict) -> tuple[str, str, str, str, str]:
+    return (
+        str(item.get("source", "") or ""),
+        str(item.get("app", "") or ""),
+        str(item.get("title", "") or ""),
+        str(item.get("message", "") or item.get("summary", "") or ""),
+        str(item.get("status", "") or ""),
+    )
+
+
+def note_notification(
+    title: str,
+    message: str,
+    *,
+    subtitle: str = "",
+    source: str = "butler",
+    app: str = "Burry",
+    status: str = "sent",
+) -> None:
+    item = _clean_notification_item(
+        {
+            "app": app,
+            "title": title,
+            "subtitle": subtitle,
+            "message": message,
+            "summary": message or title,
+            "status": status,
+            "source": source,
+            "at": _now_iso(),
+        },
+        default_source=source,
+    )
+    if item is None:
+        return
+
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        current = data.get("notifications") if isinstance(data.get("notifications"), dict) else {}
+        existing_items = [
+            clean
+            for clean in (
+                _clean_notification_item(entry, default_source=current.get("source", "") or source)
+                for entry in list(current.get("items") or [])
+            )
+            if clean is not None
+        ]
+        merged: list[dict] = []
+        seen: set[tuple[str, str, str, str, str]] = set()
+        for entry in [item, *existing_items]:
+            signature = _notification_signature(entry)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            merged.append(entry)
+        data["notifications"] = {
+            "source": _clip_text(current.get("source", ""), limit=40) or _clip_text(source, limit=40),
+            "status": _clip_text(current.get("status", ""), limit=40) or "ok",
+            "detail": _clip_text(current.get("detail", ""), limit=180),
+            "items": merged[:8],
+            "at": _now_iso(),
+        }
+        _append_event(
+            data,
+            "notification",
+            f"Notification: {item['app'] or 'Burry'} · {item['message'] or item['summary'] or item['status']}",
+            {"source": item["source"], "status": item["status"], "app": item["app"]},
+        )
+        _save_unlocked(data)
+
+
+def note_notifications(
+    items: list[dict] | None = None,
+    *,
+    source: str = "system_log",
+    status: str = "unavailable",
+    detail: str = "",
+) -> None:
+    cleaned_items = [
+        clean
+        for clean in (
+            _clean_notification_item(item, default_source=source)
+            for item in list(items or [])[:8]
+        )
+        if clean is not None
+    ]
+    payload = {
+        "source": _clip_text(source, limit=40),
+        "status": _clip_text(status, limit=40) or "unavailable",
+        "detail": _clip_text(detail, limit=180),
+        "items": cleaned_items,
+        "at": _now_iso(),
+    }
+
+    with _RUNTIME_LOCK:
+        data = _load_unlocked()
+        current = data.get("notifications") if isinstance(data.get("notifications"), dict) else {}
+        current_items = [
+            clean
+            for clean in (
+                _clean_notification_item(entry, default_source=current.get("source", "") or source)
+                for entry in list(current.get("items") or [])
+            )
+            if clean is not None
+        ]
+        preserved = [
+            entry
+            for entry in current_items
+            if str(entry.get("source", "") or "") != payload["source"]
+        ]
+        merged: list[dict] = []
+        seen: set[tuple[str, str, str, str, str]] = set()
+        for entry in [*cleaned_items, *preserved]:
+            signature = _notification_signature(entry)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            merged.append(entry)
+
+        existing_meta = {
+            "source": _clip_text(current.get("source", ""), limit=40),
+            "status": _clip_text(current.get("status", ""), limit=40) or "unavailable",
+            "detail": _clip_text(current.get("detail", ""), limit=180),
+            "items": current_items,
+        }
+        next_meta = {
+            "source": payload["source"],
+            "status": payload["status"],
+            "detail": payload["detail"],
+            "items": merged[:8],
+        }
+        if existing_meta == next_meta:
+            return
+
+        data["notifications"] = {
+            "source": next_meta["source"],
+            "status": next_meta["status"],
+            "detail": next_meta["detail"],
+            "items": next_meta["items"],
+            "at": payload["at"],
+        }
+        _append_event(
+            data,
+            "notification",
+            f"Notifications: {len(cleaned_items)} recent items from {payload['source'] or 'system'}",
+            {"source": payload["source"], "status": payload["status"], "count": len(cleaned_items)},
         )
         _save_unlocked(data)
 

@@ -234,6 +234,31 @@ export function createPanels({ refs, state, orb, events, openProject }) {
       : "<div class=\"ambient-empty\">Ambient context will appear here after the daemon writes its next summary.</div>";
   }
 
+  function renderNotifications(data) {
+    const payload = data.notifications && typeof data.notifications === "object" ? data.notifications : {};
+    const items = (Array.isArray(payload.items) ? payload.items : [])
+      .map((item) => ({
+        app: collapseWhitespace(item.app || item.bundle || "Notification"),
+        status: collapseWhitespace(item.status || "activity"),
+        text: collapseWhitespace(item.message || item.summary || item.detail || ""),
+        at: collapseWhitespace(item.at || ""),
+      }))
+      .filter((item) => item.app)
+      .slice(0, 4);
+    refs.notificationsList.innerHTML = items.length
+      ? items.map((item) => `
+          <article class="notification-item">
+            <div class="notification-topline">
+              <strong>${item.app}</strong>
+              <span>${item.status}</span>
+            </div>
+            <div class="notification-body">${item.text || "Notification activity available."}</div>
+            <div class="notification-time">${item.at || payload.detail || "recent"}</div>
+          </article>
+        `).join("")
+      : `<div class="notification-empty">${collapseWhitespace(payload.detail || "Recent notification activity will appear here when available.")}</div>`;
+  }
+
   function renderTasks(data, projectItems = state.projects) {
     const items = [];
     for (const task of Array.isArray(data.tasks) ? data.tasks : []) {
@@ -263,11 +288,12 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     state.projects = projectItems;
     const ordered = [...projectItems].sort((a, b) => (Number(b.completion || 0) - Number(a.completion || 0)));
     refs.projectList.innerHTML = ordered.map((project) => {
+      const isFocused = String(project.name || "").trim() === String(state.operator?.focus_project || "").trim();
       const nextAction = (project.next_tasks && project.next_tasks[0]) || (project.blockers && project.blockers[0]) || "No next action logged yet.";
       const blurb = project.blurb || project.description || "";
       const pct = Number(project.completion || 0);
       return `
-        <article class="project-card">
+        <article class="project-card${isFocused ? " is-focused" : ""}">
           <div class="project-topline">
             <div class="project-topline-copy">
               <div class="project-name">${project.name || "Project"}</div>
@@ -275,7 +301,7 @@ export function createPanels({ refs, state, orb, events, openProject }) {
             </div>
             <div class="project-status">
               <span class="health-dot ${healthClass(project)}"></span>
-              <span>${project.status || "paused"}</span>
+              <span>${isFocused ? "live focus" : (project.status || "paused")}</span>
             </div>
           </div>
           <div class="progress-wrap">
@@ -327,9 +353,11 @@ export function createPanels({ refs, state, orb, events, openProject }) {
     renderToolPills(state.operator);
     renderRuntime(state.operator);
     renderAmbient(state.operator);
+    renderNotifications(state.operator);
     renderMemoryRecall(state.operator);
     renderTasks(state.operator, state.projects);
     renderTranscript(state.operator);
+    renderProjects(state.projects);
     events.render(state.operator);
   }
 

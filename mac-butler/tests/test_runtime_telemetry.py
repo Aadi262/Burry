@@ -106,6 +106,42 @@ class RuntimeTelemetryTests(unittest.TestCase):
         self.assertEqual(state["ambient_context"][0], "mac-butler blocker: auth recall still fails")
         self.assertEqual(state["events"][-1]["kind"], "ambient")
 
+    def test_note_notifications_merges_system_and_butler_items(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            runtime_path = Path(tempdir) / "runtime_state.json"
+            with patch.object(telemetry, "RUNTIME_STATE_PATH", runtime_path):
+                telemetry.note_notifications(
+                    [
+                        {
+                            "app": "Google Chrome",
+                            "bundle": "com.google.Chrome.framework.AlertNotificationService",
+                            "status": "active",
+                            "summary": "Chrome notification active",
+                            "source": "usernoted_log",
+                            "at": "2026-04-25 20:01:00.000",
+                        }
+                    ],
+                    source="usernoted_log",
+                    status="ok",
+                    detail="Recent notification activity from usernoted.",
+                )
+                telemetry.note_notification(
+                    "Burry",
+                    "Run tests finished.",
+                    subtitle="Response",
+                    source="butler",
+                    app="Burry",
+                    status="sent",
+                )
+                state = telemetry.load_runtime_state()
+
+        self.assertEqual(state["notifications"]["status"], "ok")
+        self.assertEqual(state["notifications"]["source"], "usernoted_log")
+        self.assertEqual(len(state["notifications"]["items"]), 2)
+        self.assertEqual(state["notifications"]["items"][0]["app"], "Burry")
+        self.assertEqual(state["notifications"]["items"][1]["app"], "Google Chrome")
+        self.assertEqual(state["events"][-1]["kind"], "notification")
+
     def test_conversation_turns_and_project_hint_persist(self):
         with tempfile.TemporaryDirectory() as tempdir:
             runtime_path = Path(tempdir) / "runtime_state.json"

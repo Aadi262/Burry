@@ -78,7 +78,9 @@ body {
   height: 100%;
   overflow: hidden;
   background:
+    radial-gradient(circle at 16% 14%, rgba(0, 212, 255, 0.08), transparent 22%),
     radial-gradient(circle at 50% 18%, rgba(79, 143, 255, 0.11), transparent 28%),
+    radial-gradient(circle at 82% 84%, rgba(255, 170, 0, 0.07), transparent 18%),
     radial-gradient(circle at 50% 100%, rgba(0, 212, 255, 0.12), transparent 24%),
     var(--bg);
   color: var(--text);
@@ -229,7 +231,9 @@ body[data-state="speaking"] {
   height: var(--topbar-height);
   border-radius: 999px;
   border: 1px solid var(--pill-border);
-  background: linear-gradient(180deg, rgba(1, 13, 31, 0.9), rgba(1, 5, 16, 0.96));
+  background:
+    linear-gradient(120deg, rgba(0, 212, 255, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(1, 13, 31, 0.9), rgba(1, 5, 16, 0.96));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 0 36px var(--state-glow);
   display: flex;
   align-items: center;
@@ -237,6 +241,7 @@ body[data-state="speaking"] {
   gap: 14px;
   padding: 0 20px;
   overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .state-pill::before {
@@ -622,6 +627,12 @@ body[data-state="executing"] .panel {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.runtime-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
 }
 
 .runtime-chip strong {
@@ -752,6 +763,67 @@ body[data-state="executing"] .panel {
 
 .ambient-empty {
   color: var(--text-faint);
+}
+
+/* ── Notifications panel ────────────────────────────────────────── */
+.notifications-panel {
+  flex-shrink: 0;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.notification-item {
+  border-radius: 16px;
+  border: 1px solid rgba(13, 39, 68, 0.86);
+  background: linear-gradient(180deg, rgba(1, 13, 31, 0.94), rgba(3, 18, 34, 0.96));
+  padding: 10px 12px;
+  flex-shrink: 0;
+}
+
+.notification-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notification-topline strong {
+  min-width: 0;
+  font-size: var(--font-body);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-topline span {
+  flex-shrink: 0;
+  font-size: var(--font-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.notification-body {
+  margin-top: 6px;
+  color: rgba(232, 244, 255, 0.72);
+  font-size: var(--font-meta);
+  line-height: 1.5;
+}
+
+.notification-time,
+.notification-empty {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: var(--font-label);
+  line-height: 1.4;
 }
 
 /* ── Recall panel ───────────────────────────────────────────────── */
@@ -1364,6 +1436,37 @@ body[data-state="executing"] .panel {
   flex-direction: column;
   gap: 10px;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+.project-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.08), transparent 45%, rgba(255, 170, 0, 0.05));
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 212, 255, 0.3);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
+}
+
+.project-card:hover::before,
+.project-card.is-focused::before {
+  opacity: 1;
+}
+
+.project-card.is-focused {
+  border-color: rgba(0, 212, 255, 0.52);
+  background: linear-gradient(180deg, rgba(5, 20, 36, 0.98), rgba(1, 13, 31, 0.96));
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.12), 0 18px 40px rgba(0, 0, 0, 0.28);
+  animation: project-focus-glow 3.2s ease-in-out infinite;
 }
 
 .project-topline {
@@ -1408,6 +1511,14 @@ body[data-state="executing"] .panel {
   text-transform: uppercase;
   white-space: nowrap;
   flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.project-card.is-focused .project-status {
+  color: var(--accent);
+  background: rgba(0, 212, 255, 0.1);
 }
 
 .health-dot {
@@ -1457,9 +1568,10 @@ body[data-state="executing"] .panel {
   font-size: var(--font-meta);
   color: var(--amber);
   line-height: 1.4;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .project-open {
@@ -1658,6 +1770,15 @@ body[data-state="executing"] .panel {
   }
   50% {
     box-shadow: var(--shadow), inset 0 0 0 1px rgba(0, 212, 255, 0.03), 0 0 24px var(--panel-pulse-color);
+  }
+}
+
+@keyframes project-focus-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.12), 0 18px 40px rgba(0, 0, 0, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.22), 0 24px 48px rgba(0, 0, 0, 0.32), 0 0 26px rgba(0, 212, 255, 0.14);
   }
 }
 

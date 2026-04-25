@@ -6,10 +6,20 @@ from __future__ import annotations
 import json
 import subprocess
 
+try:
+    from .telemetry import note_notification
+except Exception:
+    try:
+        from runtime.telemetry import note_notification
+    except Exception:
+        def note_notification(*_args, **_kwargs) -> None:
+            return None
+
 
 def notify(title: str, message: str, subtitle: str = "Burry OS") -> None:
+    status = "sent"
     try:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "osascript",
                 "-e",
@@ -22,5 +32,19 @@ def notify(title: str, message: str, subtitle: str = "Burry OS") -> None:
             capture_output=True,
             timeout=3,
         )
+        if int(getattr(result, "returncode", 1) or 0) != 0:
+            status = "failed"
     except Exception:
-        pass
+        status = "failed"
+    finally:
+        try:
+            note_notification(
+                str(title or "Burry"),
+                str(message or ""),
+                subtitle=str(subtitle or "Burry OS"),
+                source="butler",
+                app="Burry",
+                status=status,
+            )
+        except Exception:
+            pass

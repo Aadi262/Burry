@@ -2,7 +2,7 @@
 """
 context/mac_activity.py
 Passive Mac activity watcher.
-Runs in background, polls every 30s.
+Runs in background, polls every 10s.
 Writes to memory/mac_state.json so Butler knows what you're doing.
 """
 
@@ -17,9 +17,11 @@ from pathlib import Path
 from urllib.parse import unquote
 
 try:
-    from runtime import note_workspace_context
+    from runtime import note_notifications, note_workspace_context
 except Exception:
     def note_workspace_context(*_args, **_kwargs) -> None:
+        return None
+    def note_notifications(*_args, **_kwargs) -> None:
         return None
 
 STATE_FILE = Path(__file__).resolve().parent.parent / "memory" / "mac_state.json"
@@ -88,7 +90,7 @@ def get_cursor_workspace() -> str:
             except Exception:
                 continue
             folder = str(data.get("folder", "")).strip()
-            if folder and ("mac-butler" in folder or "Developer" in folder):
+            if folder:
                 return unquote(folder.replace("file://", ""))
 
     try:
@@ -103,6 +105,60 @@ def get_cursor_workspace() -> str:
     for workspace_path in editor_data.get("workspace_paths", []):
         if workspace_path:
             return workspace_path
+    return ""
+
+
+def _tracked_projects() -> list[dict]:
+    try:
+        from projects.project_store import load_projects
+    except Exception:
+        try:
+            from project_store import load_projects
+        except Exception:
+            return []
+    try:
+        projects = load_projects() or []
+    except Exception:
+        return []
+    return [item for item in projects if isinstance(item, dict)]
+
+
+def _workspace_project_name(workspace: str, projects: list[dict]) -> str:
+    candidate = str(workspace or "").strip()
+    if not candidate:
+        return ""
+    try:
+        candidate_path = Path(candidate).expanduser().resolve(strict=False)
+    except Exception:
+        return Path(candidate).name or candidate
+
+    best: tuple[int, str] | None = None
+    for project in projects:
+        try:
+            root = Path(str(project.get("path", "") or "")).expanduser().resolve(strict=False)
+        except Exception:
+            continue
+        if not str(root).strip():
+            continue
+        try:
+            if candidate_path == root or root in candidate_path.parents:
+                score = len(str(root))
+                name = str(project.get("name", "") or "").strip()
+                if name and (best is None or score > best[0]):
+                    best = (score, name)
+        except Exception:
+            continue
+    return best[1] if best else (candidate_path.name or candidate)
+
+
+def _browser_project_name(browser_url: str, projects: list[dict]) -> str:
+    cleaned = str(browser_url or "").strip().lower()
+    if not cleaned:
+        return ""
+    for project in projects:
+        repo = str(project.get("repo", "") or "").strip().lower()
+        if repo and f"github.com/{repo}" in cleaned:
+            return str(project.get("name", "") or "").strip()
     return ""
 
 
@@ -128,6 +184,13 @@ def get_active_browser_url() -> str:
 
 
 def snapshot() -> dict:
+    try:
+        from .notifications import read_recent_notifications
+    except Exception:
+        try:
+            from context.notifications import read_recent_notifications
+        except Exception:
+            read_recent_notifications = lambda **_kwargs: {"status": "unavailable", "detail": "", "items": [], "source": "", "at": ""}
     return {
         "timestamp": datetime.now().isoformat(),
         "frontmost_app": get_frontmost_app(),
@@ -136,6 +199,7 @@ def snapshot() -> dict:
         "cursor_workspace": get_cursor_workspace(),
         "spotify_track": get_spotify_track(),
         "browser_url": get_active_browser_url(),
+        "notifications": read_recent_notifications(limit=6),
     }
 
 
@@ -145,12 +209,13 @@ def save_state(state: dict) -> None:
 
 
 def _focus_project_name(state: dict) -> str:
+    projects = _tracked_projects()
     workspace = str(state.get("cursor_workspace", "") or "").strip()
     if workspace:
-        return Path(workspace).name or workspace
+        return _workspace_project_name(workspace, projects)
     browser_url = str(state.get("browser_url", "") or "").strip()
     if browser_url:
-        return browser_url
+        return _browser_project_name(browser_url, projects) or browser_url
     return ""
 
 
@@ -159,6 +224,13 @@ def _bridge_runtime_workspace(state: dict) -> None:
         focus_project=_focus_project_name(state),
         frontmost_app=str(state.get("frontmost_app", "") or "").strip(),
         workspace=str(state.get("cursor_workspace", "") or "").strip(),
+    )
+    notifications = state.get("notifications") if isinstance(state.get("notifications"), dict) else {}
+    note_notifications(
+        list(notifications.get("items") or []),
+        source=str(notifications.get("source", "") or "system_log"),
+        status=str(notifications.get("status", "") or "unavailable"),
+        detail=str(notifications.get("detail", "") or ""),
     )
 
 
@@ -214,10 +286,28 @@ def get_state_for_context() -> str:
     if relevant:
         lines.append(f"  Open: {', '.join(relevant)}")
 
+    notifications = state.get("notifications") if isinstance(state.get("notifications"), dict) else {}
+    recent_notifications = [
+        item
+        for item in list(notifications.get("items") or [])[:3]
+        if isinstance(item, dict)
+    ]
+    if recent_notifications:
+        rendered = []
+        for item in recent_notifications:
+            label = str(item.get("app", "") or item.get("bundle", "") or "Notification").strip()
+            status = str(item.get("status", "") or "activity").strip()
+            summary = str(item.get("message", "") or item.get("summary", "") or "").strip()
+            line = f"{label} ({status})"
+            if summary:
+                line = f"{line}: {summary}"
+            rendered.append(line)
+        lines.append(f"  Notifications: {' | '.join(rendered)}")
+
     return "\n".join(lines)
 
 
-def start_watcher(interval: int = 30) -> threading.Thread:
+def start_watcher(interval: int = 10) -> threading.Thread:
     """Start the background watcher once and return the watcher thread."""
     global _WATCHER_THREAD
     with _WATCHER_LOCK:

@@ -25,6 +25,15 @@ class MacActivityTests(unittest.TestCase):
             "cursor_workspace": "/Users/adityatiwari/Burry/mac-butler",
             "spotify_track": "Mockingbird by Eminem",
             "browser_url": "https://github.com/Aadi262/mac-butler",
+            "notifications": {
+                "items": [
+                    {
+                        "app": "Slack",
+                        "status": "active",
+                        "summary": "PR review requested",
+                    }
+                ]
+            },
         }
         with patch.object(mac_activity, "load_state", return_value=sample):
             block = mac_activity.get_state_for_context()
@@ -33,6 +42,37 @@ class MacActivityTests(unittest.TestCase):
         self.assertIn("Last workspace: /Users/adityatiwari/Burry/mac-butler", block)
         self.assertIn("Playing: Mockingbird by Eminem", block)
         self.assertIn("Browser: GitHub", block)
+        self.assertIn("Notifications: Slack (active): PR review requested", block)
+
+    def test_focus_project_name_maps_nested_workspace_to_tracked_project(self):
+        state = {
+            "cursor_workspace": "/Users/adityatiwari/Burry/mac-butler/projects/frontend",
+            "browser_url": "",
+        }
+        tracked = [
+            {"name": "mac-butler", "path": "/Users/adityatiwari/Burry/mac-butler"},
+            {"name": "Adpilot", "path": "/Users/adityatiwari/Burry/adpilot"},
+        ]
+
+        with patch.object(mac_activity, "_tracked_projects", return_value=tracked):
+            focus_project = mac_activity._focus_project_name(state)
+
+        self.assertEqual(focus_project, "mac-butler")
+
+    def test_focus_project_name_maps_github_repo_url_to_tracked_project(self):
+        state = {
+            "cursor_workspace": "",
+            "browser_url": "https://github.com/Aadi262/Burry/issues/12",
+        }
+        tracked = [
+            {"name": "Burry", "repo": "Aadi262/Burry"},
+            {"name": "Other", "repo": "Aadi262/Other"},
+        ]
+
+        with patch.object(mac_activity, "_tracked_projects", return_value=tracked):
+            focus_project = mac_activity._focus_project_name(state)
+
+        self.assertEqual(focus_project, "Burry")
 
 
 if __name__ == "__main__":

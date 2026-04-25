@@ -76,7 +76,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_dashboard_projects_preserves_blurb_field(self):
         with patch(
-            "projects.dashboard._load_projects_raw",
+            "projects.dashboard.load_projects",
             return_value=[
                 {
                     "name": "mac-butler",
@@ -92,6 +92,32 @@ class DashboardTests(unittest.TestCase):
             projects = dashboard._dashboard_projects()
 
         self.assertEqual(projects[0]["blurb"], "Local Mac operator stack. Next up is voice follow-up cleanup.")
+
+    def test_dashboard_projects_prefers_enriched_loader_before_raw_fallback(self):
+        with patch(
+            "projects.dashboard.load_projects",
+            return_value=[
+                {
+                    "name": "Burry",
+                    "status": "active",
+                    "completion": 88,
+                    "health_status": "healthy",
+                    "description": "Enriched operator stack",
+                    "blurb": "Live focus and HUD truth are wired.",
+                    "next_tasks": ["Tighten HUD recency"],
+                    "blockers": [],
+                }
+            ],
+        ) as mock_load_projects, patch(
+            "projects.dashboard._load_projects_raw",
+        ) as mock_load_projects_raw:
+            projects = dashboard._dashboard_projects()
+
+        self.assertEqual(projects[0]["name"], "Burry")
+        self.assertEqual(projects[0]["health_status"], "healthy")
+        self.assertEqual(projects[0]["next_tasks"], ["Tighten HUD recency"])
+        mock_load_projects.assert_called_once()
+        mock_load_projects_raw.assert_not_called()
 
     def test_tasks_payload_reads_task_file(self):
         with TemporaryDirectory() as tmpdir:
@@ -203,11 +229,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Workspace", html)
         self.assertIn("Ambient", html)
         self.assertIn("Recalled", html)
+        self.assertIn("Notifications", html)
         self.assertIn("You said:", html)
         self.assertIn("Burry said:", html)
         self.assertIn("Events", html)
         self.assertIn("Projects", html)
         self.assertIn("project-list", html)
+        self.assertIn("notifications-list", html)
         self.assertIn("events-feed", html)
         self.assertIn("orb-canvas", html)
         self.assertIn("network-canvas", html)
@@ -442,6 +470,122 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(payload["session_active"])
         self.assertEqual(payload["state"], "idle")
         self.assertEqual(payload["active_tools"], [])
+
+    @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
+    @patch("voice.describe_tts", return_value={"backend": "nvidia_riva_tts", "voice": "Aria"})
+    @patch("voice.describe_stt", return_value={"backend": "nvidia_riva_asr", "active_model": "parakeet"})
+    @patch("tasks.get_active_tasks", return_value=[])
+    @patch("runtime.load_runtime_state")
+    @patch("context.mac_activity.load_state", return_value={})
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_operator_snapshot_marks_nvidia_riva_backends_healthy(
+        self,
+        _mock_url_ok,
+        _mock_mac_state,
+        mock_runtime_state,
+        _mock_tasks,
+        _mock_stt,
+        _mock_tts,
+        _mock_mood,
+    ):
+        mock_runtime_state.return_value = {
+            "state": "idle",
+            "session_active": False,
+            "updated_at": "2999-04-06T12:00:00",
+            "workspace": {},
+            "events": [],
+            "last_intent": {},
+        }
+
+        payload = dashboard.operator_snapshot(projects=[])
+        systems = {item["name"]: item for item in payload["systems"]}
+
+        self.assertEqual(systems["Voice"]["status"], "nvidia_riva_tts")
+        self.assertEqual(systems["Voice"]["tone"], "healthy")
+        self.assertEqual(systems["Listen"]["status"], "nvidia_riva_asr")
+        self.assertEqual(systems["Listen"]["tone"], "healthy")
+
+    @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
+    @patch("voice.describe_tts", return_value={"backend": "edge", "voice": "Ava"})
+    @patch("voice.describe_stt", return_value={"backend": "faster", "active_model": "small.en"})
+    @patch("tasks.get_active_tasks", return_value=[])
+    @patch("runtime.load_runtime_state")
+    @patch("context.mac_activity.load_state", return_value={})
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_operator_snapshot_remaps_unknown_runtime_focus_to_tracked_workspace_project(
+        self,
+        _mock_url_ok,
+        _mock_mac_state,
+        mock_runtime_state,
+        _mock_tasks,
+        _mock_stt,
+        _mock_tts,
+        _mock_mood,
+    ):
+        mock_runtime_state.return_value = {
+            "state": "thinking",
+            "session_active": True,
+            "updated_at": "2999-04-06T12:00:00",
+            "workspace": {
+                "focus_project": "Terminal",
+                "frontmost_app": "Cursor",
+                "workspace": "/Users/adityatiwari/Burry/mac-butler/subdir",
+            },
+            "events": [],
+            "last_intent": {},
+        }
+
+        payload = dashboard.operator_snapshot(
+            projects=[{"name": "mac-butler", "path": "/Users/adityatiwari/Burry/mac-butler"}]
+        )
+
+        self.assertEqual(payload["focus_project"], "mac-butler")
+
+    @patch("brain.mood_engine.describe_mood_state", return_value={"name": "focused", "label": "Focused", "note": "Locked on the next step."})
+    @patch("voice.describe_tts", return_value={"backend": "edge", "voice": "Ava"})
+    @patch("voice.describe_stt", return_value={"backend": "faster", "active_model": "small.en"})
+    @patch("tasks.get_active_tasks", return_value=[])
+    @patch("runtime.load_runtime_state")
+    @patch("context.mac_activity.load_state", return_value={})
+    @patch("projects.dashboard._url_ok", return_value=True)
+    def test_operator_snapshot_includes_runtime_notifications(
+        self,
+        _mock_url_ok,
+        _mock_mac_state,
+        mock_runtime_state,
+        _mock_tasks,
+        _mock_stt,
+        _mock_tts,
+        _mock_mood,
+    ):
+        mock_runtime_state.return_value = {
+            "state": "idle",
+            "session_active": False,
+            "updated_at": "2999-04-06T12:00:00",
+            "workspace": {},
+            "notifications": {
+                "source": "usernoted_log",
+                "status": "ok",
+                "detail": "Recent notification activity from usernoted.",
+                "items": [
+                    {
+                        "app": "Slack",
+                        "status": "active",
+                        "summary": "Slack notification active",
+                        "source": "usernoted_log",
+                        "at": "2026-04-25 20:01:00.000",
+                    }
+                ],
+                "at": "2026-04-25T20:01:00",
+            },
+            "events": [],
+            "last_intent": {},
+        }
+
+        payload = dashboard.operator_snapshot(projects=[])
+
+        self.assertEqual(payload["notifications"]["status"], "ok")
+        self.assertEqual(payload["notifications"]["items"][0]["app"], "Slack")
 
 
 if __name__ == "__main__":
