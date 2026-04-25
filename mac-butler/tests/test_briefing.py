@@ -3,10 +3,23 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from brain.briefing import build_briefing
+from brain.briefing import _weather_line, build_briefing
 
 
 class BriefingTests(unittest.TestCase):
+    @patch("brain.briefing.requests.get")
+    def test_weather_line_uses_speech_safe_format(self, mock_get):
+        weather_response = MagicMock()
+        weather_response.text = "Mumbai: +33°C Partly cloudy"
+        weather_response.encoding = None
+        mock_get.return_value = weather_response
+
+        line = _weather_line()
+
+        self.assertEqual(line, "Mumbai: +33°C Partly cloudy")
+        self.assertEqual(mock_get.call_args.args[0], "https://wttr.in/Mumbai")
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"format": "%l: %t %C"})
+
     @patch("brain.briefing.subprocess.run")
     @patch("brain.briefing.requests.get")
     @patch("tasks.task_store.get_active_tasks")

@@ -44,6 +44,28 @@ class TTSVoiceTests(unittest.TestCase):
     def test_edge_voice_name_uses_multilingual_fallback_when_unconfigured(self):
         self.assertEqual(tts._edge_voice_name(), "en-US-AvaMultilingualNeural")
 
+    def test_resolve_tts_language_stays_english_for_english_dominant_mixed_text(self):
+        language = tts._resolve_tts_language(
+            "Last push. Burry Mumbai. नमस्ते. Pending tests.",
+            {"language_code": "auto"},
+        )
+
+        self.assertEqual(language, "en-US")
+
+    def test_resolve_tts_language_uses_hindi_for_hindi_dominant_text(self):
+        language = tts._resolve_tts_language(
+            "नमस्ते Burry आज का मौसम ठीक है और reminder pending है।",
+            {"language_code": "auto"},
+        )
+
+        self.assertEqual(language, "hi-IN")
+
+    @patch("voice.tts.EDGE_TTS_HINDI_VOICE", "hi-IN-SwaraNeural")
+    def test_edge_voice_name_prefers_hindi_voice_for_hindi_dominant_text(self):
+        voice = tts._edge_voice_name("नमस्ते आज reminder pending है और काम शुरू करो")
+
+        self.assertEqual(voice, "hi-IN-SwaraNeural")
+
     def test_shape_for_speech_keeps_devanagari_text_while_stripping_symbols(self):
         shaped = tts._shape_for_speech("Burry नमस्ते ☁️ +31°C")
 

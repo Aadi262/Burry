@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from butler_config import (
+    EDGE_TTS_HINDI_VOICE,
     EDGE_TTS_RATE,
     EDGE_TTS_VOICE,
     NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE,
@@ -171,11 +172,34 @@ def _riva_tts_available() -> bool:
         return False
 
 
+def _script_profile(text: str) -> dict[str, int]:
+    latin = 0
+    devanagari = 0
+    for char in str(text or ""):
+        codepoint = ord(char)
+        if "LATIN" in unicodedata.name(char, "") and char.isalpha():
+            latin += 1
+        elif 0x0900 <= codepoint <= 0x097F:
+            devanagari += 1
+    return {"latin": latin, "devanagari": devanagari}
+
+
+def _prefers_hindi_tts(text: str) -> bool:
+    profile = _script_profile(text)
+    latin = profile["latin"]
+    devanagari = profile["devanagari"]
+    if devanagari <= 0:
+        return False
+    if latin <= 0:
+        return devanagari >= 2
+    return devanagari >= 10 and devanagari >= max(4, int(latin * 0.6))
+
+
 def _resolve_tts_language(text: str, target: dict) -> str:
     configured = str(target.get("language_code", "") or "").strip()
     if configured and configured.lower() not in {"auto", "default"}:
         return configured
-    if re.search(r"[\u0900-\u097F]", str(text or "")):
+    if _prefers_hindi_tts(text):
         return NVIDIA_RIVA_TTS_HINDI_LANGUAGE_CODE
     return NVIDIA_RIVA_TTS_DEFAULT_LANGUAGE_CODE
 
@@ -251,7 +275,11 @@ def _edge_tts_available() -> bool:
         return False
 
 
-def _edge_voice_name() -> str:
+def _edge_voice_name(text: str = "") -> str:
+    if _prefers_hindi_tts(text):
+        configured_hindi = str(EDGE_TTS_HINDI_VOICE or "").strip()
+        if configured_hindi:
+            return configured_hindi
     configured = str(EDGE_TTS_VOICE or "").strip()
     return configured or _EDGE_FALLBACK_VOICE
 
@@ -542,15 +570,16 @@ def _try_edge_tts(text: str) -> bool:
 
     mp3_path = Path(tempfile.mkstemp(prefix="mac-butler-tts-", suffix=".mp3")[1])
     try:
+        voice_name = _edge_voice_name(text)
         communicate = edge_tts.Communicate(
             text,
-            voice=_edge_voice_name(),
+            voice=voice_name,
             rate=EDGE_TTS_RATE or "+0%",
         )
         _run_async(communicate.save(str(mp3_path)))
         if not mp3_path.exists() or mp3_path.stat().st_size <= 0:
             return False
-        print(f"[Voice] 🔊 (edge:{_edge_voice_name()}) {text[:120]}")
+        print(f"[Voice] 🔊 (edge:{voice_name}) {text[:120]}")
         subprocess.run(
             ["afplay", "-v", "0.85", str(mp3_path)],
             check=False,

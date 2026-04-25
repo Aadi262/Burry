@@ -29,8 +29,13 @@ def _github_line() -> str:
 
 def _weather_line() -> str:
     try:
-        response = requests.get("https://wttr.in/Mumbai?format=3", timeout=3)
-        return str(response.text or "").strip()
+        response = requests.get(
+            "https://wttr.in/Mumbai",
+            params={"format": "%l: %t %C"},
+            timeout=3,
+        )
+        response.encoding = response.encoding or "utf-8"
+        return " ".join(str(response.text or "").split()).strip()
     except Exception:
         return ""
 
