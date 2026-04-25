@@ -573,6 +573,8 @@ end tell
     def _compose_browser_target(self, action: dict) -> str:
         action_type = str(action.get("type", "") or "").strip()
         if action_type == "compose_email":
+            if list(action.get("attachments", []) or []):
+                return ""
             return "mail.google.com"
         if action_type in {"whatsapp_open", "whatsapp_send", "compose_whatsapp"}:
             phone = "".join(ch for ch in str(action.get("phone", "")) if ch.isdigit() or ch == "+").lstrip("+")
@@ -624,6 +626,10 @@ end tell
             "whatsapp_send",
             "compose_whatsapp",
         }:
+            if action_type == "compose_email" and list(action.get("attachments", []) or []):
+                snapshot = self._app_snapshot("Mail")
+                snapshot["kind"] = "mail"
+                return snapshot
             snapshot = self._browser_snapshot(str(action.get("app", DEFAULT_BROWSER_APP) or DEFAULT_BROWSER_APP))
             snapshot["kind"] = "browser"
             return snapshot
@@ -772,6 +778,16 @@ end tell
             "whatsapp_send",
             "compose_whatsapp",
         }:
+            if action_type == "compose_email" and list(action.get("attachments", []) or []):
+                observed = self._retry_snapshot(lambda: self._app_snapshot("Mail"), lambda item: bool(item.get("running")), attempts=2, delay=0.2)
+                if observed and observed.get("running"):
+                    count = len(list(action.get("attachments", []) or []))
+                    noun = "attachment" if count == 1 else "attachments"
+                    return self._verification_payload(
+                        "verified",
+                        f"Confirmed Mail opened a draft with {count} {noun}; Gmail web cannot pre-attach files automatically.",
+                    )
+                return self._verification_payload("degraded", "I opened the attachment email flow, but I couldn't confirm the Mail draft on screen.")
             browser_app = str(before.get("app", DEFAULT_BROWSER_APP) or DEFAULT_BROWSER_APP)
             expected_target = self._compose_browser_target(action)
             if action_type in {"browser_close_tab", "browser_close_window"}:
@@ -835,8 +851,12 @@ end tell
                 if action_type == "compose_email":
                     return self._verification_payload("verified", "Confirmed Gmail compose is open.")
                 if action_type == "whatsapp_send":
+                    if list(action.get("attachments", []) or []):
+                        return self._verification_payload("degraded", "Opened WhatsApp and revealed the attachment flow, but I couldn't confirm a sent file.")
                     return self._verification_payload("degraded", "Opened WhatsApp message flow, but I couldn't confirm the message was sent.")
                 if action_type == "compose_whatsapp":
+                    if list(action.get("attachments", []) or []):
+                        return self._verification_payload("degraded", "Opened WhatsApp compose plus attachment assist, but I couldn't confirm a sent file.")
                     return self._verification_payload("degraded", "Opened WhatsApp compose flow, but I couldn't confirm a sent message.")
                 if action_type == "whatsapp_open":
                     return self._verification_payload("verified", "Confirmed WhatsApp opened in the browser.")
@@ -844,6 +864,8 @@ end tell
                     return self._verification_payload("verified", f"Confirmed the browser is on {observed_url}.")
                 return self._verification_payload("verified", "Confirmed the browser handled the request.")
             if action_type in {"whatsapp_send", "compose_whatsapp"}:
+                if list(action.get("attachments", []) or []):
+                    return self._verification_payload("degraded", "I opened WhatsApp and the attachment assist flow, but I couldn't confirm the file send on screen.")
                 return self._verification_payload("degraded", "I opened WhatsApp, but I couldn't confirm the message flow on screen.")
             if action_type == "compose_email":
                 return self._verification_payload("degraded", "I opened the Gmail compose flow, but I couldn't confirm the draft on screen.")
@@ -1538,12 +1560,14 @@ end tell
                 action.get("recipient", "") or action.get("to", ""),
                 action.get("subject", ""),
                 action.get("body", ""),
+                attachments=list(action.get("attachments", []) or []),
             )
         if t == "compose_whatsapp":
             return self.compose_whatsapp(
                 action.get("contact", ""),
                 action.get("phone", ""),
                 action.get("message", ""),
+                attachments=list(action.get("attachments", []) or []),
             )
         if t == "calendar_read":
             return self.calendar_read(action.get("range", "today"))
@@ -1573,7 +1597,12 @@ end tell
         if t == "send_email":
             return self.send_email(action["to"], action["subject"], action["body"])
         if t == "send_whatsapp":
-            return self.send_whatsapp(action["contact"], action["message"])
+            return self.send_whatsapp(
+                action["contact"],
+                action.get("message", ""),
+                phone=action.get("phone", ""),
+                attachments=list(action.get("attachments", []) or []),
+            )
         if t == "notify":
             return self.notify(action["title"], action["message"])
         if t == "set_reminder":
@@ -1734,8 +1763,9 @@ end tell
         if t == "whatsapp_send":
             return self.whatsapp_send(
                 action.get("contact", ""),
-                action.get("phone", ""),
                 action.get("message", ""),
+                phone=action.get("phone", ""),
+                attachments=list(action.get("attachments", []) or []),
             )
 
         raise ValueError(f"Unknown action type: {t}")
@@ -1759,7 +1789,7 @@ end tell
         from executor.app_state import is_app_running
 
         cwd_expanded = os.path.expanduser(cwd) if cwd else os.path.expanduser("~")
-        terminal_command = f"cd {cwd_expanded}"
+        terminal_command = f"cd {shlex.quote(cwd_expanded)}"
         if cmd:
             terminal_command = f"{terminal_command}; {cmd}"
 
@@ -1834,6 +1864,30 @@ end tell
             return found
         return None
 
+    @classmethod
+    def _terminal_editor_cli(cls, editor: str) -> str | None:
+        normalized = str(editor or "").strip().lower()
+        if normalized == "claude":
+            return cls._safe_which("claude")
+        if normalized == "codex":
+            return cls._safe_which("codex")
+        return None
+
+    def _open_terminal_editor(self, editor: str, path: str = "", mode: str = "smart") -> str:
+        normalized = str(editor or "").strip().lower()
+        cli = self._terminal_editor_cli(normalized)
+        if not cli:
+            label = "Claude Code" if normalized == "claude" else "Codex" if normalized == "codex" else normalized or "editor"
+            return f"{label} is not installed"
+
+        cwd = os.path.expanduser(path) if path else os.path.expanduser("~")
+        terminal_mode = "tab" if mode == "new_tab" else "window"
+        result = self.open_terminal(mode=terminal_mode, cmd=shlex.quote(cli), cwd=cwd)
+        label = "Claude Code" if normalized == "claude" else "Codex" if normalized == "codex" else normalized or "editor"
+        if path:
+            return f"{result} for {label} at {cwd}"
+        return f"{result} for {label}"
+
     @staticmethod
     def _editor_app_available(app_name: str) -> bool:
         if app_name == "Cursor":
@@ -1883,6 +1937,10 @@ end tell
             if vscode_cli or self._editor_app_available("Visual Studio Code"):
                 return (vscode_cli, "Visual Studio Code")
             return (None, "Cursor")
+        if normalized == "claude":
+            return (self._terminal_editor_cli("claude"), "Claude Code")
+        if normalized == "codex":
+            return (self._terminal_editor_cli("codex"), "Codex")
         if normalized == "cursor":
             return (self._cursor_cli_path(), "Cursor")
         if normalized in {"vscode", "code", "visual studio code"}:
@@ -1905,6 +1963,16 @@ end tell
         from executor.app_state import is_app_running
 
         expanded = os.path.expanduser(path) if path else ""
+        normalized = (editor or "auto").lower()
+        if normalized in {"claude", "codex"}:
+            if mode == "focus":
+                if is_app_running("Terminal"):
+                    script = 'tell application "Terminal" to activate'
+                    subprocess.run(["osascript", "-e", script], timeout=5)
+                    return "focused Terminal"
+                return "Terminal is not running"
+            terminal_mode = "new_tab" if mode == "new_tab" else "new_window"
+            return self._open_terminal_editor(normalized, expanded, terminal_mode)
         cli, app_name = self._resolve_editor(editor)
         if not app_name:
             return "no supported editor found"
@@ -1982,15 +2050,21 @@ end tell
             raise RuntimeError(f"missing project path: {expanded or name}")
 
         for launcher in self._project_launch_order(editor):
-            command = self._project_launch_command(launcher, expanded)
-            if not command:
-                continue
-            subprocess.Popen(command)
+            if launcher in {"claude", "codex"}:
+                if not self._terminal_editor_cli(launcher):
+                    continue
+                open_result = self._open_terminal_editor(launcher, expanded, "new_window")
+            else:
+                command = self._project_launch_command(launcher, expanded)
+                if not command:
+                    continue
+                subprocess.Popen(command)
+                open_result = f"opened {str(project.get('name', '') or Path(expanded).name).strip()} in {launcher}"
             project_name = str(project.get("name", "") or Path(expanded).name).strip()
             detail = get_project_detail(project_name)
             if detail:
                 note_project_context_hint(project_name, detail[-1000:])
-            return f"opened {project_name} in {launcher}"
+            return open_result
 
         subprocess.Popen(["open", expanded])
         return f"opened {Path(expanded).name} in Finder"
@@ -2018,6 +2092,10 @@ end tell
                 return "focused Terminal"
             subprocess.Popen(["open", "-a", "Terminal"])
             return "launched Terminal"
+        if lowered in {"claude", "claude code", "codex"}:
+            editor = "claude" if "claude" in lowered else "codex"
+            editor_mode = "focus" if mode == "focus" else ("new_tab" if mode == "tab" else "new_window")
+            return self.open_editor(editor=editor, mode=editor_mode)
         if lowered in {"cursor", "vscode", "visual studio code", "code"}:
             editor = "cursor" if "cursor" in lowered else "vscode"
             editor_mode = "focus" if mode == "focus" else ("new_window" if mode == "new" else "smart")
@@ -2691,7 +2769,16 @@ end tell
         return f"could not find task {cleaned}"
 
     def vps_check(self, action: str = "status") -> str:
-        return self.run_agent_task("vps", {"action": self._collapse_text(action) or "status"})
+        preflight_error = self._vps_preflight_error()
+        if preflight_error:
+            return preflight_error
+        return self.run_agent_task(
+            "vps",
+            {
+                "action": self._collapse_text(action) or "status",
+                "host": self._default_vps_host(),
+            },
+        )
 
     def obsidian_note(self, title: str, content: str, folder: str = "Daily") -> str:
         if not OBSIDIAN_VAULT:
@@ -2757,6 +2844,24 @@ end tell
     # VPS / SSH
     # ─────────────────────────────────────────────────────
 
+    def _default_vps_host(self) -> str:
+        try:
+            from butler_config import VPS_HOSTS
+
+            if VPS_HOSTS:
+                return str(VPS_HOSTS[0].get("host", "")).strip()
+        except Exception:
+            pass
+        return ""
+
+    def _vps_preflight_error(self, host: str = "") -> str:
+        resolved = self._collapse_text(host) or self._default_vps_host()
+        if not resolved:
+            return "No VPS host is configured in butler_config.py."
+        if not shutil.which("ssh"):
+            return "ssh is not installed on this Mac."
+        return ""
+
     def _vps_helper_command(self, action: str, host: str = "", remote_cmd: str = "") -> list[str]:
         script_path = Path(__file__).resolve().parent.parent / "scripts" / "vps.py"
         command = ["python3", str(script_path), action]
@@ -2767,6 +2872,9 @@ end tell
         return command
 
     def ssh_open(self, host: str, label: str = "VPS") -> str:
+        preflight_error = self._vps_preflight_error(host)
+        if preflight_error:
+            return preflight_error
         shell_command = " ".join(
             shlex.quote(part)
             for part in self._vps_helper_command("shell", host=host)
@@ -2774,13 +2882,19 @@ end tell
         return self.open_terminal(mode="tab", cmd=shell_command, cwd="~")
 
     def ssh_command(self, host: str, cmd: str) -> str:
+        preflight_error = self._vps_preflight_error(host)
+        if preflight_error:
+            return preflight_error
         result = subprocess.run(
             self._vps_helper_command("exec", host=host, remote_cmd=cmd),
             capture_output=True,
             text=True,
             timeout=35,
         )
-        return (result.stdout.strip() or result.stderr.strip() or "done")[:300]
+        output = result.stdout.strip() or result.stderr.strip() or ""
+        if result.returncode != 0 and not output:
+            output = "VPS command failed."
+        return (output or "done")[:300]
 
     # ─────────────────────────────────────────────────────
     # NOTIFICATIONS / REMINDERS
@@ -2805,7 +2919,59 @@ end tell
             subprocess.run(["open", target], capture_output=True, text=True, timeout=8)
         return f"opened {target}"
 
-    def compose_email(self, recipient: str, subject: str = "", body: str = "") -> str:
+    def _resolve_attachment_paths(self, attachments: list[str] | None = None) -> tuple[list[str], list[str]]:
+        resolved: list[str] = []
+        missing: list[str] = []
+        for attachment in list(attachments or []):
+            label = self._collapse_text(attachment)
+            if not label:
+                continue
+            try:
+                target = self._resolve_file_target(label, must_exist=True)
+                resolved.append(str(target))
+            except Exception:
+                missing.append(label)
+        return resolved, missing
+
+    def compose_email(self, recipient: str, subject: str = "", body: str = "", attachments: list[str] | None = None) -> str:
+        resolved_attachments, missing_attachments = self._resolve_attachment_paths(attachments)
+        if resolved_attachments:
+            attachment_paths = ", ".join(self._applescript_string(path) for path in resolved_attachments)
+            script = (
+                'tell application "Mail"\n'
+                "    set newMsg to make new outgoing message with properties {"
+                f"subject:{self._applescript_string(subject)}, "
+                f"content:{self._applescript_string(body)}, "
+                "visible:true}\n"
+                "    tell newMsg\n"
+                f"        make new to recipient with properties {{address:{self._applescript_string(recipient)}}}\n"
+                f"        repeat with attachmentPath in {{{attachment_paths}}}\n"
+                "            make new attachment with properties {file name:(POSIX file attachmentPath as alias)} at after the last paragraph\n"
+                "        end repeat\n"
+                "    end tell\n"
+                "    activate\n"
+                "end tell"
+            )
+            try:
+                self._run_osascript(script, timeout=15)
+            except Exception as exc:
+                if self._automation_access_unavailable(str(exc)):
+                    url = self._gmail_compose_url(recipient, subject, body)
+                    self.open_url_in_browser(url, DEFAULT_BROWSER_APP)
+                    missing_suffix = f" Missing: {', '.join(missing_attachments)}." if missing_attachments else ""
+                    return (
+                        f"opened Gmail compose for {self._collapse_text(recipient) or 'draft'}; "
+                        f"Mail attachment automation is unavailable on this host, so I couldn't pre-attach files.{missing_suffix}"
+                    )
+                raise
+            count = len(resolved_attachments)
+            noun = "attachment" if count == 1 else "attachments"
+            missing_suffix = f" Missing: {', '.join(missing_attachments)}." if missing_attachments else ""
+            return (
+                f"opened Mail draft for {self._collapse_text(recipient) or 'draft'} "
+                f"with {count} {noun}; Gmail web cannot pre-attach files automatically.{missing_suffix}"
+            )
+
         url = self._gmail_compose_url(recipient, subject, body)
         self.open_url_in_browser(url, DEFAULT_BROWSER_APP)
         if self._collapse_text(subject) and self._collapse_text(body):
@@ -2819,9 +2985,13 @@ end tell
                 pyautogui.write(body)
             except Exception:
                 pass
+        if missing_attachments:
+            return f"opened Gmail compose for {self._collapse_text(recipient) or 'draft'}; I couldn't find {', '.join(missing_attachments)}."
         return f"opened Gmail compose for {self._collapse_text(recipient) or 'draft'}"
 
-    def compose_whatsapp(self, contact: str = "", phone: str = "", message: str = "") -> str:
+    def compose_whatsapp(self, contact: str = "", phone: str = "", message: str = "", attachments: list[str] | None = None) -> str:
+        if attachments:
+            return self.whatsapp_send(contact, message, phone=phone, attachments=attachments)
         digits = "".join(ch for ch in str(phone) if ch.isdigit() or ch == "+")
         if digits:
             try:
@@ -2830,12 +3000,14 @@ end tell
                 pywhatkit.sendwhatmsg_instantly(digits, message or "", tab_close=True, close_time=2)
                 return f"sent WhatsApp message to {contact or phone}"
             except Exception:
-                return self.whatsapp_send(contact, phone, message)
+                return self.whatsapp_send(contact, message, phone=phone, attachments=attachments)
 
         base = "https://wa.me/"
         if message:
             base = f"{base}?text={urllib.parse.quote_plus(self._collapse_text(message))}"
         self.open_url(base)
+        if attachments:
+            return self.whatsapp_send(contact, message, phone=phone, attachments=attachments)
         return f"opened WhatsApp compose for {contact or 'the contact'}"
 
     def browser_new_tab(self, url: str = "") -> str:
@@ -3232,24 +3404,55 @@ end tell
         self.open_url("https://web.whatsapp.com/")
         return f"opened WhatsApp{f' for {contact}' if contact else ''}"
 
-    def whatsapp_send(self, contact: str = "", phone: str = "", message: str = "") -> str:
+    def whatsapp_send(self, contact: str = "", message: str = "", phone: str = "", attachments: list[str] | None = None) -> str:
         cleaned_message = " ".join(str(message or "").split()).strip()
         digits = "".join(ch for ch in str(phone) if ch.isdigit() or ch == "+").lstrip("+")
+        if (
+            not digits
+            and re.fullmatch(r"[\d+\-\s]{8,20}", cleaned_message)
+            and phone
+            and not re.fullmatch(r"[\d+\-\s]{8,20}", str(phone))
+        ):
+            digits = "".join(ch for ch in cleaned_message if ch.isdigit() or ch == "+").lstrip("+")
+            cleaned_message = self._collapse_text(phone)
         if digits:
             url = f"https://wa.me/{digits}"
             if cleaned_message:
                 url = f"{url}?text={urllib.parse.quote_plus(cleaned_message)}"
             self.open_url(url)
+            if attachments:
+                resolved_attachments, missing_attachments = self._resolve_attachment_paths(attachments)
+                for path in resolved_attachments[:2]:
+                    subprocess.Popen(["open", "-R", path])
+                suffix = f" Missing: {', '.join(missing_attachments)}." if missing_attachments else ""
+                return (
+                    f"opened WhatsApp message flow for {contact or phone} and revealed {len(resolved_attachments)} attachment file(s) in Finder; "
+                    f"file send still needs manual confirmation.{suffix}"
+                )
             return f"opened WhatsApp message flow for {contact or phone}"
         self.open_url("https://web.whatsapp.com/")
+        if attachments:
+            resolved_attachments, missing_attachments = self._resolve_attachment_paths(attachments)
+            for path in resolved_attachments[:2]:
+                subprocess.Popen(["open", "-R", path])
+            suffix = f" Missing: {', '.join(missing_attachments)}." if missing_attachments else ""
+            return (
+                f"opened WhatsApp to message {contact or 'the contact'} and revealed {len(resolved_attachments)} attachment file(s) in Finder; "
+                f"file send still needs manual confirmation.{suffix}"
+            )
         return f"opened WhatsApp to message {contact or 'the contact'}"
 
     def notify(self, title: str, message: str) -> str:
-        script = (
-            f"display notification {json.dumps(message)} "
-            f"with title {json.dumps(title)}"
-        )
-        subprocess.Popen(["osascript", "-e", script])
+        try:
+            from runtime.notify import notify as runtime_notify
+
+            runtime_notify(title, message, subtitle="Executor")
+        except Exception:
+            script = (
+                f"display notification {json.dumps(message)} "
+                f"with title {json.dumps(title)}"
+            )
+            subprocess.Popen(["osascript", "-e", script])
         return "notified"
 
     def set_reminder(self, minutes: int | None = None, message: str = "", when: str = "") -> str:
@@ -3336,7 +3539,7 @@ end tell
             return any(pattern in cmd for pattern in CONFIRM_REQUIRED_PATTERNS)
         if t == "git_action":
             normalized = self._collapse_text(action.get("cmd", "")).lower()
-            return normalized in {"push", "commit_push", "commit and push"} or bool(action.get("push"))
+            return normalized in {"commit", "push", "commit_push", "commit and push"} or bool(action.get("push"))
         if t == "ssh_command":
             lowered = str(action.get("cmd", "")).lower()
             return any(token in lowered for token in ["restart", "stop", "rm", "delete", "drop"])

@@ -109,6 +109,9 @@ GENERIC_SONG_QUERIES = {
 }
 
 EDITOR_HINTS = {
+    "claude code": "claude",
+    "claude": "claude",
+    "codex": "codex",
     "visual studio code": "vscode",
     "vs code": "vscode",
     "vscode": "vscode",
@@ -397,6 +400,12 @@ class IntentResult:
                 "cmd": "git status --short",
                 "cwd": params.get("cwd", "."),
             }
+        if name == "run_tests":
+            return {
+                "type": "run_command",
+                "cmd": params.get("cmd", "pytest"),
+                "cwd": params.get("cwd", "."),
+            }
         if name == "git_push":
             return {"type": "run_command", "cmd": "git push", "cwd": params.get("cwd", ".")}
         if name == "vps_status":
@@ -468,11 +477,13 @@ class IntentResult:
                 "recipient": params.get("recipient", ""),
                 "subject": params.get("subject", ""),
                 "body": params.get("body", ""),
+                "attachments": list(params.get("attachments", []) or []),
             }
         if name == "whatsapp_open":
             return {
                 "type": "whatsapp_open",
                 "contact": params.get("contact", ""),
+                "phone": params.get("phone", ""),
             }
         if name == "whatsapp_send":
             return {
@@ -480,6 +491,7 @@ class IntentResult:
                 "contact": params.get("contact", ""),
                 "phone": params.get("phone", ""),
                 "message": params.get("message", ""),
+                "attachments": list(params.get("attachments", []) or []),
             }
         if name == "browser_new_tab":
             return {
@@ -562,6 +574,7 @@ class IntentResult:
                 "contact": params.get("contact", ""),
                 "phone": params.get("phone", ""),
                 "message": params.get("message", ""),
+                "attachments": list(params.get("attachments", []) or []),
             }
         if name == "calendar_read":
             return {"type": "calendar_read", "range": params.get("range", "today")}
@@ -601,9 +614,20 @@ class IntentResult:
         if name == "run_command":
             return {"type": "run_command", "cmd": params.get("cmd", ""), "cwd": params.get("cwd", "")}
         if name == "git_action":
-            return {"type": "git_action", "cmd": params.get("cmd", ""), "message": params.get("message", ""), "needs_confirmation": self.needs_confirmation}
+            return {
+                "type": "git_action",
+                "cmd": params.get("cmd", ""),
+                "message": params.get("message", ""),
+                "cwd": params.get("cwd", ""),
+                "push": bool(params.get("push", False)),
+                "needs_confirmation": self.needs_confirmation,
+            }
         if name == "vps_check":
             return {"type": "vps_check", "action": params.get("action", "status")}
+        if name == "ssh_open":
+            return {"type": "ssh_open", "host": params.get("host", ""), "label": params.get("label", "VPS")}
+        if name == "ssh_command":
+            return {"type": "ssh_command", "host": params.get("host", ""), "cmd": params.get("cmd", "")}
         if name == "summarize_page":
             return {"type": "summarize_page", "url": params.get("url", "")}
         if name == "summarize_video":
@@ -657,6 +681,7 @@ class IntentResult:
             "create_file": f"Created {self.params.get('filename', 'file')}.",
             "create_folder": "Folder created.",
             "git_status": "Checking git status.",
+            "run_tests": "Running the test suite.",
             "git_push": "Pushing...",
             "vps_status": "Checking VPS...",
             "news": "Checking the latest news.",
@@ -678,6 +703,8 @@ class IntentResult:
                 if self.params.get("recipient")
                 else "Opening Gmail compose."
             ),
+            "ssh_open": "Opening the VPS terminal.",
+            "ssh_command": "Running that on the VPS.",
             "whatsapp_open": (
                 f"Opening WhatsApp for {self.params.get('contact')}."
                 if self.params.get("contact")
@@ -940,7 +967,117 @@ def detect_editor_choice(text: str) -> str:
 
 
 def _editor_name(editor: str) -> str:
-    return "Visual Studio Code" if editor == "vscode" else "Cursor" if editor == "cursor" else "editor"
+    return (
+        "Claude Code"
+        if editor == "claude"
+        else "Codex"
+        if editor == "codex"
+        else "Visual Studio Code"
+        if editor == "vscode"
+        else "Cursor"
+        if editor == "cursor"
+        else "editor"
+    )
+
+
+def _current_workspace_path() -> str:
+    try:
+        from context.mac_activity import load_state
+
+        workspace = str((load_state() or {}).get("cursor_workspace", "") or "").strip()
+        if workspace:
+            return workspace
+    except Exception:
+        pass
+    return ""
+
+
+def _infer_test_command_for_path(path: str) -> str:
+    root = Path(os.path.expanduser(str(path or "").strip()))
+    if not str(root):
+        return "pytest"
+    if (root / "pnpm-lock.yaml").exists():
+        return "pnpm test"
+    if (root / "yarn.lock").exists():
+        return "yarn test"
+    if (root / "package.json").exists():
+        try:
+            package_data = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        except Exception:
+            package_data = {}
+        scripts = package_data.get("scripts") if isinstance(package_data, dict) else {}
+        test_script = str((scripts or {}).get("test", "") or "").strip()
+        if test_script and "no test specified" not in test_script.lower():
+            return "npm test"
+    if (root / "Cargo.toml").exists():
+        return "cargo test"
+    if (root / "go.mod").exists():
+        return "go test ./..."
+    if any((root / name).exists() for name in ("pytest.ini", "tox.ini", "pyproject.toml", "setup.cfg")):
+        return "pytest"
+    if (root / "tests").exists():
+        return "pytest"
+    return "python -m unittest"
+
+
+def _extract_run_tests_params(text: str) -> dict | None:
+    normalized = _normalize_spaces(text)
+    lowered = normalized.lower()
+    if not re.search(
+        r"\b(?:run|start|execute|launch|check)\s+(?:the\s+)?(?:tests?|test suite)\b"
+        r"|\btest this\b"
+        r"|\brun\s+(?:pytest|npm test|pnpm test|yarn test|cargo test|go test|python -m unittest)\b",
+        lowered,
+    ):
+        return None
+
+    explicit_commands = (
+        ("pytest", "pytest"),
+        ("pnpm test", "pnpm test"),
+        ("npm test", "npm test"),
+        ("yarn test", "yarn test"),
+        ("cargo test", "cargo test"),
+        ("go test", "go test ./..."),
+        ("unittest", "python -m unittest"),
+    )
+    command = ""
+    for needle, value in explicit_commands:
+        if needle in lowered:
+            command = value
+            break
+
+    cwd = ""
+    match = re.search(r"\b(?:in|for|inside)\s+([a-z0-9][\w\- ]{0,40})$", lowered)
+    if match:
+        target = match.group(1).strip().rstrip(".,!? ")
+        _project_key, path = _match_from_map(target, get_project_map())
+        if path:
+            cwd = path
+
+    if not cwd:
+        cwd = _current_workspace_path()
+    if not cwd:
+        cwd = get_project_map().get("mac-butler", ".")
+    if not command:
+        command = _infer_test_command_for_path(cwd)
+
+    return {"cmd": command, "cwd": cwd}
+
+
+def _project_cwd_from_text(text: str, *, fallback_current: bool = True) -> str:
+    lowered = _normalize_spaces(str(text or "").lower())
+    explicit_match = re.search(r"\b(?:for|in|inside)\s+([a-z0-9][\w\- ]{0,40})$", lowered)
+    if explicit_match:
+        target = explicit_match.group(1).strip().rstrip(".,!? ")
+        _project_key, path = _match_from_map(target, get_project_map())
+        if path:
+            return str(path)
+    project_key, path = _match_from_map(lowered, get_project_map())
+    if project_key and path:
+        return str(path)
+    if fallback_current:
+        return _current_workspace_path() or get_project_map().get("mac-butler", ".")
+    return ""
 
 
 def _youtube_search_url(query: str) -> str:
@@ -954,8 +1091,46 @@ def _normalize_spoken_email(recipient: str) -> str:
     return normalize_email(cleaned)
 
 
+def _split_attachment_targets(raw: str) -> list[str]:
+    values: list[str] = []
+    for chunk in re.split(r"\s*(?:,|\band\b|\bplus\b)\s*", _normalize_spaces(raw), flags=re.IGNORECASE):
+        candidate = _clean_file_reference(chunk)
+        if candidate and _looks_like_file_reference(candidate):
+            values.append(candidate)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        lowered = value.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(value)
+    return deduped
+
+
+def _extract_attachment_targets(text: str) -> tuple[str, list[str]]:
+    cleaned = _normalize_spaces(str(text or ""))
+    attachments: list[str] = []
+
+    def _capture(match: re.Match) -> str:
+        targets = _split_attachment_targets(match.group(1))
+        if targets:
+            attachments.extend(targets)
+            return " "
+        return match.group(0)
+
+    patterns = (
+        r"\b(?:with|and|plus)\s+(?:the\s+)?attachments?\s+(.+?)(?=\s+\b(?:subject|about|body|message|saying|content|text|to|for|on)\b|$)",
+        r"\battach\s+(.+?)(?=\s+\b(?:subject|about|body|message|saying|content|text|to|for|on)\b|$)",
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, _capture, cleaned, flags=re.IGNORECASE)
+    return _normalize_spaces(cleaned), attachments
+
+
 def _extract_compose_email_params(text: str) -> dict | None:
     normalized = _normalize_spaces(text)
+    normalized, attachments = _extract_attachment_targets(normalized)
     lowered = normalized.lower()
     lowered = re.sub(r"\bmale\b", "mail", lowered)
 
@@ -1009,6 +1184,8 @@ def _extract_compose_email_params(text: str) -> dict | None:
         "subject": _clean_lookup_query(subject),
         "body": " ".join(body.split()).strip(),
     }
+    if attachments:
+        result["attachments"] = attachments
     # Fallback: if regex missed subject/body, use LLM structured extraction
     if not result["subject"] and not result["body"]:
         try:
@@ -1025,7 +1202,33 @@ def _extract_compose_email_params(text: str) -> dict | None:
 
 def _extract_whatsapp_params(text: str) -> dict | None:
     normalized = _normalize_spaces(text)
+    normalized, attachments = _extract_attachment_targets(normalized)
     lowered = normalized.lower()
+
+    file_first_patterns = (
+        r"\b(?:send|share)\s+(.+?)\s+to\s+(.+?)\s+(?:on|via)\s+whatsapp(?:\s+(?:message|saying)\s+(.+))?$",
+        r"\b(?:send|share)\s+(.+?)\s+(?:on|via)\s+whatsapp(?:\s+to\s+(.+?))?(?:\s+(?:message|saying)\s+(.+))?$",
+    )
+    for pattern in file_first_patterns:
+        match = re.search(pattern, lowered, flags=re.IGNORECASE)
+        if not match:
+            continue
+        candidate_attachments = attachments or _split_attachment_targets(match.group(1))
+        if not candidate_attachments or not any(_looks_like_file_reference(item) for item in candidate_attachments):
+            continue
+        contact = _clean_lookup_query(match.group(2) or "")
+        message = _clean_lookup_query(match.group(3) or "")
+        phone = ""
+        if contact and re.fullmatch(r"[\d+\-\s]{8,20}", contact):
+            phone = re.sub(r"[^\d+]", "", contact)
+            if phone.startswith("00"):
+                phone = f"+{phone[2:]}"
+        return {
+            "contact": contact,
+            "phone": phone,
+            "message": message,
+            "attachments": candidate_attachments,
+        }
 
     patterns = (
         r"\bwhatsapp\s+(.+?)(?:\s+(?:message|saying)\s+(.+))?$",
@@ -1047,11 +1250,14 @@ def _extract_whatsapp_params(text: str) -> dict | None:
                 phone = f"+{phone[2:]}"
         if not contact:
             return None
-        return {
+        result = {
             "contact": contact,
             "phone": phone,
             "message": message,
         }
+        if attachments:
+            result["attachments"] = attachments
+        return result
     return None
 
 
@@ -1072,6 +1278,67 @@ def _gmail_compose_url(recipient: str = "", subject: str = "", body: str = "") -
     if not params:
         return base
     return f"{base}&{urllib.parse.urlencode(params)}"
+
+
+def _extract_git_action_params(text: str) -> dict | None:
+    normalized = _normalize_spaces(text)
+    lowered = normalized.lower()
+
+    def _strip_project_suffix(value: str) -> str:
+        return re.sub(r"\s+\b(?:for|in|inside)\b\s+[a-z0-9][\w\- ]{0,40}$", "", value, flags=re.IGNORECASE).strip(" .!?")
+
+    commit_push_match = re.search(
+        r"\b(?:git\s+)?commit\s+(?:and\s+push|&\s*push)\b(?:\s+(?:with\s+)?message|\s+as)?\s+(.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if commit_push_match:
+        return {
+            "cmd": "commit_push",
+            "message": _strip_project_suffix(commit_push_match.group(1).strip()),
+            "cwd": _project_cwd_from_text(normalized),
+        }
+
+    commit_match = re.search(
+        r"\b(?:git\s+)?commit\b(?:\s+(?:these\s+changes|this|it))?(?:\s+(?:with\s+)?message|\s+as)\s+(.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if commit_match:
+        return {
+            "cmd": "commit",
+            "message": _strip_project_suffix(commit_match.group(1).strip()),
+            "cwd": _project_cwd_from_text(normalized),
+        }
+
+    if re.search(r"\b(?:git\s+)?push\b", lowered) or "push to" in lowered:
+        return {"cmd": "push", "message": "", "cwd": _project_cwd_from_text(normalized)}
+    if re.search(r"\b(?:git\s+)?diff\b", lowered):
+        return {"cmd": "diff", "message": "", "cwd": _project_cwd_from_text(normalized)}
+    if re.search(r"\b(?:git\s+)?log\b", lowered):
+        return {"cmd": "log", "message": "", "cwd": _project_cwd_from_text(normalized)}
+    if re.search(r"\b(?:git\s+)?status\b", lowered) or "what changed" in lowered:
+        return {"cmd": "status", "message": "", "cwd": _project_cwd_from_text(normalized)}
+    return None
+
+
+def _extract_vps_action(text: str) -> IntentResult | None:
+    normalized = _normalize_spaces(text)
+    lowered = normalized.lower()
+    if re.search(r"\b(?:connect|ssh)\s+(?:to|into)?\s+(?:the\s+)?(?:vps|server)\b", lowered):
+        return Intent("ssh_open", {"host": ""}, raw=text)
+    command_match = re.search(
+        r"\b(?:run|execute|check|show)\s+(.+?)\s+(?:on|in)\s+(?:the\s+)?(?:vps|server)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if command_match:
+        remote_cmd = _clean_lookup_query(command_match.group(1))
+        if remote_cmd and remote_cmd not in {"the", "status"}:
+            return Intent("ssh_command", {"host": "", "cmd": remote_cmd}, raw=text)
+    if any(value in lowered for value in ("vps status", "check server", "is server up", "check vps")):
+        return Intent("vps_check", {"action": "status"}, raw=text)
+    return None
 
 
 def _folder_base_path(text: str) -> str:
@@ -2048,6 +2315,10 @@ def _legacy_route(text: str) -> IntentResult:
         intent_name = "whatsapp_send" if whatsapp_params.get("message") else "whatsapp_open"
         return Intent(intent_name, whatsapp_params, raw=text)
 
+    vps_intent = _extract_vps_action(text)
+    if vps_intent is not None:
+        return vps_intent
+
     if re.search(r"\b(?:take|capture)\s+(?:a\s+)?screenshot\b", lowered):
         return Intent("screenshot", raw=text)
 
@@ -2239,6 +2510,10 @@ def _legacy_route(text: str) -> IntentResult:
     if reminder_params is not None:
         return Intent("set_reminder", reminder_params, raw=text)
 
+    run_tests_params = _extract_run_tests_params(text)
+    if run_tests_params is not None:
+        return Intent("run_tests", run_tests_params, raw=text)
+
     match = re.match(r"^(?:note:|remember|write down|jot down|save this:?)\s*(.+)$", lowered)
     if match:
         content = match.group(1)
@@ -2248,13 +2523,14 @@ def _legacy_route(text: str) -> IntentResult:
             raw=text,
         )
 
-    if "git status" in lowered or "what changed" in lowered:
-        return Intent("git_status", raw=text)
-    if "git push" in lowered or "push to" in lowered:
-        return Intent("git_push", raw=text)
+    git_action_params = _extract_git_action_params(text)
+    if git_action_params is not None:
+        cmd = str(git_action_params.get("cmd", "") or "").strip().lower()
+        needs_confirmation = cmd in {"commit", "push", "commit_push", "commit and push"}
+        return Intent("git_action", git_action_params, confidence=0.95, needs_confirmation=needs_confirmation, raw=text)
 
     if any(value in lowered for value in ("vps status", "check server", "is server up", "check vps")):
-        return Intent("vps_status", raw=text)
+        return Intent("vps_check", {"action": "status"}, raw=text)
     if any(value in lowered for value in ("docker", "containers")):
         return Intent("docker_status", raw=text)
     if any(value in lowered for value in ("ai news", "a i news", "air news", "tech news")):

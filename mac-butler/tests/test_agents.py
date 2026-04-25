@@ -16,6 +16,7 @@ from agents.runner import (
     _project_status_agent,
     _quick_fact_lookup,
     _search_agent,
+    _vps_agent,
     _weather_agent,
     _wikipedia_fact_summary,
     run_agent,
@@ -24,6 +25,34 @@ from agents.runner import (
 
 
 class AgentTests(unittest.TestCase):
+    @patch("agents.runner._call_model", return_value="docker is healthy")
+    @patch("agents.runner.subprocess.run")
+    @patch("agents.runner.get_vps_secret", return_value={"username": "root"})
+    @patch("agents.runner.VPS_HOSTS", [{"host": "194.163.146.149"}])
+    def test_vps_agent_uses_default_configured_host_when_missing(
+        self,
+        _mock_secret,
+        mock_run,
+        _mock_call_model,
+    ):
+        mock_run.side_effect = [MagicMock(returncode=0, stdout="ok", stderr="") for _ in range(4)]
+
+        result = _vps_agent({"action": "status"}, "test-model")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["host"], "root@194.163.146.149")
+        first_call = mock_run.call_args_list[0].args[0]
+        self.assertEqual(first_call[:4], ["ssh", "-o", "ConnectTimeout=8", "root@194.163.146.149"])
+
+    @patch("agents.runner.subprocess.run", return_value=MagicMock(returncode=255, stdout="", stderr=""))
+    @patch("agents.runner.get_vps_secret", return_value={})
+    def test_vps_agent_returns_truthful_connection_error_when_all_checks_fail(self, _mock_secret, _mock_run):
+        result = _vps_agent({"host": "194.163.146.149"}, "test-model")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Could not connect to VPS", result["result"])
+        self.assertIn("194.163.146.149", result["data"]["host"])
+
     @patch("agents.runner.notify")
     @patch("agents.runner.note_agent_result")
     @patch("agents.runner.run_agent")

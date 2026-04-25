@@ -93,6 +93,15 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(action["subject"], "project update")
         self.assertEqual(action["body"], "shipping tonight")
 
+    def test_compose_mail_with_attachment_routes_deterministically(self):
+        result = route("write a mail to vedang2803@gmail.com with attachment resume.pdf subject project update")
+
+        self.assertEqual(result.name, "compose_email")
+        action = result.to_action()
+        self.assertEqual(action["recipient"], "vedang2803@gmail.com")
+        self.assertEqual(action["subject"], "project update")
+        self.assertEqual(action["attachments"], ["resume.pdf"])
+
     def test_compose_mail_drops_trailing_connector_before_body(self):
         result = route("open gmail and write a mail to vedang2803@gmail.com with subject test gmail and body how are u")
         self.assertEqual(result.name, "compose_email")
@@ -336,6 +345,14 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(result.name, "whatsapp_send")
         self.assertEqual(result.params["message"], "ship it tonight")
 
+    def test_whatsapp_file_share_routes_deterministically(self):
+        result = route("send resume.pdf to vedang on whatsapp message review this tonight")
+
+        self.assertEqual(result.name, "whatsapp_send")
+        self.assertEqual(result.params["contact"], "vedang")
+        self.assertEqual(result.params["message"], "review this tonight")
+        self.assertEqual(result.params["attachments"], ["resume.pdf"])
+
     def test_recap_routes_to_what_next(self):
         result = route("recap")
         self.assertEqual(result.name, "what_next")
@@ -475,6 +492,60 @@ class IntentRouterTests(unittest.TestCase):
         result = route("trending repos")
         self.assertEqual(result.name, "github_trending")
         self.assertEqual(result.to_action()["agent"], "github_trending")
+
+    @patch("intents.router._infer_test_command_for_path", return_value="pytest")
+    @patch("intents.router._current_workspace_path", return_value="/Users/adityatiwari/Burry/mac-butler")
+    def test_run_tests_uses_current_workspace_when_project_not_named(self, _mock_workspace, _mock_command):
+        result = route("run tests")
+
+        self.assertEqual(result.name, "run_tests")
+        action = result.to_action()
+        self.assertEqual(action["type"], "run_command")
+        self.assertEqual(action["cmd"], "pytest")
+        self.assertEqual(action["cwd"], "/Users/adityatiwari/Burry/mac-butler")
+
+    def test_run_tests_uses_explicit_project_and_command_phrase(self):
+        result = route("run npm test for mac-butler")
+
+        self.assertEqual(result.name, "run_tests")
+        action = result.to_action()
+        self.assertEqual(action["cmd"], "npm test")
+        self.assertEqual(action["cwd"], "~/Burry/mac-butler")
+
+    def test_open_project_in_codex_routes_with_editor_hint(self):
+        result = route("open mac-butler in codex")
+
+        self.assertEqual(result.name, "open_project")
+        self.assertEqual(result.params["editor"], "codex")
+        self.assertEqual(result.params["name"], "mac-butler")
+
+    def test_open_project_in_claude_code_routes_with_editor_hint(self):
+        result = route("open mac-butler in claude code")
+
+        self.assertEqual(result.name, "open_project")
+        self.assertEqual(result.params["editor"], "claude")
+        self.assertEqual(result.params["name"], "mac-butler")
+
+    def test_git_commit_and_push_routes_with_confirmation(self):
+        result = route("commit and push with message ship phase 3c for mac-butler")
+
+        self.assertEqual(result.name, "git_action")
+        self.assertTrue(result.needs_confirmation)
+        self.assertEqual(result.params["cmd"], "commit_push")
+        self.assertEqual(result.params["message"], "ship phase 3c")
+        self.assertEqual(result.params["cwd"], "~/Burry/mac-butler")
+
+    def test_connect_to_vps_routes_deterministically(self):
+        result = route("connect to vps")
+
+        self.assertEqual(result.name, "ssh_open")
+        self.assertEqual(result.to_action()["type"], "ssh_open")
+
+    def test_run_command_on_vps_routes_deterministically(self):
+        result = route("run docker ps on vps")
+
+        self.assertEqual(result.name, "ssh_command")
+        self.assertEqual(result.params["cmd"], "docker ps")
 
     @patch("intents.router._call_classifier")
     def test_classifier_prompt_uses_recent_session_history(self, mock_call_classifier):

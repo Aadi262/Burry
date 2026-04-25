@@ -25,7 +25,7 @@ import requests
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
 from agentscope.pipeline import MsgHub, fanout_pipeline
-from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL, split_model_ref
+from butler_config import AGENT_MODEL_CHAINS, AGENT_MODELS, OLLAMA_MODEL, VPS_HOSTS, split_model_ref
 from butler_secrets.loader import get_secret, get_vps_secret
 from brain.agentscope_backbone import ensure_agentscope_initialized
 from brain.ollama_client import (
@@ -2278,8 +2278,14 @@ def _resolve_ssh_target(host: str) -> str:
     return f"{username}@{host}" if username else host
 
 
+def _default_vps_host() -> str:
+    if VPS_HOSTS:
+        return str(VPS_HOSTS[0].get("host", "")).strip()
+    return ""
+
+
 def _vps_agent(data: dict, model: str) -> dict:
-    host = data.get("host", "")
+    host = str(data.get("host", "") or "").strip() or _default_vps_host()
     if not host:
         return {"status": "error", "result": "No VPS host configured", "data": {}}
 
@@ -2293,6 +2299,8 @@ def _vps_agent(data: dict, model: str) -> dict:
 
     secret = get_vps_secret(host)
     raw_outputs = []
+    successful_checks = 0
+    last_error = ""
     for command in commands:
         shell_cmd = ["ssh", "-o", "ConnectTimeout=8", resolved_host, command]
         if secret.get("password") and shutil.which("sshpass"):
@@ -2307,14 +2315,26 @@ def _vps_agent(data: dict, model: str) -> dict:
             )
             stdout = (result.stdout or "").strip()
             stderr = (result.stderr or "").strip()
+            if result.returncode == 0:
+                successful_checks += 1
+            if result.returncode != 0 and not stdout and not stderr:
+                stderr = f"ssh exited with code {result.returncode}"
+            if result.returncode != 0 and (stdout or stderr):
+                last_error = stdout or stderr
             if stdout or stderr:
                 block = stdout or stderr
                 raw_outputs.append(f"$ {command}\n{block}")
         except Exception as exc:
+            last_error = str(exc)
             raw_outputs.append(f"$ {command}\nFailed: {exc}")
 
-    if not raw_outputs:
-        return {"status": "error", "result": "Could not connect to VPS", "data": {}}
+    if not raw_outputs or successful_checks == 0:
+        detail = f": {last_error}" if last_error else ""
+        return {
+            "status": "error",
+            "result": f"Could not connect to VPS at {resolved_host}{detail}",
+            "data": {"host": resolved_host, "raw": "\n\n".join(raw_outputs)[:2400]},
+        }
 
     raw = "\n\n".join(raw_outputs)
     prompt = f"""You are analyzing VPS status output.

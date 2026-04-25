@@ -18,6 +18,11 @@ class ExecutorTests(unittest.TestCase):
         action = {"type": "run_command", "cmd": "git push", "cwd": "~/Burry/mac-butler"}
         self.assertTrue(executor._requires_confirmation(action))
 
+    def test_requires_confirmation_for_git_commit(self):
+        executor = Executor()
+        action = {"type": "git_action", "cmd": "commit", "cwd": "~/Burry/mac-butler"}
+        self.assertTrue(executor._requires_confirmation(action))
+
     @patch.object(Executor, "_ask_confirmation", return_value=False)
     def test_run_marks_cancelled_confirmation_as_skipped(self, _mock_confirm):
         executor = Executor()
@@ -670,9 +675,78 @@ class ExecutorTests(unittest.TestCase):
 
     @patch.object(Executor, "open_url", return_value="opened https://wa.me/919999999999?text=hello")
     def test_whatsapp_send_prefers_phone_url(self, mock_open_url):
-        result = Executor().whatsapp_send("vedang", "+91 99999 99999", "hello")
+        result = Executor().whatsapp_send("vedang", "hello", phone="+91 99999 99999")
         self.assertIn("opened WhatsApp message flow", result)
         self.assertEqual(mock_open_url.call_args.args[0], "https://wa.me/919999999999?text=hello")
+
+    @patch.object(Executor, "open_url", return_value="opened https://wa.me/919999999999?text=ship+it")
+    def test_whatsapp_send_accepts_legacy_phone_then_message_positional_order(self, mock_open_url):
+        result = Executor().whatsapp_send("vedang", "+91 99999 99999", "ship it")
+
+        self.assertIn("opened WhatsApp message flow", result)
+        self.assertEqual(mock_open_url.call_args.args[0], "https://wa.me/919999999999?text=ship+it")
+
+    @patch.object(Executor, "whatsapp_send", return_value="attachment flow opened")
+    def test_compose_whatsapp_with_attachment_skips_pywhatkit_and_uses_attachment_flow(self, mock_send):
+        result = Executor().compose_whatsapp("vedang", "+91 99999 99999", "review this", attachments=["resume.pdf"])
+
+        self.assertEqual(result, "attachment flow opened")
+        mock_send.assert_called_once_with("vedang", "review this", phone="+91 99999 99999", attachments=["resume.pdf"])
+
+    @patch.object(Executor, "_run_osascript")
+    @patch.object(Executor, "_resolve_attachment_paths", return_value=(["/tmp/resume.pdf"], []))
+    def test_compose_email_with_attachment_uses_mail_draft(self, _mock_paths, mock_script):
+        result = Executor().compose_email(
+            "vedang2803@gmail.com",
+            "project update",
+            "shipping tonight",
+            attachments=["resume.pdf"],
+        )
+
+        self.assertIn("opened Mail draft", result)
+        self.assertIn("1 attachment", result)
+        self.assertIn("/tmp/resume.pdf", mock_script.call_args.args[0])
+
+    @patch.object(Executor, "open_url_in_browser")
+    @patch.object(Executor, "_resolve_attachment_paths", return_value=([], ["resume.pdf"]))
+    def test_compose_email_reports_missing_attachment_and_falls_back_to_gmail(self, _mock_paths, mock_open_url):
+        result = Executor().compose_email(
+            "vedang2803@gmail.com",
+            "project update",
+            "shipping tonight",
+            attachments=["resume.pdf"],
+        )
+
+        self.assertIn("couldn't find resume.pdf", result)
+        mock_open_url.assert_called_once()
+
+    @patch.object(Executor, "open_url_in_browser")
+    @patch.object(Executor, "_resolve_attachment_paths", return_value=(["/tmp/resume.pdf"], []))
+    @patch.object(Executor, "_run_osascript", side_effect=RuntimeError("Not authorized (-1743)"))
+    def test_compose_email_attachment_flow_falls_back_truthfully_when_mail_automation_is_blocked(
+        self,
+        _mock_script,
+        _mock_paths,
+        mock_open_url,
+    ):
+        result = Executor().compose_email(
+            "vedang2803@gmail.com",
+            "project update",
+            "shipping tonight",
+            attachments=["resume.pdf"],
+        )
+
+        self.assertIn("Mail attachment automation is unavailable", result)
+        mock_open_url.assert_called_once()
+
+    @patch.object(Executor, "run_agent_task", return_value="healthy")
+    @patch.object(Executor, "_default_vps_host", return_value="root@194.163.146.149")
+    @patch.object(Executor, "_vps_preflight_error", return_value="")
+    def test_vps_check_uses_default_host_for_agent_status(self, _mock_preflight, _mock_host, mock_run_agent):
+        result = Executor().vps_check("status")
+
+        self.assertEqual(result, "healthy")
+        mock_run_agent.assert_called_once_with("vps", {"action": "status", "host": "root@194.163.146.149"})
 
     @patch.object(Executor, "_cursor_cli_path", return_value="/usr/local/bin/cursor")
     @patch("executor.engine.subprocess.Popen")
@@ -689,6 +763,48 @@ class ExecutorTests(unittest.TestCase):
     def test_open_editor_reports_missing_vscode_instead_of_cursor(self, _mock_available, _mock_vscode_cli):
         result = Executor().open_editor(editor="vscode", mode="smart")
         self.assertEqual(result, "Visual Studio Code is not installed")
+
+    @patch.object(Executor, "open_terminal", return_value="opened new Terminal window")
+    @patch.object(Executor, "_terminal_editor_cli", return_value="/usr/local/bin/codex")
+    def test_open_editor_opens_codex_in_terminal_window(self, _mock_cli, mock_open_terminal):
+        result = Executor().open_editor(path="~/Burry/mac-butler", editor="codex", mode="new_window")
+
+        self.assertEqual(result, "opened new Terminal window for Codex at /Users/adityatiwari/Burry/mac-butler")
+        mock_open_terminal.assert_called_once_with(
+            mode="window",
+            cmd="/usr/local/bin/codex",
+            cwd="/Users/adityatiwari/Burry/mac-butler",
+        )
+
+    @patch("runtime.note_project_context_hint")
+    @patch("memory.layered.get_project_detail", return_value="live project detail")
+    @patch("projects.get_project", return_value={"name": "mac-butler", "path": "~/Burry/mac-butler"})
+    @patch.object(Executor, "_terminal_editor_cli", return_value="/usr/local/bin/claude")
+    @patch.object(Executor, "open_terminal", return_value="opened new Terminal window")
+    def test_open_project_prefers_claude_terminal_flow(
+        self,
+        mock_open_terminal,
+        _mock_cli,
+        _mock_get_project,
+        _mock_detail,
+        mock_note_hint,
+    ):
+        result = Executor().open_project("mac-butler", editor="claude")
+
+        self.assertEqual(result, "opened new Terminal window for Claude Code at /Users/adityatiwari/Burry/mac-butler")
+        mock_open_terminal.assert_called_once_with(
+            mode="window",
+            cmd="/usr/local/bin/claude",
+            cwd="/Users/adityatiwari/Burry/mac-butler",
+        )
+        mock_note_hint.assert_called_once()
+
+    @patch("executor.engine.subprocess.run")
+    def test_open_terminal_quotes_cwd_with_spaces(self, mock_run):
+        Executor().open_terminal(mode="window", cmd="pwd", cwd="/tmp/Burry Space")
+
+        script = mock_run.call_args.args[0][2]
+        self.assertIn("cd '/tmp/Burry Space'; pwd", script)
 
     @patch.object(Executor, "open_editor", return_value="Visual Studio Code is not installed")
     def test_create_file_in_editor_reports_created_path_even_if_editor_missing(self, _mock_open_editor):
@@ -758,7 +874,6 @@ class ExecutorTests(unittest.TestCase):
             mock_roots.return_value = [desktop, downloads]
 
             result = Executor().copy_file("resume", str(downloads))
-
             copied = downloads / "resume.pdf"
             copied_exists = copied.exists()
             source_exists = source.exists()
@@ -766,6 +881,13 @@ class ExecutorTests(unittest.TestCase):
         self.assertIn(str(copied), result)
         self.assertTrue(copied_exists)
         self.assertTrue(source_exists)
+
+    @patch("runtime.notify.notify")
+    def test_executor_notify_uses_runtime_notification_helper(self, mock_runtime_notify):
+        result = Executor().notify("Burry", "Tests finished")
+
+        self.assertEqual(result, "notified")
+        mock_runtime_notify.assert_called_once_with("Burry", "Tests finished", subtitle="Executor")
 
     @patch("executor.engine.subprocess.run")
     def test_run_command_creates_missing_cwd_and_caps_output(self, mock_run):
